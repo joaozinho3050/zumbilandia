@@ -1,6 +1,6 @@
 // Render do Zumbilandia (fase 0.2): three.js pixelado, cenario fundido por chunk. So le G, nunca muta.
 import * as THREE from 'three';
-import { makePlayer, makeZombieParts, makeCar, makeTree, makeFence, makeHouse, makeItem, makeWallSeg, makeRoof, makeDoor, makeFurniture, makeFloor, outline } from './modelos.js';
+import { makePlayer, makeZombieParts, makeCar, makeTree, makeFence, makeHouse, makeItem, makeWallSeg, makeRoof, makeMarketRoof, makeDoor, makeFurniture, makeFloor, outline } from './modelos.js';
 
 const CH = 40, INK = 0x15121a;
 const BODY = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true });
@@ -48,7 +48,7 @@ let renderer, scene, camera, playerG, f = 0.75, lastT = 0, slowT = 0, slowN = 0,
 const chunks = new Map(); // 'cx,cy' -> { group, sig }
 const WALL = [0xf0e2c4, 0xfff3d6, 0xcfe8f5]; // parede das paletas A/B/C
 let lastBake = { verts: 0, ms: 0 };
-let ground;
+let ground; const mkRoof = new Map(); // id do mercado -> [corpo, contorno]
 let zIM, zIK, zParts, plP, tIM, tIK, tSig = '', tList = [], bt = 0, pPh = 0, pPx = 0, pPy = 0, pV = 0, RM = 1, zIMs = [],
    carIM, carIK, crIM = [], roofIM = [], doorIM, roofSig = '', doorA = new Map(), lastDraw = 0, playerPivot, zData = new Map(), frame = 0;
 const dummy = new THREE.Object3D(), zR = new THREE.Matrix4(), zM = new THREE.Matrix4(), zB = new THREE.Matrix4(), zQ = new THREE.Quaternion(), zE = new THREE.Euler(), zV = new THREE.Vector3(), zS = new THREE.Vector3(1, 1, 1);
@@ -100,7 +100,7 @@ function buildChunk(cx, cy, src) {
       const f = makeFloor(h.w, h.h); f.position.set(h.x + h.w / 2, 0, h.y + h.h / 2); g.add(f);
       for (const p of h.parts) {
         if (p.door) continue;
-        const m = makeWallSeg(Math.max(p.w, p.h), 0.8, 0.2, WALL[h.pal]); m.position.set(p.x + p.w / 2, 0, p.y + p.h / 2); if (p.h > p.w) m.rotation.y = Math.PI / 2; g.add(m);
+        const m = makeWallSeg(Math.max(p.w, p.h), 0.8, 0.2, h.kind === 'market' ? 0xd6cfc4 : WALL[h.pal]); m.position.set(p.x + p.w / 2, 0, p.y + p.h / 2); if (p.h > p.w) m.rotation.y = Math.PI / 2; g.add(m);
       }
       continue;
     }
@@ -115,7 +115,8 @@ function buildChunk(cx, cy, src) {
     if (!c.w) continue;
     const h = src.houses.find(q => c.x >= q.x && c.x <= q.x + q.w && c.y >= q.y && c.y <= q.y + q.h) || { x: c.x, y: c.y, w: 0, h: 0 };
     const hx = h.x + h.w / 2, hy = h.y + h.h / 2, ry = c.w >= c.h ? (c.y > hy ? Math.PI : 0) : (c.x < hx ? Math.PI / 2 : -Math.PI / 2);
-    stamp(P, C, c.kind + (c.opened ? '+' : '-'), () => makeFurniture(c.kind, { open: !!c.opened }), c.x, 0, c.y, ry);
+    const op = !!c.opened && c.kind !== 'register'; // caixa registradora nunca aparece vasculhada
+    stamp(P, C, c.kind + (op ? '+' : '-'), () => makeFurniture(c.kind, { open: op }), c.x, 0, c.y, ry);
   }
   const b = geoms(P, C), [bm, im] = pair(b);
   lastBake.verts = (b.body.attributes.position.count + b.ink.attributes.position.count);
@@ -252,12 +253,19 @@ function draw(G) {
   // A base 0,8 m fica (interior visivel sem sumir a parede sul); a porta e engrossada 3 cm para cobrir a faixa acima do vao.
   const rs = G.chunkGen + '|' + chunks.size + '|' + p.inside;
   if (rs !== roofSig) {
-    roofSig = rs; const rn = [0, 0, 0];
+    roofSig = rs; const rn = [0, 0, 0], keep = new Set();
     for (const h of G.houses) {
-      if (!h.parts || !chunks.has(h.ch) || rn[h.pal] >= 64) continue;
+      if (!h.parts || !chunks.has(h.ch)) continue;
       const s = h.id === p.inside ? 0 : 1;
+      if (h.kind === 'market') { // um objeto (2 calls) por mercado, criado sob demanda
+        keep.add(h.id); let e = mkRoof.get(h.id);
+        if (!e) { const dx = h.doors.reduce((a, q) => a + q.x + q.w / 2, 0) / h.doors.length - (h.x + h.w / 2); e = instanced(makeMarketRoof(h.w, h.h, dx), 1); e[0].count = e[1].count = 1; e[1].instanceMatrix = e[0].instanceMatrix; mkRoof.set(h.id, e); }
+        place(e[0], 0, h.x + h.w / 2, 0, h.y + h.h / 2, 0, s, s, s); e[0].instanceMatrix.needsUpdate = true; continue;
+      }
+      if (rn[h.pal] >= 64) continue;
       place(roofIM[h.pal][0], rn[h.pal]++, h.x + h.w / 2, 0, h.y + h.h / 2, 0, s * h.w / 6, s, s * h.h / 6);
     }
+    for (const [id, e] of mkRoof) if (!keep.has(id)) { scene.remove(...e); e[0].geometry.dispose(); e[1].geometry.dispose(); mkRoof.delete(id); }
     roofIM.forEach(([im, ik], i) => { im.count = ik.count = rn[i]; im.instanceMatrix.needsUpdate = true; ik.instanceMatrix = im.instanceMatrix; });
   }
   // portas: pivo na dobradica, giram 90 graus para dentro da casa em 150 ms

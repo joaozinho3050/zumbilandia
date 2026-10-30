@@ -234,6 +234,33 @@ export function makeRoof(w, d, pal = 'A') {
   return done(g);
 }
 
+// telhado do mercado: faixa de paredes 0,8-3,0 m, vitrines na fachada sul (+z), laje plana com platibanda e letreiro MERCADO.
+// doorX = centro da porta dupla (2 m) relativo ao centro do prédio.
+const LETRAS = { M: ['101', '111', '111', '101', '101'], E: ['111', '100', '110', '100', '111'], R: ['110', '101', '110', '101', '101'], C: ['111', '100', '100', '100', '111'], A: ['010', '101', '111', '101', '101'], D: ['110', '101', '101', '101', '110'], O: ['111', '101', '101', '101', '111'] };
+export function makeMarketRoof(w, d, doorX = 0) {
+  const g = new THREE.Group(), t = 0.2, y0 = 0.8, H = 2.2, yc = y0 + H / 2, zc = d / 2 - t / 2, xc = w / 2 - t / 2, L = d - 2 * t, PAR = 0xd6cfc4, ACC = 0xff8c69;
+  add(g, Box(w, H, t), PAR, 0, yc, -zc);
+  add(g, Box(t, H, L), PAR, xc, yc, 0); add(g, Box(t, H, L), PAR, -xc, yc, 0);
+  // fachada sul: dois trechos + verga sobre a porta (vão de 0,8 a 2,0 m livre para a folha abrir)
+  const a = doorX - 1, b = doorX + 1;
+  add(g, Box(b - a, 1.0, t), PAR, doorX, 2.5, zc);
+  for (const [x0, x1] of [[-w / 2, a], [b, w / 2]]) {
+    add(g, Box(x1 - x0, H, t), PAR, (x0 + x1) / 2, yc, zc);
+    if (x1 - x0 > 1.6) add(g, Box(x1 - x0 - 1.0, 1.5, 0.05), VIDRO, (x0 + x1) / 2, 1.75, d / 2 + 0.005); // vitrine larga
+  }
+  // laje plana + platibanda
+  add(g, Box(w, 0.2, d), 0x5e5b6b, 0, 3.1, 0);
+  add(g, Box(w, 0.4, t), ACC, 0, 3.4, zc); add(g, Box(w, 0.4, t), ACC, 0, 3.4, -zc);
+  add(g, Box(t, 0.4, L), ACC, xc, 3.4, 0); add(g, Box(t, 0.4, L), ACC, -xc, 3.4, 0);
+  // letreiro: placa ff8c69 sobre a verga, letras em blocos fff1e0 (fonte 3x5)
+  const cell = 0.12, adv = 0.5, tw = 7 * adv - 0.14 + 0.5;
+  add(g, Box(tw, 0.8, 0.1), ACC, doorX, 2.5, d / 2 + 0.04);
+  [...'MERCADO'].forEach((ch, i) => LETRAS[ch].forEach((row, r) => {
+    for (let c = 0; c < 3; c++) if (row[c] === '1') add(g, Box(cell, cell, 0.04), 0xfff1e0, doorX + (i - 3) * adv + (c - 1) * cell, 2.5 + (2 - r) * cell, d / 2 + 0.1);
+  }));
+  return done(g);
+}
+
 // folha de porta (2,0 m de altura, 0,2 m de espessura) com pivô na borda x=0: gira 90° em y para abrir
 export function makeDoor(w = 1.4, color = 0xe0753f) {
   const g = new THREE.Group(), H = 2.0, T = 0.2;

@@ -277,6 +277,7 @@
     if (real && len >= 0.8 && !p.running) hint('correr', 'Empurre o joystick até a borda para correr', 'correr');
     p.anim.move = p.crouch ? 'crouch' : p.running ? 'run' : dm > 0.01 ? 'walk' : 'idle';
     p.inside = houseAt(p);
+    if (p.inside && G.houses.find(h => h.id === p.inside).kind === 'market') hint('mercado', 'Mercado: comida nas gôndolas, materiais no depósito', 'interior');
     checkRef(p);
 
     G._hunger += dt;
@@ -395,10 +396,16 @@
     let n = 0; const nid = () => ch + ':' + n++;
     const o = { roads: [], houses: [], crates: [], zombies: [], cars: [], trees: [], fences: [] };
     for (const k of [0, 20]) { o.roads.push({ x: ox + k, y: oy, w: 6, h: CH }, { x: ox, y: oy + k, w: CH, h: 6 }); }
-    const hs = [], inH = (x, y, m) => hs.some(h => x > h.x - m && x < h.x + h.w + m && y > h.y - m && y < h.y + h.h + m);
+    // supermercado: 1 por grupo 2x2, sorteado entre os chunks elegiveis (fora de (0,0) e vizinhos); mb = quarteirao do lote
+    const gx = cx >> 1, gy = cy >> 1, el = [];
+    for (const [dx, dy] of [[0, 0], [1, 0], [0, 1], [1, 1]]) { const ex = gx * 2 + dx, ey = gy * 2 + dy; if (Math.abs(ex) + Math.abs(ey) > 1) el.push(ex + ',' + ey); }
+    const mh = hash(G.seed, gx, gy, 7), mb = el.length && el[mh % el.length] === ch ? (mh >>> 8) % 4 : -1;
+    const mk = mb < 0 ? null : { x: BLK[mb][0] + 1, y: BLK[mb][1] + 1.5, w: 12, h: 11 };
+    const hs = [], inH = (x, y, m) => hs.concat(mk || []).some(h => x > h.x - m && x < h.x + h.w + m && y > h.y - m && y < h.y + h.h + m);
     // casa 5-8 m no quarteirao b, encostada (folga 1,5-2,2) numa rua; side = parede da rua (porta)
     function place(b) {
       const [bx, by] = BLK[b];
+      if (b === mb) return false;
       for (let i = 0; i < 30; i++) {
         const w = 5 + r() * 3, h = 5 + r() * 3, side = Math.floor(r() * 4), gap = 1.5 + r() * 0.7;
         const x = side < 2 ? (side === 0 ? bx + gap : bx + 14 - gap - w) : bx + 1.5 + r() * (11 - w);
@@ -495,8 +502,35 @@
       return hh.rooms.every(m => cells.some(([px, py]) => px > m.x0 + WT && px < m.x1 - WT && py > m.y0 + WT && py < m.y1 - WT))
         && hh.furn.every(f => cells.some(([px, py]) => Math.hypot(px - f.x, py - f.y) <= 1.3));
     }
+    // mercado: salao (3 gondolas, 2 caixas) + deposito ao norte (divisoria com vao 1,4 m, 2-3 caixas); porta dupla 2 m ao sul
+    function market() {
+      const { x, y, w, h } = mk, X1 = x + w, Y1 = y + h, DY = y + 3.4, id = nid();
+      for (let tr = 0; tr < 12; tr++) {
+        const c = x + 4 + r() * 4, g = x + 3 + r() * 6, d1 = nid(), d2 = nid();
+        const dr = [{ id: d1, x: c - 1, y: Y1 - WT, w: 1, h: WT, open: true }, { id: d2, x: c, y: Y1 - WT, w: 1, h: WT, open: true }];
+        const parts = [{ x, y, w, h: WT }, { x, y: y + WT, w: WT, h: h - 2 * WT }, { x: X1 - WT, y: y + WT, w: WT, h: h - 2 * WT }, { x, y: Y1 - WT, w: c - 1 - x, h: WT }, { x: c + 1, y: Y1 - WT, w: X1 - c - 1, h: WT },
+          { x: x + WT, y: DY - WT / 2, w: g - DW / 2 - x - WT, h: WT }, { x: g + DW / 2, y: DY - WT / 2, w: X1 - WT - g - DW / 2, h: WT }];
+        dr.forEach(q => parts.push({ door: q.id, x: q.x, y: q.y, w: q.w, h: q.h }));
+        const furn = [], add = (kind, fx, fy, loot) => { const [fw, fh] = FD[kind] || [0.8, 0.6]; furn.push({ id: nid(), ch, x: fx, y: fy, w: fw, h: fh, kind, opened: !loot, loot: loot ? [mkItem(r, pick(r, FURN[kind]))].filter(i => i.id) : [], tomb: false }); };
+        for (const k of [2.2, 6, 9.8]) add('shelf', x + k, y + 5.4, 1);
+        add('register', x + 1.5, Y1 - 1.5); add('register', x + w - 1.5, Y1 - 1.5);
+        const bs = [1.2, 3.6, 6, 8.4, 10.8].filter(k => Math.abs(x + k - g) >= 1.6);
+        bs.slice(0, 2 + Math.floor(r() * 2)).forEach(k => add('box', x + k, y + WT + 0.4, 1));
+        const rooms = [{ x0: x, y0: y, x1: X1, y1: DY }, { x0: x, y0: DY, x1: X1, y1: Y1 }];
+        const hh = { id, ch, x, y, w, h, kind: 'market', pal: 0, roof: '2', parts, gaps: [{ x: g, y: DY }, { x: c, y: Y1 - WT / 2 }], doors: dr, rooms, furn };
+        if (reach(hh, [c, Y1 + 1])) { // 2 zumbis no salao (livres de moveis)
+          for (let k = 0; k < 2; k++) for (let i = 0; i < 20; i++) {
+            const zx = x + 1 + r() * (w - 2), zy = DY + 1 + r() * (h - 5);
+            if (!hitHouse(hh, furn, zx, zy, 0.6)) { mz.push([zx, zy]); break; }
+          }
+          return hh;
+        }
+      }
+      return null;
+    }
+    const mz = [];
     BLK.forEach((_, b) => {
-      const v = r(), k = origin ? (b === 0 || b === 3 ? 1 : 0) : v < 0.3 ? 0 : v < 0.7 ? 1 : 2;
+      const v = r(), k = b === mb ? 0 : origin ? (b === 0 || b === 3 ? 1 : 0) : v < 0.3 ? 0 : v < 0.7 ? 1 : 2;
       for (let j = 0; j < k && hs.length < 6; j++) place(b);
     });
     let wantCar = !origin && (near || r() < 0.15);
@@ -526,6 +560,8 @@
       delete hh.rooms; delete hh.furn; delete hh.ok;
       return hh;
     });
+    const mh2 = mk && market();
+    if (mh2) { mh2.furn.forEach(f => o.crates.push(f)); delete mh2.rooms; delete mh2.furn; o.houses.push(mh2); }
     // zumbis: 1 guarda a <=3 m do 1o bau + 1-3 vagantes (<=4)
     const zOk = (x, y, m) => x > 1 && x < 39 && y > 1 && y < 39 && !inH(x, y, m) && !o.cars.some(c => { const b = carBox(c); return x > b.x - 1 && x < b.x + b.w + 1 && y > b.y - 1 && y < b.y + b.h + 1; }) && (!origin || Math.hypot(x - 23, y - 23) > 10);
     const zs = [], addZ = (x, y) => {
@@ -543,6 +579,7 @@
       const x = 1 + r() * 38, y = 1 + r() * 38;
       if (zOk(x, y, 1)) { addZ(x, y); break; }
     }
+    mz.forEach(q => { if (o.zombies.length < 6) addZ(q[0], q[1]); }); // +2 dentro do mercado, teto 6/chunk
     // decoracao: arvores (1-2 por quarteirao) e cercas baixas
     const far = (x, y, m) => !inH(x, y, m) && hs.every(h => Math.hypot(x - h.cx, y - h.cy) > 1.2) && zs.every(z => Math.hypot(x - z[0], y - z[1]) > 1);
     const trees = [];
@@ -563,9 +600,9 @@
     [o.houses, o.crates, o.zombies, o.trees, o.fences].forEach(l => l.forEach(sh));
     o.houses.forEach(h => [h.parts, h.gaps, h.doors].forEach(l => l.forEach(sh)));
     // porta encostada na parede leste/sul: soma exata em float (x+w === h.x+h.w) para testes de borda
-    o.houses.forEach(h => { const d = h.doors[0], pd = h.parts.find(q => q.door); for (const [p, l, T] of [['x', 'w', h.x + h.w], ['y', 'h', h.y + h.h]]) {
+    o.houses.forEach(h => h.doors.forEach(d => { const pd = h.parts.find(q => q.door === d.id); for (const [p, l, T] of [['x', 'w', h.x + h.w], ['y', 'h', h.y + h.h]]) {
       if (Math.abs(d[p] + d[l] - T) > 1e-6) continue;
-      d[l] = pd[l] = T - d[p]; } }); // Sterbenz: a subtracao e exata, logo x + w === T
+      d[l] = pd[l] = T - d[p]; } })); // Sterbenz: a subtracao e exata, logo x + w === T
     o.cars.forEach(c => { c.x += ox; c.y += oy; });
     return o;
   }
