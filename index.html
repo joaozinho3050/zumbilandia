@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>Zumbilândia</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#2b2236">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible&display=swap">
+<style>
+  html,body{margin:0;height:100%;overflow:hidden;background:#000;touch-action:none;user-select:none;-webkit-user-select:none;font-family:monospace;color:#eee}
+  #c{position:fixed;inset:0;width:100%;height:100%;image-rendering:pixelated;image-rendering:crisp-edges;touch-action:none}
+  #ui{position:fixed;inset:0;padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)}
+  #rot{display:none;position:fixed;inset:0;z-index:9999;background:#2b2236;color:#fff1e0;font-family:'Atkinson Hyperlegible',sans-serif;font-size:18px;flex-direction:column;align-items:center;justify-content:center;gap:20px;text-align:center}
+  #rot i{width:36px;height:60px;border:4px solid #fff1e0;border-radius:8px;box-sizing:border-box;animation:girar 2.4s ease-in-out infinite}
+  @keyframes girar{0%,20%{transform:rotate(0)}50%,80%{transform:rotate(90deg)}100%{transform:rotate(0)}}
+  @media (orientation: portrait){#rot{display:flex}}
+</style>
+<script type="importmap">{"imports":{"three":"./lib/three.module.min.js"}}</script>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="ui"></div>
+<div id="rot"><i></i><span>Gire o celular</span></div>
+<!--
+CONTRATO (ver PLANO.md):
+  game.js  -> window.G   (estado + regras). Unico que muta G, exceto G.input (escrito por ui.js).
+  render.js-> window.R   R.init(canvas), R.draw(G)  -- so le G
+  ui.js    -> window.UI  UI.init(rootDiv), UI.draw(G) -- escreve G.input, chama G.useItem/G.switchWeapon/G.restart
+-->
+<script src="game.js"></script>
+<script src="ui.js"></script>
+<script src="sfx.js"></script>
+<script type="module">
+  import './render.js';
+  G.init();
+  R.init(document.getElementById('c'));
+  UI.init(document.getElementById('ui'));
+  document.addEventListener('pointerdown', () => {
+    screen.orientation?.lock?.('landscape').catch(() => {});
+  }, { once: true, capture: true });
+  let last = performance.now(), raf = 0;
+  function loop(now){
+    raf = 0;
+    if (document.hidden) return;
+    const dt = Math.min((now - last) / 1000, 0.05); last = now;
+    if (!window.UI?.paused) { G.update(dt); R.draw(G); }
+    window.SFX?.draw(G); UI.draw(G);
+    raf = requestAnimationFrame(loop);
+  }
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) { cancelAnimationFrame(raf); raf = 0; return; }
+    last = performance.now();
+    if (!raf) raf = requestAnimationFrame(loop);
+  });
+  raf = requestAnimationFrame(loop);
+</script>
+<script>if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});</script>
+</body>
+</html>
