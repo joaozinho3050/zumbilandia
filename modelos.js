@@ -45,22 +45,38 @@ function face(head, geo, color, x, dy, out = 0, rz = 0) {
 // pivô = Group na articulação; malhas ficam deslocadas dentro dele (girar .rotation.x balança o membro)
 function pivot(parent, name, x, y, z) { const p = new THREE.Group(); p.name = name; p.position.set(x, y, z); parent.add(p); return p; }
 const HIP = 0.55, NECK = 1.3, SHOULDER = 1.1; // alturas das articulações (m)
-function humanoid(zombie, armor = {}) {
+function humanoid(zombie, armor = {}, police = false) {
   const st = STYLES[FINAL[zombie ? 'zombie' : 'player']], c = st.pal, g = new THREE.Group();
-  const skin = zombie ? c.zskin : c.skin, shirt = zombie ? c.zshirt : c.shirt;
+  const skin = zombie ? c.zskin : c.skin, shirt = zombie ? (police ? 0x5b7bd5 : c.zshirt) : c.shirt;
   const hr = 0.24 * st.head, hy = NECK + hr, front = hr * 1.02;
   const body = pivot(g, 'body', 0, HIP, 0), head = pivot(body, 'head', 0, NECK - HIP, 0);
   const legL = pivot(g, 'legL', -0.15, HIP, 0), legR = pivot(g, 'legR', 0.15, HIP, 0);
-  for (const l of [legL, legR]) add(l, Cap(0.13, 0.55 - 0.26), c.pants, 0, 0.275 - HIP, 0);
+  const pants = police ? 0x2f3a6b : c.pants;
+  for (const l of [legL, legR]) {
+    add(l, Cap(0.13, 0.55 - 0.26), pants, 0, 0.275 - HIP, 0);
+    if (police) add(l, softGeo(0.24, 0.12, 0.3, 0.04), 0x15121a, 0, 0.06 - HIP, 0.04); // sapato preto
+  }
   const t = add(body, Cap(0.62 * 0.45, 0.62 * 0.45, 10), shirt, 0, 0.86 - HIP, 0);
   const hd = add(head, Sph(hr * 1.05), skin, 0, hr, 0);
   if (zombie) {
-    add(body, Cap(0.1, 0.3), skin, -0.34, 1.05 - HIP, 0.22, Math.PI / 2.2, 0, 0);
-    add(body, Cap(0.1, 0.25), skin, 0.34, 0.98 - HIP, 0.2, Math.PI / 2.6, 0, 0.1);
+    const armA = add(body, Cap(0.1, 0.3), skin, -0.34, 1.05 - HIP, 0.22, Math.PI / 2.2, 0, 0);
+    const armB = add(body, Cap(0.1, 0.25), skin, 0.34, 0.98 - HIP, 0.2, Math.PI / 2.6, 0, 0.1);
+    if (police) for (const a of [armA, armB]) add(a, Cap(0.125, 0.12), shirt, 0, -0.08, 0); // manga da camisa (filha do braço)
     for (const sx of [-1, 1]) face(hd, Box(0.11, 0.09, 0.03), 0xfff6c2, sx * 0.12, 0.02);
     for (const sx of [-1, 1]) face(hd, Box(0.04, 0.04, 0.02), 0xd9302c, sx * 0.12, 0.02, 0.02);
     face(hd, Box(0.16, 0.035, 0.02), 0x3a2028, 0.02, -0.13, 0, 0.15);
     t.rotation.x = 0.15; hd.rotation.z = 0.22; hd.position.z = 0.08;
+    if (police) { // traje policial; peças filhas de hd/t, então acompanham a inclinação
+      add(hd, new THREE.SphereGeometry(hr * 1.12, 10, 6, 0, Math.PI * 2, 0, Math.PI / 2), 0x5b7bd5, 0, 0.02, 0); // quepe
+      add(hd, Box(hr * 1.5, 0.04, 0.14), 0x2f2a35, 0, 0.1, 0.36);                                      // aba
+      add(hd, Box(0.09, 0.07, 0.03), 0xf2d16b, 0, 0.2, 0.345);                                         // emblema
+      add(t, Cap(0.31, 0.27, 10), 0x2f2a35, 0, 0, 0);                                                  // colete tático
+      for (const sx of [-1, 1]) add(t, Cap(0.05, 0.12), 0x2f3a6b, sx * 0.2, 0.37, 0, 0, 0, Math.PI / 2); // ombreiras
+      add(t, Box(0.08, 0.08, 0.03), 0xf2d16b, 0.1, 0.05, 0.31);                                        // distintivo
+      add(t, Cyl(0.32, 0.32, 0.07, 12), 0x15121a, 0, -0.26, 0);                                        // cinto
+      add(t, Box(0.08, 0.12, 0.1), 0x15121a, 0.35, -0.27, 0.04);                                       // coldre (quadril direito)
+      for (const z of [-0.05, 0.05]) add(t, new THREE.TorusGeometry(0.04, 0.014, 6, 10), 0x9aa3b5, -0.345, -0.26, z, 0, Math.PI / 2, 0); // algemas
+    }
   } else {
     for (const sx of [-1, 1]) add(pivot(g, sx < 0 ? 'armL' : 'armR', sx * 0.42, SHOULDER, 0), Cap(0.1, 0.3), shirt, 0, 0.88 - SHOULDER, 0, 0, 0, sx * 0.12);
     for (const sx of [-1, 1]) {
@@ -81,10 +97,10 @@ function humanoid(zombie, armor = {}) {
   return done(g);
 }
 export const makePlayer = (opts = {}) => humanoid(false, opts.armor || {});
-export const makeZombie = () => humanoid(true);
+export const makeZombie = (opts = {}) => humanoid(true, {}, !!opts.police);
 // partes soltas, origem na articulação (body/legs em y=0.55 do corpo inteiro; legL x=-0.15, legR x=+0.15)
-export function makeZombieParts() {
-  const z = makeZombie(), out = {};
+export function makeZombieParts(opts = {}) {
+  const z = makeZombie(opts), out = {};
   for (const n of ['body', 'legL', 'legR']) { out[n] = z.getObjectByName(n); z.remove(out[n]); out[n].position.set(0, 0, 0); }
   return out;
 }
@@ -154,6 +170,9 @@ const ITEMS = {
     for (const y of [0.02, 0.18]) add(g, Cyl(0.19, 0.19, 0.05, 10), c.wood, 0, y, 0); },
   bottle: (g, c) => { add(g, Cap(0.1, 0.22), 0x78a865, 0, 0.2, 0); add(g, Cyl(0.04, 0.045, 0.16, 8), 0x78a865, 0, 0.45, 0);
     add(g, Cyl(0.05, 0.05, 0.04, 8), c.metal, 0, 0.55, 0); },
+  pipe_r: (g, c) => { ITEMS.pipe(g, c); // cano reforçado: arame enrolado (anéis) por cima
+    const p = new THREE.Group(); p.position.set(0, 0.45, 0); p.rotation.z = 0.35; g.add(p);
+    for (const y of [-0.24, -0.16, -0.08, 0, 0.08, 0.16, 0.24]) add(p, new THREE.TorusGeometry(0.08, 0.018, 6, 10), 0xd8c9a0, 0, y, 0, Math.PI / 2, 0, 0); },
   molotov: (g, c) => { add(g, Cap(0.1, 0.22), 0x78a865, 0, 0.2, 0); add(g, Cyl(0.04, 0.045, 0.16, 8), 0x78a865, 0, 0.45, 0);
     add(g, Cyl(0.03, 0.03, 0.1, 6), 0xd8c9a0, 0, 0.58, 0);
     add(g, new THREE.ConeGeometry(0.08, 0.2, 6), c.can, 0, 0.73, 0); add(g, new THREE.ConeGeometry(0.045, 0.12, 6), 0xf2d16b, 0, 0.71, 0.01); },

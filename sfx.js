@@ -7,7 +7,7 @@
   let ctx = null, master = null, noiseBuf = null, voices = 0, muteOn = false;
   try { muteOn = localStorage.getItem(MUTE_KEY) === '1'; } catch (e) {}
   const seen = new WeakSet(); // evento já tocado (G.events pode não ser limpo)
-  let stepAt = 0, groanAt = 0, breathAt = 0, lastX = null, lastY = null;
+  let stepAt = 0, groanAt = 0, breathAt = 0, climbAt = 0, lastX = null, lastY = null;
 
   // Cria o AudioContext (só dentro de gesto do usuário) e retoma se suspenso.
   function ensure() {
@@ -102,11 +102,47 @@
       l.start(t); l.stop(t + 1.2);
       n.push(l, lg);
     }),
+    drop: () => voice(0.14, (t, n) => { // baque curto no chão
+      osc(n, 'sine', 110, 55, t, 0.12, 0.35);
+      noise(n, t, 0.05, 0.2, 'lowpass', 250, 0.7, 0.003);
+    }),
+    pick: () => voice(0.1, (t, n) => { // estalo agudo curto
+      osc(n, 'triangle', 1400, 1800, t, 0.06, 0.2);
+      noise(n, t, 0.03, 0.12, 'highpass', 3000, 0.7, 0.002);
+    }),
+    equip: () => voice(0.25, (t, n) => { // tecido + fivela
+      noise(n, t, 0.18, 0.25, 'bandpass', 1200, 0.8, 0.04);
+      osc(n, 'square', 2400, 2400, t + 0.12, 0.02, 0.1);
+    }),
+    armorBreak: () => voice(0.45, (t, n) => { // estalo seco + tilintar
+      noise(n, t, 0.05, 0.6, 'highpass', 2500, 0.7, 0.002);
+      osc(n, 'sine', 2200, 2200, t + 0.06, 0.35, 0.12);
+      osc(n, 'sine', 2900, 2900, t + 0.09, 0.3, 0.08);
+    }),
+    craft: () => voice(0.3, (t, n) => [0, 0.09, 0.18].forEach((d) => { // 3 cliques metálicos
+      osc(n, 'triangle', 2600, 2600, t + d, 0.03, 0.2);
+      noise(n, t + d, 0.02, 0.15, 'bandpass', 3500, 3, 0.002);
+    })),
+    windup: () => voice(0.5, (t, n) => { // rosnado grave curto
+      osc(n, 'sawtooth', 90, 60, t, 0.45, 0.18);
+      noise(n, t, 0.45, 0.15, 'lowpass', 250, 0.6, 0.05);
+    }),
+    jump: () => voice(0.22, (t, n) => { // sopro curto subindo
+      noise(n, t, 0.22, 0.18, 'bandpass', 800, 0.8, 0.08);
+      osc(n, 'triangle', 200, 500, t, 0.2, 0.06);
+    }),
+    climb: () => voice(0.14, (t, n) => noise(n, t, 0.14, 0.22, 'bandpass', 1800, 3, 0.02)), // raspar madeira
   };
 
   // Evento -> som. door: abrir/fechar pelo ev.open. search: só o início (p:0 com action ativa; cancelamento tem action null).
+  // windup: rosnado só se o zumbi estiver a <12 m do jogador.
   function play(ev, G) {
     if (ev.type === 'door') return (ev.open ? SND.doorOpen : SND.doorClose)();
+    if (ev.type === 'windup') {
+      const z = (G.zombies || []).find((e) => e.id === ev.id), p = G.player;
+      if (z && p && Math.hypot(z.x - p.x, z.y - p.y) < 12) SND.windup();
+      return;
+    }
     if (ev.type === 'search') { const a = G.player && G.player.action; if (ev.p === 0 && a && a.id === ev.id) SND.search(); return; }
     if (SND[ev.type]) SND[ev.type]();
   }
@@ -132,6 +168,13 @@
             for (const z of G.zombies) {
               if (z.state === 'chase' && Math.hypot(z.x - p.x, z.y - p.y) < 10) {
                 groanAt = now; SND.groan(); break;
+              }
+            }
+          }
+          if (now - climbAt >= 0.5 && G.zombies) { // raspar enquanto algum zumbi sobe cerca perto (1 som a cada 0,5 s)
+            for (const z of G.zombies) {
+              if (z.anim && z.anim.act === 'climb' && Math.hypot(z.x - p.x, z.y - p.y) < 12) {
+                climbAt = now; SND.climb(); break;
               }
             }
           }

@@ -54,7 +54,7 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
 #menu{z-index:5;position:absolute;left:50%;top:50%;width:92vw;height:86vh;transform:translate(-50%,-50%);display:flex;flex-direction:column;background:var(--superficie-forte);border:2px solid var(--borda);border-radius:14px;transition:opacity var(--fade);pointer-events:auto}
 #menu .tabs{display:flex;align-items:center;gap:var(--esp-1);padding:var(--esp-2);border-bottom:2px solid var(--borda);font:12px 'Pixelify Sans',monospace}
 #menu button{color:var(--texto);font-family:inherit;touch-action:manipulation}
-#menu .tabs button{flex:1;min-width:0;height:48px;display:flex;align-items:center;justify-content:center;gap:var(--esp-1);padding:0;border:2px solid var(--borda);border-radius:14px;background:var(--slot);font-size:12px}
+#menu .tabs button{flex:1;min-width:0;height:48px;display:flex;align-items:center;justify-content:center;gap:var(--esp-1);padding:0;border:2px solid var(--borda);border-radius:14px;background:var(--slot);font-size:14px}
 #menu .tabs button.on{background:var(--borda)}
 #menu .tabs button.x{flex:none;width:48px;font-size:20px}
 #menu .pane{display:none;flex:1;min-height:0;overflow-y:auto;touch-action:pan-y;padding:var(--esp-3);font-size:14px}
@@ -143,7 +143,7 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
   // near.type -> [icone, rotulo <= 8 letras]
   const ACAO = {
     crate: ['search', 'BUSCAR'], tomb: ['hand', 'PEGAR'], enter: ['door', 'ENTRAR'], exit: ['exit', 'SAIR'],
-    trunk: ['trunk', 'MALA'], search: ['search', 'BUSCAR'], jump: ['jump', 'PULAR']
+    trunk: ['trunk', 'MALA'], search: ['search', 'BUSCAR'], drop: ['hand', 'PEGAR'], fence: ['jump', 'PULAR']
   };
   const acaoDe = (n) => n.type === 'door' ? (n.open ? ['door', 'FECHAR'] : ['door', 'ABRIR']) : ACAO[n.type] || ['hand', 'AÇÃO'];
   const NOME = { food: 'Comida', bandage: 'Bandagem', ammo: 'Munição', rag: 'Trapo', wire: 'Arame', bottle: 'Garrafa', hose: 'Mangueira', gascan: 'Galão', key: 'Chave', pipe: 'Cano', pipe_r: 'Cano reforçado', bat: 'Taco', pistol: 'Pistola', molotov: 'Molotov', helmet: 'Capacete', jacket: 'Jaqueta', shinguards: 'Caneleiras' };
@@ -152,7 +152,7 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
 
   const held = { atk: false }, keys = new Set(), last = {}, E = {};
   const joy = { id: null, cx: 0, cy: 0, mx: 0, my: 0, run: false };
-  let intT = 0, pend = false, crouchPend = false, root, armorUntil = 0, hintUntil = 0, hintNear = '', toastUntil = 0, flashUntil = 0, menuEl, startEl, confirmEl, deadEl, tourEl, tourStep = -1, tourPos;
+  let intT = 0, pend = false, hintGuia = '', crouchPend = false, root, armorUntil = 0, hintUntil = 0, hintNear = '', toastUntil = 0, flashUntil = 0, menuEl, startEl, confirmEl, deadEl, tourEl, tourStep = -1, tourPos;
 
   const put = (k, v, fn) => { if (last[k] !== v) { last[k] = v; fn(v); } };
   const el = (tag, id, parent, html, cls) => {
@@ -188,20 +188,6 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
 
   // ---- MENU (U3) ----
   const ABAS = [['pack', 'Mochila', 'inv'], ['man', 'Equipar', 'equip'], ['craft', 'Fabricar', 'craft'], ['map', 'Mapa', 'map'], ['book', 'Guia', 'guide'], ['gear', 'Ajustes', 'settings']];
-  const RECEITAS = [
-    { id: 'pipe_r', out: 'pipe_r', ing: [{ id: 'pipe', qty: 1 }, { id: 'wire', qty: 1 }] },
-    { id: 'bandage', out: 'bandage', ing: [{ id: 'rag', qty: 2 }] },
-    { id: 'molotov', out: 'molotov', ing: [{ id: 'bottle', qty: 1 }, { id: 'rag', qty: 1 }, { id: 'gascan', qty: 1 }] },
-    { id: 'shinguards', out: 'shinguards', ing: [{ id: 'rag', qty: 2 }, { id: 'wire', qty: 1 }] }
-  ];
-  const GUIA = [
-    { id: 'siphon', titulo: 'Gasolina e sifão', palavras: ['gasolina', 'sifao', 'combustivel', 'galao', 'mangueira', 'carro'], precisa: [{ item: 'hose', onde: 'baús de casa e porta-malas' }, { item: 'gascan', onde: 'baús e porta-malas' }], passos: ['Chegue perto de um carro com gasolina.', 'Segure SIFONAR até encher o galão.', 'Para abastecer, segure DESPEJAR perto do carro.'], demo: 'siphon' },
-    { id: 'key', titulo: 'Chave do carro', palavras: ['chave', 'carro', 'dirigir', 'ligar'], precisa: [{ item: 'key', onde: 'baú de casa no mesmo quarteirão' }], passos: ['Procure nas casas próximas ao carro.', 'Com a chave, toque ENTRAR perto do carro.'], demo: 'car' },
-    { id: 'food', titulo: 'Comida', palavras: ['comida', 'fome', 'comer'], precisa: [{ item: 'food', onde: 'baús de casa e zumbis' }], passos: ['Abra a mochila no MENU.', 'Toque na comida para comer.'], demo: 'eat' },
-    { id: 'tomb', titulo: 'Tumba', palavras: ['tumba', 'morte', 'morrer', 'mochila'], precisa: [{ item: 'tomb', onde: 'onde você morreu, marcada no mapa' }], passos: ['Abra o Mapa e ache o ponto vermelho.', 'Vá até lá e toque PEGAR.'], demo: 'tomb' },
-    { id: 'correr', titulo: 'Correr', palavras: ['correr', 'corrida', 'folego', 'rapido', 'joystick', 'shift'], precisa: [], passos: ['Empurre o joystick até a borda para correr.', 'No teclado, segure SHIFT.', 'Correr gasta fôlego: ande para recuperar.'], demo: 'run' },
-    { id: 'agachar', titulo: 'Agachar', palavras: ['agachar', 'agachado', 'furtivo', 'silencio', 'esconder'], precisa: [], passos: ['Toque o botão AGACHAR acima do joystick (no teclado: C).', 'Agachado: mais lento, passos quase mudos e menos visível.', 'Toque de novo para levantar.'], demo: 'crouch' }
-  ];
   const sem = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
   const nm = (id) => NOME[id] || id;
   const ico = (id) => {
@@ -237,7 +223,7 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
     if (it) {
       const usa = it.id === 'food' || it.id === 'bandage';
       det = '<canvas class="spin" width="160" height="160"></canvas><h3>' + nm(it.id) + ' ×' + (it.qty || 1) + '</h3><div class="dim">' + (usa ? 'Toque de novo para usar.' : DUR[it.id] ? 'Veja a aba Equipar.' : ['pistol','bat','pipe','pipe_r','molotov'].includes(it.id) ? 'Arma — troque com o botão ARMA.' : 'Material para fabricar ou usar no mundo.') + '</div>' +
-        (usa ? '<button class="btn" data-a="use" data-v="' + selInv + '">USAR</button>' : '');
+        (usa ? '<button class="btn" data-a="use" data-v="' + selInv + '">USAR</button> ' : '') + (DUR[it.id] ? '<button class="btn" data-a="eq" data-v="' + it.id + '">EQUIPAR</button> ' : '') + '<button class="btn" data-a="drop" data-v="' + selInv + '">LARGAR</button>';
     }
     panes.inv.innerHTML = '<h3' + (n >= 8 ? ' class="full"' : '') + '>Mochila ' + n + '/8</h3><div class="row"><div class="grid">' + g + '</div><div class="det">' + det + '</div></div>';
     // item selecionado girando em 3D (mesmo renderer do jogo)
@@ -246,7 +232,7 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
   }
 
   function renderEquip() {
-    const G = window.G, eq = G.player.equip || {}, canEq = typeof G.equip === 'function';
+    const G = window.G, eq = G.player.equip || {};
     const nomes = { head: 'Cabeça', torso: 'Tronco', legs: 'Pernas' };
     let col = '';
     for (const part of ['head', 'torso', 'legs']) {
@@ -255,19 +241,19 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
     }
     const lista = (G.player.inv || []).filter((i) => DUR[i.id]).map((i) => '<button class="btn" data-a="eq" data-v="' + i.id + '">' + nm(i.id) + '</button>').join(' ');
     panes.equip.innerHTML = '<div class="eq"><svg viewBox="0 0 24 24" style="width:96px;height:120px;color:var(--borda)">' + ICON.man + '</svg><div class="col">' + col + '</div><div class="det"><h3>Equipados</h3>' +
-      (canEq && lista ? lista : '<span class="dim">Nenhuma peça</span>') + '</div></div>';
+      (lista ? lista : '<span class="dim">Nenhuma peça</span>') + '</div></div>';
   }
 
   function renderCraft() {
-    const G = window.G, rs = Array.isArray(G.recipes) && G.recipes.length ? G.recipes : RECEITAS;
+    const G = window.G, rs = G.recipes || [];
     panes.craft.innerHTML = rs.map((r) => {
-      const ing = r.ing || r.ingredients || r.in || [], falta = [];
+      const ing = r.ing, falta = [];
       const ih = ing.map((x) => {
-        const id = x.id || x.item || x, q = x.qty || x.n || 1, ok = have(id) >= q;
+        const id = x.id, q = x.qty, ok = have(id) >= q;
         if (!ok) falta.push(nm(id));
         return '<span class="' + (ok ? '' : 'no') + '">' + ico(id) + '×' + q + '</span>';
       }).join('');
-      const out = r.out || r.id;
+      const out = r.out;
       return '<div class="rec">' + ico(out) + '<div class="ing"><b>' + nm(out) + '</b>' + ih + (falta.length ? '<span class="dim">falta: ' + falta.join(', ') + '</span>' : '') + '</div><button class="btn" data-a="craft" data-v="' + r.id + '"' + (falta.length ? ' disabled' : '') + '>FABRICAR</button></div>';
     }).join('') || '<span class="dim">Sem receitas</span>';
   }
@@ -320,16 +306,17 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
       el('div', null, panes.guide, '', 'res'); el('div', null, panes.guide, '', 'ent');
       i.addEventListener('input', () => { guideQ = i.value; listGuide(); });
     }
+    panes.guide.firstChild.value = guideQ;
     listGuide();
   }
   function listGuide() {
-    const G = window.G, all = Array.isArray(G.guide) && G.guide.length ? G.guide : GUIA, q = sem(guideQ);
+    const G = window.G, all = G.guide, q = sem(guideQ);
     const hits = all.filter((e) => !q || sem(e.titulo + ' ' + (e.palavras || []).join(' ') + ' ' + e.id).includes(q));
     panes.guide.querySelector('.res').innerHTML = hits.map((e) => '<button class="hit" data-a="guide" data-v="' + e.id + '">' + e.titulo + '</button>').join('') || '<div class="dim">Nada encontrado</div>';
     if (hits.length && !hits.some((e) => e.id === guideOpen)) guideOpen = hits[0].id;
     const e = hits.find((x) => x.id === guideOpen), ent = panes.guide.querySelector('.ent');
     if (!e) { ent.innerHTML = ''; demoOff(); return; }
-    ent.innerHTML = '<h3>' + e.titulo + '</h3><div><b>Precisa:</b> ' + (e.precisa || []).map((x) => nm(x.item) + ' (' + x.onde + ')').join('; ') + '</div><ol>' + (e.passos || []).map((s) => '<li>' + s + '</li>').join('') + '</ol><canvas class="demo" width="160" height="120"></canvas>';
+    ent.innerHTML = '<h3>' + e.titulo + '</h3><div><b>Precisa:</b> ' + (e.precisa || []).map((x) => (x.item ? nm(x.item) : x.lugar) + ' (' + x.onde + ')').join('; ') + '</div><ol>' + (e.passos || []).map((s) => '<li>' + s + '</li>').join('') + '</ol><canvas class="demo" width="160" height="120"></canvas>';
     try { window.R && R.demo && R.demo(ent.querySelector('canvas'), e.demo); } catch (er) {}
   }
 
@@ -347,9 +334,10 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
       const i = +v, it = G.player.inv[i];
       if (i === selInv && it && (it.id === 'food' || it.id === 'bandage')) { G.useItem(i); if (!G.player.inv[i]) selInv = -1; } else selInv = i;
     } else if (a === 'use') { G.useItem(+v); if (!G.player.inv[+v]) selInv = -1; }
-    else if (a === 'eq') G.equip && G.equip(v);
-    else if (a === 'un') G.unequip && G.unequip(v);
-    else if (a === 'craft') { if (G.craft && G.craft(v) !== false) say('Fabricou: ' + nm(((G.recipes || RECEITAS).find((r) => r.id === v) || {}).out || v)); }
+    else if (a === 'eq') G.equip(v);
+    else if (a === 'un') G.unequip(v);
+    else if (a === 'drop') { G.drop(+v); if (!G.player.inv[+v]) selInv = -1; }
+    else if (a === 'craft') { if (G.craft && G.craft(v) !== false) say('Fabricou: ' + nm(G.recipes.find((r) => r.id === v).out)); }
     else if (a === 'guide') { guideOpen = v; return listGuide(); }
     else if (a === 'mute') toggleMute();
     else if (a === 'exit') { try { G.save(); } catch (er) {} toggleMenu(false); return openStart(); }
@@ -426,12 +414,12 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
     const r = document.querySelector(PASSOS[n][0]).getBoundingClientRect(), c = tourEl.querySelector('.cut');
     c.dataset.target = PASSOS[n][0];
     Object.assign(c.style, { left: r.left - 4 + 'px', top: r.top - 4 + 'px', width: r.width + 8 + 'px', height: r.height + 8 + 'px' });
-    tourEl.querySelector('i').textContent = (n + 1) + '/5';
+    tourEl.querySelector('i').textContent = (n + 1) + '/' + PASSOS.length;
     tourEl.querySelector('span').textContent = PASSOS[n][1];
     hide(tourEl, false);
   }
   function buildTour() {
-    tourEl = el('div', 'tour', root, '<div class="cut"></div><div class="tip"><i></i><span></span><div><button data-k="n">Próximo</button><button data-k="p">PULAR</button></div></div>', 'hidden');
+    tourEl = el('div', 'tour', root, '<div class="cut"></div><div class="tip"><i></i><span></span><div><button data-k="n">Próximo</button><button data-k="p">Pular tour</button></div></div>', 'hidden');
     tourEl.addEventListener('click', (e) => {
       const k = e.target.closest('button');
       if (k) tourGo(k.dataset.k === 'p' ? 9 : tourStep + 1);
@@ -464,7 +452,7 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
     E.armor = pill('armor', 'shield', 0, 0, hud);
     E.time = el('div', 'time', hud, '00:00');
     E.hint = el('div', 'hint', hud, '<span></span><button>ver no guia</button>', 'hidden');
-    E.hint.lastChild.addEventListener('click', () => toggleMenu(true));
+    E.hint.lastChild.addEventListener('click', () => { if (hintGuia) { guideOpen = hintGuia; guideQ = ''; curTab = 'guide'; } toggleMenu(true); });
     E.toast = el('div', 'toast', hud, '', 'hidden');
     E.flash = el('div', 'flash', hud, '', 'hidden');
     const joyEl = el('div', 'joy', hud, '<div class="base"><svg class="marca" viewBox="0 0 120 120"><circle cx="60" cy="60" r="54"/></svg><div class="nub"></div></div>');
@@ -545,7 +533,9 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
     if (crouchPend && !pz) inp.crouch = true; // pulso: o game alterna e zera
     crouchPend = false;
     inp.attack = !pz && (held.atk || keys.has('Space'));
-    inp.interact = !pz && (pend || (intT > 0 && now - intT > 350));
+    const fence = p.near && p.near.type === 'fence';
+    if (fence && pend && !pz) inp.jump = true; // pulso: o game consome
+    inp.interact = !pz && !fence && (pend || (intT > 0 && now - intT > 350));
     pend = false;
 
     // eventos (G empurra; UI limpa por ultimo)
@@ -557,7 +547,7 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
       else if (ev.type === 'crateOpen') { E.toast.textContent = ev.item ? 'Encontrou: ' + (NOME[ev.item] || ev.item) : 'Vazio'; toastUntil = now + 2000; }
       else if (ev.type === 'full') { E.toast.textContent = 'Mochila cheia'; toastUntil = now + 2000; }
       else if (ev.type === 'hint') {
-        E.hint.firstChild.textContent = ev.text; E.hint.classList.toggle('g', !!ev.guia);
+        E.hint.firstChild.textContent = ev.text; E.hint.classList.toggle('g', !!ev.guia); hintGuia = ev.guia || '';
         hintUntil = now + 4000; hintNear = p.near ? p.near.type + p.near.id : '';
       }
     }

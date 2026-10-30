@@ -49,7 +49,7 @@ const chunks = new Map(); // 'cx,cy' -> { group, sig }
 const WALL = [0xf0e2c4, 0xfff3d6, 0xcfe8f5]; // parede das paletas A/B/C
 let lastBake = { verts: 0, ms: 0 };
 let ground; const mkRoof = new Map(); // id do mercado -> [corpo, contorno]
-let zIM, zIK, zParts, plP, tIM, tIK, tSig = '', tList = [], bt = 0, pPh = 0, pPx = 0, pPy = 0, pV = 0, RM = 1, zIMs = [],
+let zIM, zIK, zParts, plP, zPs = [], eqSig = '000', dPool = [], dCache = new Map(), ring, brk = [], demoRig = null, plRig, tIM, tIK, tSig = '', tList = [], bt = 0, pPh = 0, pPx = 0, pPy = 0, pV = 0, RM = 1, zIMs = [],
    carIM, carIK, crIM = [], roofIM = [], doorIM, roofSig = '', doorA = new Map(), lastDraw = 0, playerPivot, zData = new Map(), frame = 0;
 const dummy = new THREE.Object3D(), zR = new THREE.Matrix4(), zM = new THREE.Matrix4(), zB = new THREE.Matrix4(), zQ = new THREE.Quaternion(), zE = new THREE.Euler(), zV = new THREE.Vector3(), zS = new THREE.Vector3(1, 1, 1);
 const shots = [], hits = [];
@@ -166,22 +166,31 @@ function crateModel(open) {
 function place(im, i, x, y, z, ry, sx = 1, sy = 1, sz = 1) { dummy.position.set(x, y, z); dummy.rotation.set(0, ry, 0); dummy.scale.set(sx, sy, sz); dummy.updateMatrix(); im.setMatrixAt(i, dummy.matrix); }
 
 // ---------- jogador: pivos body(head,armL,armR), legL, legR; cada um 1 par de malhas (12 calls) ----------
-function buildPlayer() {
-  const m = makePlayer(), P = {};
+function mkRig(armor) {
+  const m = makePlayer({ armor }), P = {};
   for (const n of ['head', 'armL', 'armR', 'legL', 'legR', 'body']) { // head antes do body: sai do corpo
     const o = m.getObjectByName(n), pos = o.position.clone(); o.removeFromParent(); o.position.set(0, 0, 0);
     const g = new THREE.Group(); g.add(...pair(bake(o))); g.position.copy(pos); P[n] = g;
   }
   for (const n of ['head', 'armL', 'armR']) { if (n !== 'head') P[n].position.y -= P.body.position.y; P.body.add(P[n]); }
-  playerG = new THREE.Group(); playerG.add(P.body, P.legL, P.legR); plP = P;
+  const g = new THREE.Group(); g.add(P.body, P.legL, P.legR);
   for (const n in P) P[n].userData.p0 = P[n].position.clone();
+  return { g, P };
+}
+const freeRig = r => r.g.traverse(o => o.isMesh && o.geometry.dispose());
+function buildPlayer(armor) { // troca a armadura: dispose da geometria antiga (R.mem estavel)
+  if (plRig) { scene.remove(playerG); freeRig(plRig); }
+  plRig = mkRig(armor); playerG = plRig.g; plP = plRig.P; scene.add(playerG);
 }
 const sm = x => x * x * (3 - 2 * x);
-function animPlayer(p, dt, now) {
-  const P = plP, an = p.anim || { move: 'idle', act: null, t: 0 }, act = an.act, t = an.t, mv = an.move;
+function animPlayer(p, dt) {
+  const an = p.anim || { move: 'idle', act: null, t: 0 };
   pV += (Math.hypot(p.x - pPx, p.y - pPy) / Math.max(dt, 0.001) - pV) * 0.3; pPx = p.x; pPy = p.y; // velocidade suavizada
-  bt += dt; const k = Math.min(1, pV / 0.8), mov = mv === 'walk' || mv === 'run' || mv === 'crouch';
-  pPh += dt * Math.max(pV, 0.5) * (mv === 'crouch' ? 3 : 2.6);
+  bt += dt; pPh += dt * Math.max(pV, 0.5) * (an.move === 'crouch' ? 3 : 2.6);
+  pose(plRig, an.move, an.act, an.t, Math.min(1, pV / 0.8));
+}
+function pose(rig, mv, act, t, k) {
+  const P = rig.P, playerG = rig.g, mov = mv === 'walk' || mv === 'run' || mv === 'crouch';
   const amp = (mv === 'run' ? 0.7 : mv === 'crouch' ? 0.3 : 0.436) * k * RM * (mov ? 1 : 0), s = Math.sin(pPh) * amp;
   const cr = mv === 'crouch', bob = mov && RM === 1 ? Math.abs(Math.sin(pPh)) * (mv === 'run' ? 0.06 : 0.04) * k : 0;
   for (const n in P) { P[n].position.copy(P[n].userData.p0); P[n].rotation.set(0, 0, 0); P[n].scale.set(1, 1, 1); }
@@ -200,6 +209,7 @@ function animPlayer(p, dt, now) {
   else if (act === 'equip') { const e = Math.sin(Math.PI * u(0.2)); playerG.scale.setScalar(1 + 0.1 * e); playerG.position.y = 0.12 * e; }
   else if (act === 'pick' || act === 'drop') { const e = Math.sin(Math.PI * u(0.4)); P.body.rotation.x = 0.6 * e; P.armL.rotation.x = P.armR.rotation.x = -0.8 * e; }
   else if (act === 'craft') { P.armL.rotation.x = -1.1 + 0.3 * Math.sin(t * 16); P.armR.rotation.x = -1.1 - 0.3 * Math.sin(t * 16); }
+  else if (act === 'jump') { const e = Math.sin(Math.PI * u(0.6)); playerG.position.y = 0.5 * e; P.legL.rotation.x = P.legR.rotation.x = -0.9 * e; P.legL.scale.y = P.legR.scale.y = 1 - 0.3 * e; P.armL.rotation.x = P.armR.rotation.x = -0.8 * e; }
   else if (act === 'hurt' && t < 0.08) { playerG.scale.set(1.05, 0.9, 1.05); P.body.rotation.x = -0.2; }
   else if (act === 'dead') { const e = sm(u(0.6)); playerG.rotation.z = -Math.PI / 2 * e; playerG.position.y = 0.25 * e; }
 }
@@ -225,7 +235,13 @@ function init(canvas) {
   roofIM = [0, 1, 2].map(i => instanced(makeRoof(6, 6, 'ABC'[i]), 64)); // cap 64 casas por paleta
   doorIM = instanced(makeDoor(1.4), 128);
   crIM = [false, true].map(o => instanced(crateModel(o), 128));
-  buildPlayer(); scene.add(playerG);
+  buildPlayer({});
+  const zq = makeZombieParts({ police: true }); zPs = ['body', 'legL', 'legR'].map(n => instanced(bake(zq[n]), 96));
+  const rm = new THREE.MeshBasicMaterial({ color: 0xff5c57, transparent: true, opacity: 0.45, depthWrite: false, fog: false });
+  ring = new THREE.Mesh(new THREE.RingGeometry(0.55, 0.75, 24).rotateX(-Math.PI / 2), rm); ring.visible = false; scene.add(ring);
+  for (let i = 0; i < 8; i++) { const g = new THREE.Group(); g.add(new THREE.Mesh(undefined, BODY), new THREE.Mesh(undefined, LINE)); g.visible = false; scene.add(g); dPool.push(g); }
+  const bg = new THREE.BoxGeometry(0.12, 0.12, 0.12);
+  for (let i = 0; i < 6; i++) { const m = new THREE.Mesh(bg, cmat(0xffffff)); m.visible = false; m.userData = { end: 0 }; scene.add(m); brk.push(m); }
 
   const sm = new THREE.LineBasicMaterial({ color: 0xffe066 }), hm = new THREE.MeshBasicMaterial({ color: 0xff8a3d }), hg = new THREE.IcosahedronGeometry(0.22, 0);
   for (let i = 0; i < 3; i++) { const l = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3(1, 0, 0)]), sm); l.visible = false; l.frustumCulled = false; l.userData.end = 0; scene.add(l); shots.push(l); }
@@ -284,41 +300,46 @@ function draw(G) {
   doorIM[0].count = doorIM[1].count = dn; doorIM[0].instanceMatrix.needsUpdate = true; doorIM[1].instanceMatrix = doorIM[0].instanceMatrix;
 
   ground.position.set(p.x, -0.01, p.y);
-  playerG.position.set(p.x, 0, p.y); playerG.rotation.y = Math.PI / 2 - p.dir; animPlayer(p, dtm / 1000, now);
+  const es = ['head', 'torso', 'legs'].map(k => p.equip && p.equip[k] ? 1 : 0).join('');
+  if (es !== eqSig) { eqSig = es; buildPlayer({ head: es[0] === '1', torso: es[1] === '1', legs: es[2] === '1' }); }
+  playerG.position.set(p.x, 0, p.y); playerG.rotation.y = Math.PI / 2 - p.dir; animPlayer(p, dtm / 1000);
+  const ja = p.action && p.action.type === 'jump' ? p.action : null;
+  if (ja && p.anim && p.anim.act === 'jump') { const u = Math.min(1, p.anim.t / 0.6); playerG.position.x = ja.x0 + (ja.x1 - ja.x0) * u; playerG.position.z = ja.y0 + (ja.y1 - ja.y0) * u; }
 
   // zumbis: 3 InstancedMesh (body, legL, legR) + contorno; so <=20 m recalcula a pose, os outros so a posicao
-  let n = 0; const dt = dtm / 1000, seen = new Set();
-  const poseZ = (id, x, y, anim, ang, sc) => {
+  let n = 0; const dt = dtm / 1000, seen = new Set(), cn = [0, 0];
+  const poseZ = (id, x, y, anim, ang, sc, pol, run) => {
+    const S = pol ? zPs : zIMs, n = cn[pol ? 1 : 0]++;
     let d = zData.get(id); if (!d) zData.set(id, d = { a: ang, ph: id * 1.7, sw: 0, ro: 0, ln: 0, fw: 0, f });
     d.f = frame; const dd = (x - p.x) ** 2 + (y - p.y) ** 2, act = anim && anim.act, t = anim ? anim.t : 0;
     if (dd <= 400) {
       const w = anim && anim.move === 'walk';
-      if (w) d.ph += dt * 3.2;
+      if (w) d.ph += dt * 3.2 * (run ? 1.6 : 1);
       d.sw = w ? 0.45 * Math.sin(d.ph) * RM : 0; d.ro = (w ? 0.105 * Math.sin(d.ph * 0.5) : 0.02 * Math.sin(now / 700 + id)) * RM; d.ln = 0.15; d.fw = 0;
-      if (act === 'windup') { const e = Math.min(1, t / 0.5); d.ln = 0.15 + 0.35 * e; d.fw = 0.25 * e; }
+      if (act === 'windup') { const e = Math.min(1, t / 0.7); if (e < 0.7) { const r = sm(e / 0.7); d.ln = 0.15 - 0.3 * r; d.fw = -0.12 * r; } else { const r = sm((e - 0.7) / 0.3); d.ln = -0.15 + 0.65 * r; d.fw = -0.12 + 0.37 * r; } }
+      else if (act === 'climb') { d.ln = 0.15 + 0.52 * 0.77; d.sw = 0.8 * Math.sin(t * 10); }
       else if (act === 'hit') { d.ln = 0.5; d.fw = 0.25 + 0.1 * Math.sin(t * 22); }
     }
     const e = act === 'dead' ? sm(Math.min(1, t / 0.5)) : 0;
-    dummy.position.set(x, 0.25 * e, y); dummy.rotation.set(0, d.a, -Math.PI / 2 * e); dummy.scale.setScalar(sc); dummy.updateMatrix();
+    dummy.position.set(x, 0.25 * e + (act === 'climb' ? 0.35 + 0.08 * Math.sin(t * 8) : 0), y); dummy.rotation.set(0, d.a, -Math.PI / 2 * e); dummy.scale.setScalar(sc); dummy.updateMatrix();
     zR.copy(dummy.matrix);
-    zQ.setFromEuler(zE.set(d.ln, 0, d.ro)); zM.compose(zV.set(0, 0.55, d.fw), zQ, zS); zIMs[0][0].setMatrixAt(n, zB.multiplyMatrices(zR, zM));
-    for (let i = 1; i < 3; i++) { zQ.setFromEuler(zE.set(i === 1 ? d.sw : -d.sw, 0, 0)); zM.compose(zV.set(i === 1 ? -0.15 : 0.15, 0.55, 0), zQ, zS); zIMs[i][0].setMatrixAt(n, zB.multiplyMatrices(zR, zM)); }
-    n++;
+    zQ.setFromEuler(zE.set(d.ln, 0, d.ro)); zM.compose(zV.set(0, 0.55, d.fw), zQ, zS); S[0][0].setMatrixAt(n, zB.multiplyMatrices(zR, zM));
+    for (let i = 1; i < 3; i++) { zQ.setFromEuler(zE.set(i === 1 ? d.sw : -d.sw, 0, 0)); zM.compose(zV.set(i === 1 ? -0.15 : 0.15, 0.55, 0), zQ, zS); S[i][0].setMatrixAt(n, zB.multiplyMatrices(zR, zM)); }
   };
   for (const z of G.zombies) {
-    if (n >= 96) break;
+    if (cn[0] + cn[1] >= 96) break;
     const d = zData.get(z.id), ang0 = Math.atan2(p.x - z.x, p.y - z.y);
     if (d) {
       const dx = z.x - d.x, dy = z.y - d.y;
       if (dx * dx + dy * dy > 1e-5) d.a = Math.atan2(dx, dy); else if (z.state !== 'idle') d.a = ang0;
       d.x = z.x; d.y = z.y;
     }
-    poseZ(z.id, z.x, z.y, z.anim, ang0, z.state === 'attack' ? 1 + 0.12 * Math.abs(Math.sin(now / 45)) : 1);
+    poseZ(z.id, z.x, z.y, z.anim, ang0, z.state === 'attack' ? 1 + 0.12 * Math.abs(Math.sin(now / 45)) : 1, z.police, z.runner);
     const q = zData.get(z.id); q.x = z.x; q.y = z.y; seen.add(z.id);
   }
-  for (const y of G.dying) if (n < 96 && !seen.has(y.id)) poseZ(y.id, y.x, y.y, y.anim, 0, 1);
-  if (zData.size > n + 32) for (const [k, d] of zData) if (d.f !== frame) zData.delete(k);
-  for (const [im, ik] of zIMs) { im.count = ik.count = n; im.instanceMatrix.needsUpdate = true; ik.instanceMatrix = im.instanceMatrix; }
+  for (const y of G.dying) if (cn[0] + cn[1] < 96 && !seen.has(y.id)) poseZ(y.id, y.x, y.y, y.anim, 0, 1);
+  if (zData.size > cn[0] + cn[1] + 32) for (const [k, d] of zData) if (d.f !== frame) zData.delete(k);
+  [zIMs, zPs].forEach((S, j) => { for (const [im, ik] of S) { im.count = ik.count = cn[j]; im.instanceMatrix.needsUpdate = true; ik.instanceMatrix = im.instanceMatrix; } });
 
   // arvores: lista so muda com os chunks; balanco (vento, fase por posicao) so <=30 m
   const ts = G.chunkGen + '|' + chunks.size;
@@ -342,16 +363,34 @@ function draw(G) {
   for (const c of G.crates) { if (c.w) continue; const k = c.opened ? 1 : 0, im = crIM[k][0]; if (cnt[k] < 128) place(im, cnt[k]++, c.x, 0, c.y, 0); }
   crIM.forEach(([im, ik], k) => { im.count = ik.count = cnt[k]; im.instanceMatrix.needsUpdate = true; ik.instanceMatrix = im.instanceMatrix; });
 
+  // drops: so os 8 mais proximos; geometria baked por id (cache), flutua e gira devagar
+  const near = [];
+  for (const d of G.drops || []) { const q = (d.x - p.x) ** 2 + (d.y - p.y) ** 2; if (near.length < 8 || q < near[7].q) { near.push({ d, q }); near.sort((a, b) => a.q - b.q); near.length = Math.min(8, near.length); } }
+  dPool.forEach((g, i) => {
+    const e = near[i]; let b = e && dCache.get(e.d.item.id);
+    if (e && b === undefined) { try { b = bake(makeItem(e.d.item.id)); } catch (_) { b = null; } dCache.set(e.d.item.id, b); }
+    g.visible = !!b; if (!b) return;
+    if (g.children[0].geometry !== b.body) { g.children[0].geometry = b.body; g.children[1].geometry = b.ink; }
+    g.position.set(e.d.x, 0.12 + (RM === 1 ? 0.03 * Math.sin(now / 500 + i) : 0), e.d.y); g.rotation.y = RM === 1 ? now / 2500 + i : i; g.scale.setScalar(0.6);
+  });
+  // anel sob o zumbi preparando o bote
+  const T = G.target && typeof G.target === 'object' ? G.target : G.zombies.find(z => z.id === G.target);
+  ring.visible = !!T; if (T) { ring.position.set(T.x, 0.03, T.y); ring.scale.setScalar(1 + (RM === 1 ? 0.1 * Math.sin(now / 120) : 0)); }
+
   // efeitos (reaproveitados)
   for (const ev of G.events) {
     if (ev.type === 'shot') {
       const l = shots.find(s => !s.visible) || shots[0], a = l.geometry.attributes.position, dir = ev.dir ?? p.dir;
       a.setXYZ(0, p.x, 1.1, p.y); a.setXYZ(1, p.x + Math.cos(dir) * 3, 1.1, p.y + Math.sin(dir) * 3); a.needsUpdate = true;
       l.visible = true; l.userData.end = now + 80;
+    } else if (ev.type === 'armorBreak') {
+      const c = { head: 0xff5c57, torso: 0x9b6a3c, legs: 0x9aa3b5 }[ev.part] || 0x9aa3b5;
+      for (let i = 0; i < 5; i++) { const m = brk.find(s => !s.visible) || brk[i]; m.material = cmat(c); m.position.set(p.x, 1, p.y); m.userData = { end: now + 300, vx: (Math.random() - 0.5) * 4, vy: 2 + Math.random() * 2, vz: (Math.random() - 0.5) * 4 }; m.visible = true; }
     } else if (ev.type === 'hit') {
       const m = hits.find(s => !s.visible) || hits[0]; m.position.set(ev.x ?? p.x, 1, ev.y ?? p.y); m.visible = true; m.userData.end = now + 80;
     }
   }
+  for (const m of brk) if (m.visible) { const u = m.userData; if (now >= u.end) m.visible = false; else { u.vy -= 14 * dt; m.position.x += u.vx * dt; m.position.y = Math.max(0.05, m.position.y + u.vy * dt); m.position.z += u.vz * dt; m.rotation.x += 8 * dt; m.rotation.z += 6 * dt; } }
   for (const o of shots) if (o.visible && now >= o.userData.end) o.visible = false;
   for (const o of hits) if (o.visible && now >= o.userData.end) o.visible = false;
 
@@ -363,7 +402,7 @@ function draw(G) {
 }
 
 // ---------- itens 3D (icone e giro) no MESMO renderer ----------
-let iS, iC, iRT, iPivot, iR = 1, spinT = 0, spinRaf = 0, spinCv = null, spinId = null;
+let iRig, iS, iC, iRT, iPivot, iR = 1, spinT = 0, spinRaf = 0, spinCv = null, spinId = null;
 const icons = new Map();
 function itemSetup() {
   if (iS) return;
@@ -408,18 +447,34 @@ function spinTick(t) {
   if (!spinCv) return;
   spinRaf = requestAnimationFrame(spinTick);
   if (t - spinT < 33) return; spinT = t;
-  iPivot.rotation.y = t / 1000 * 0.8;
+  if (demoRig) demoPose(t); else iPivot.rotation.y = t / 1000 * 0.8;
   const cv = spinCv.getContext('2d'); cv.imageSmoothingEnabled = false;
   const tmp = spinTick.c || (spinTick.c = document.createElement('canvas')); tmp.width = tmp.height = 160;
   tmp.getContext('2d').putImageData(itemShot(160), 0, 0);
   cv.clearRect(0, 0, spinCv.width, spinCv.height); cv.drawImage(tmp, 0, 0, spinCv.width, spinCv.height);
 }
 function spin(canvas, id) {
-  spinStop();
+  spinStop(); demoRig = null;
   if (!canvas || !renderer || !itemLoad(id)) return;
   spinCv = canvas; spinId = id; spinRaf = requestAnimationFrame(spinTick);
 }
-// demos de acao do guia vem depois; por ora so itens
-const demo = (canvas, id) => spin(canvas, id);
+// demos de acao: jogador de armadura completa repetindo a acao num loop de 1,2 s (mesmo renderer, mesmo RT do spin)
+const DEMO = { run: ['run'], crouch: ['crouch'], jump: ['idle', 'jump'], equip: ['idle', 'equip'], craft: ['idle', 'craft'], search: ['idle', 'search'] };
+function demoPose(t) {
+  const [mv, act] = DEMO[spinId], s = t / 1000, c = s % 1.2, rig = demoRig;
+  for (const n in rig.P) { rig.P[n].position.copy(rig.P[n].userData.p0); rig.P[n].rotation.set(0, 0, 0); rig.P[n].scale.set(1, 1, 1); }
+  rig.g.rotation.set(0, 0.5, 0); rig.g.scale.set(1, 1, 1); rig.g.position.set(0, 0, 0);
+  const ph = pPh; pPh = s * 6; bt = s; // reaproveita a fase global so durante a pose
+  pose(rig, mv, act, c, 1); pPh = ph;
+  if (act === 'jump') rig.g.position.x = -0.6 + 1.2 * Math.min(1, c / 0.6);
+}
+function demo(canvas, id) {
+  if (!DEMO[id]) return spin(canvas, id);
+  spinStop(); itemSetup();
+  if (!iRig) iRig = mkRig({ head: 1, torso: 1, legs: 1 });
+  iPivot.clear(); iPivot.rotation.y = 0; iPivot.add(iRig.g); demoRig = iRig;
+  iC.position.set(0.7, 0.4, 0.9).normalize().multiplyScalar(5.6); iC.lookAt(0, 0.95, 0); iC.updateMatrixWorld();
+  spinCv = canvas; spinId = id; spinRaf = requestAnimationFrame(spinTick);
+}
 
 window.R = { init, draw, icon, spin, demo, info: () => ({ calls: renderer.info.render.calls, verts: lastBake.verts, ms: lastBake.ms }), mem: () => renderer.info.memory.geometries, chunks: () => chunks.size };
