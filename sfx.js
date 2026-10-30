@@ -7,7 +7,7 @@
   let ctx = null, master = null, noiseBuf = null, voices = 0, muteOn = false;
   try { muteOn = localStorage.getItem(MUTE_KEY) === '1'; } catch (e) {}
   const seen = new WeakSet(); // evento já tocado (G.events pode não ser limpo)
-  let stepAt = 0, groanAt = 0, lastX = null, lastY = null;
+  let stepAt = 0, groanAt = 0, breathAt = 0, lastX = null, lastY = null;
 
   // Cria o AudioContext (só dentro de gesto do usuário) e retoma se suspenso.
   function ensure() {
@@ -91,7 +91,9 @@
       osc(n, 'square', 175, 175, t + 0.18, 0.12, 0.1);
     }),
     hint: () => voice(0.2, (t, n) => osc(n, 'sine', 880, 880, t, 0.18, 0.12)),
-    step: () => voice(0.06, (t, n) => noise(n, t, 0.05, 0.25, 'lowpass', 400, 0.5)),
+    step: (vol) => voice(0.06, (t, n) => noise(n, t, 0.05, vol || 0.25, 'lowpass', 400, 0.5)),
+    pant: () => voice(0.5, (t, n) => noise(n, t, 0.5, 0.14, 'lowpass', 700, 0.6, 0.15)), // respiração ofegante: ruído filtrado suave
+    crouch: () => voice(0.18, (t, n) => noise(n, t, 0.18, 0.12, 'bandpass', 2500, 0.8, 0.05)), // roçar de roupa
     groan: () => voice(1.3, (t, n) => {
       const o = osc(n, 'sine', 110, 80, t, 1.2, 0.22);
       const l = ctx.createOscillator(), lg = ctx.createGain(); // vibrato
@@ -121,7 +123,11 @@
       if (p) {
         if (ctx) {
           const moved = lastX !== null && !p.car && Math.hypot(p.x - lastX, p.y - lastY) > 0.002;
-          if (moved && now - stepAt >= 0.4) { stepAt = now; SND.step(); }
+          const gap = p.crouch ? 0.7 : p.running ? 0.28 : 0.45; // passo: agachado, correndo, andando
+          if (moved && now - stepAt >= gap) { // volume pelo raio de ruído (3/6/12 m): agachado quase mudo
+            stepAt = now; const k = Math.min(1, (p.noise || 0) / 12); SND.step(Math.max(0.01, k * k));
+          }
+          if (p.stamina != null && p.stamina < 15 && now - breathAt >= 1.2) { breathAt = now; SND.pant(); }
           if (now - groanAt >= 3 && G.zombies) {
             for (const z of G.zombies) {
               if (z.state === 'chase' && Math.hypot(z.x - p.x, z.y - p.y) < 10) {

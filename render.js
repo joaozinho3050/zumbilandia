@@ -1,6 +1,6 @@
 // Render do Zumbilandia (fase 0.2): three.js pixelado, cenario fundido por chunk. So le G, nunca muta.
 import * as THREE from 'three';
-import { makePlayer, makeZombie, makeCar, makeTree, makeFence, makeHouse, makeItem, makeWallSeg, makeRoof, makeDoor, makeFurniture, makeFloor, outline } from './modelos.js';
+import { makePlayer, makeZombieParts, makeCar, makeTree, makeFence, makeHouse, makeItem, makeWallSeg, makeRoof, makeDoor, makeFurniture, makeFloor, outline } from './modelos.js';
 
 const CH = 40, INK = 0x15121a;
 const BODY = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true });
@@ -49,8 +49,9 @@ const chunks = new Map(); // 'cx,cy' -> { group, sig }
 const WALL = [0xf0e2c4, 0xfff3d6, 0xcfe8f5]; // parede das paletas A/B/C
 let lastBake = { verts: 0, ms: 0 };
 let ground;
-let zIM, zIK, carIM, carIK, crIM = [], roofIM = [], doorIM, roofSig = '', doorA = new Map(), lastDraw = 0, playerPivot, zData = new Map(), frame = 0;
-const dummy = new THREE.Object3D();
+let zIM, zIK, zParts, plP, tIM, tIK, tSig = '', tList = [], bt = 0, pPh = 0, pPx = 0, pPy = 0, pV = 0, RM = 1, zIMs = [],
+   carIM, carIK, crIM = [], roofIM = [], doorIM, roofSig = '', doorA = new Map(), lastDraw = 0, playerPivot, zData = new Map(), frame = 0;
+const dummy = new THREE.Object3D(), zR = new THREE.Matrix4(), zM = new THREE.Matrix4(), zB = new THREE.Matrix4(), zQ = new THREE.Quaternion(), zE = new THREE.Euler(), zV = new THREE.Vector3(), zS = new THREE.Vector3(1, 1, 1);
 const shots = [], hits = [];
 
 function size() {
@@ -107,7 +108,7 @@ function buildChunk(cx, cy, src) {
     const m = makeHouse((sw ? h.h : h.w) / K, (sw ? h.w : h.h) / K, s);
     m.scale.setScalar(K); m.position.set(h.x + h.w / 2, 0, h.y + h.h / 2); g.add(m);
   }
-  for (const t of src.trees) { const m = makeTree(); m.position.set(t.x, 0, t.y); m.rotation.y = t.x * 7.3; m.scale.setScalar(1.3 + (Math.abs(t.y * 3.1) % 0.5)); g.add(m); }
+  // arvores: InstancedMesh unico (tronco+copa, 2 calls) balancando inteiro, mais barato que separar a copa
   for (const e of src.fences) { const hz = e.w >= e.h, m = makeFence(Math.max(e.w, e.h)); m.position.set(e.x + e.w / 2, 0, e.y + e.h / 2); if (!hz) m.rotation.y = Math.PI / 2; g.add(m); }
   const P = [[], []], C = []; collect(g, P, C);
   for (const c of src.crates) { // moveis (cache por kind+estado); frente aponta para o centro do lote
@@ -150,7 +151,7 @@ function syncChunks(G) {
 
 // ---------- modelos instanciados ----------
 function instanced(model, cap) {
-  const b = bake(model), im = new THREE.InstancedMesh(b.body, BODY, cap), ik = new THREE.InstancedMesh(b.ink, LINE, cap);
+  const b = model.isObject3D ? bake(model) : model, im = new THREE.InstancedMesh(b.body, BODY, cap), ik = new THREE.InstancedMesh(b.ink, LINE, cap);
   im.frustumCulled = ik.frustumCulled = false; im.count = ik.count = 0; scene.add(im, ik);
   return [im, ik];
 }
@@ -162,6 +163,45 @@ function crateModel(open) {
   return outline(g);
 }
 function place(im, i, x, y, z, ry, sx = 1, sy = 1, sz = 1) { dummy.position.set(x, y, z); dummy.rotation.set(0, ry, 0); dummy.scale.set(sx, sy, sz); dummy.updateMatrix(); im.setMatrixAt(i, dummy.matrix); }
+
+// ---------- jogador: pivos body(head,armL,armR), legL, legR; cada um 1 par de malhas (12 calls) ----------
+function buildPlayer() {
+  const m = makePlayer(), P = {};
+  for (const n of ['head', 'armL', 'armR', 'legL', 'legR', 'body']) { // head antes do body: sai do corpo
+    const o = m.getObjectByName(n), pos = o.position.clone(); o.removeFromParent(); o.position.set(0, 0, 0);
+    const g = new THREE.Group(); g.add(...pair(bake(o))); g.position.copy(pos); P[n] = g;
+  }
+  for (const n of ['head', 'armL', 'armR']) { if (n !== 'head') P[n].position.y -= P.body.position.y; P.body.add(P[n]); }
+  playerG = new THREE.Group(); playerG.add(P.body, P.legL, P.legR); plP = P;
+  for (const n in P) P[n].userData.p0 = P[n].position.clone();
+}
+const sm = x => x * x * (3 - 2 * x);
+function animPlayer(p, dt, now) {
+  const P = plP, an = p.anim || { move: 'idle', act: null, t: 0 }, act = an.act, t = an.t, mv = an.move;
+  pV += (Math.hypot(p.x - pPx, p.y - pPy) / Math.max(dt, 0.001) - pV) * 0.3; pPx = p.x; pPy = p.y; // velocidade suavizada
+  bt += dt; const k = Math.min(1, pV / 0.8), mov = mv === 'walk' || mv === 'run' || mv === 'crouch';
+  pPh += dt * Math.max(pV, 0.5) * (mv === 'crouch' ? 3 : 2.6);
+  const amp = (mv === 'run' ? 0.7 : mv === 'crouch' ? 0.3 : 0.436) * k * RM * (mov ? 1 : 0), s = Math.sin(pPh) * amp;
+  const cr = mv === 'crouch', bob = mov && RM === 1 ? Math.abs(Math.sin(pPh)) * (mv === 'run' ? 0.06 : 0.04) * k : 0;
+  for (const n in P) { P[n].position.copy(P[n].userData.p0); P[n].rotation.set(0, 0, 0); P[n].scale.set(1, 1, 1); }
+  playerG.rotation.z = 0; playerG.scale.set(1, 1, 1); playerG.position.y = 0;
+  P.legL.rotation.x = s; P.legR.rotation.x = -s; P.armL.rotation.x = -s; P.armR.rotation.x = s;
+  P.body.rotation.x = mv === 'run' ? 0.14 : cr ? 0.1 : 0;
+  P.body.position.y += bob - (cr ? 0.15 : 0);
+  if (cr) for (const l of [P.legL, P.legR]) { l.scale.y = 0.8; l.position.y = 0.44; }
+  if (!mov || RM < 1) P.body.scale.y = 1 + 0.01 * (1 + Math.sin(bt * 2)) * RM;
+  const u = x => Math.min(1, t / x);
+  if (act === 'swing') { P.armR.rotation.x = -1.75 * Math.sin(Math.PI * u(0.25)); P.body.rotation.y = 0.3 * Math.sin(Math.PI * u(0.25)); }
+  else if (act === 'shot') P.armR.rotation.x = -1.45 + 0.25 * Math.max(0, 1 - t / 0.15);
+  else if (act === 'search') { const w = Math.sin(t * 14); P.armL.rotation.x = -1 + 0.5 * w; P.armR.rotation.x = -1 - 0.5 * w; P.body.rotation.x = 0.15; }
+  else if (act === 'eat') P.armR.rotation.x = -2.3 * sm(u(0.2)) + 0.15 * Math.sin(t * 20);
+  else if (act === 'heal') { P.armL.rotation.x = -1.3 * sm(u(0.2)); P.armR.rotation.x = -1 * sm(u(0.2)) + 0.2 * Math.sin(t * 14); }
+  else if (act === 'equip') { const e = Math.sin(Math.PI * u(0.2)); playerG.scale.setScalar(1 + 0.1 * e); playerG.position.y = 0.12 * e; }
+  else if (act === 'pick' || act === 'drop') { const e = Math.sin(Math.PI * u(0.4)); P.body.rotation.x = 0.6 * e; P.armL.rotation.x = P.armR.rotation.x = -0.8 * e; }
+  else if (act === 'craft') { P.armL.rotation.x = -1.1 + 0.3 * Math.sin(t * 16); P.armR.rotation.x = -1.1 - 0.3 * Math.sin(t * 16); }
+  else if (act === 'hurt' && t < 0.08) { playerG.scale.set(1.05, 0.9, 1.05); P.body.rotation.x = -0.2; }
+  else if (act === 'dead') { const e = sm(u(0.6)); playerG.rotation.z = -Math.PI / 2 * e; playerG.position.y = 0.25 * e; }
+}
 
 // ---------- API ----------
 function init(canvas) {
@@ -177,12 +217,14 @@ function init(canvas) {
   const sun = new THREE.DirectionalLight(0xffffff, 0.45 * Math.PI); sun.position.set(8, 14, 12); scene.add(sun);
 
   ground = new THREE.Mesh(new THREE.PlaneGeometry(240, 240), cmat(0x8fd16a)); ground.rotation.x = -Math.PI / 2; scene.add(ground);
-  [zIM, zIK] = instanced(makeZombie(), 96);
+  RM = matchMedia('(prefers-reduced-motion: reduce)').matches ? 0.3 : 1;
+  const zp = makeZombieParts(); zIMs = ['body', 'legL', 'legR'].map(n => instanced(bake(zp[n]), 96));
+  [tIM, tIK] = instanced(makeTree(), 768);
   [carIM, carIK] = instanced(makeCar(), 24);
   roofIM = [0, 1, 2].map(i => instanced(makeRoof(6, 6, 'ABC'[i]), 64)); // cap 64 casas por paleta
   doorIM = instanced(makeDoor(1.4), 128);
   crIM = [false, true].map(o => instanced(crateModel(o), 128));
-  const pb = pair(bake(makePlayer())); playerG = new THREE.Group(); playerG.add(...pb); scene.add(playerG);
+  buildPlayer(); scene.add(playerG);
 
   const sm = new THREE.LineBasicMaterial({ color: 0xffe066 }), hm = new THREE.MeshBasicMaterial({ color: 0xff8a3d }), hg = new THREE.IcosahedronGeometry(0.22, 0);
   for (let i = 0; i < 3; i++) { const l = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3(1, 0, 0)]), sm); l.visible = false; l.frustumCulled = false; l.userData.end = 0; scene.add(l); shots.push(l); }
@@ -234,22 +276,53 @@ function draw(G) {
   doorIM[0].count = doorIM[1].count = dn; doorIM[0].instanceMatrix.needsUpdate = true; doorIM[1].instanceMatrix = doorIM[0].instanceMatrix;
 
   ground.position.set(p.x, -0.01, p.y);
-  playerG.position.set(p.x, 0, p.y); playerG.rotation.y = Math.PI / 2 - p.dir;
+  playerG.position.set(p.x, 0, p.y); playerG.rotation.y = Math.PI / 2 - p.dir; animPlayer(p, dtm / 1000, now);
 
-  // zumbis
-  let n = 0;
+  // zumbis: 3 InstancedMesh (body, legL, legR) + contorno; so <=20 m recalcula a pose, os outros so a posicao
+  let n = 0; const dt = dtm / 1000, seen = new Set();
+  const poseZ = (id, x, y, anim, ang, sc) => {
+    let d = zData.get(id); if (!d) zData.set(id, d = { a: ang, ph: id * 1.7, sw: 0, ro: 0, ln: 0, fw: 0, f });
+    d.f = frame; const dd = (x - p.x) ** 2 + (y - p.y) ** 2, act = anim && anim.act, t = anim ? anim.t : 0;
+    if (dd <= 400) {
+      const w = anim && anim.move === 'walk';
+      if (w) d.ph += dt * 3.2;
+      d.sw = w ? 0.45 * Math.sin(d.ph) * RM : 0; d.ro = (w ? 0.105 * Math.sin(d.ph * 0.5) : 0.02 * Math.sin(now / 700 + id)) * RM; d.ln = 0.15; d.fw = 0;
+      if (act === 'windup') { const e = Math.min(1, t / 0.5); d.ln = 0.15 + 0.35 * e; d.fw = 0.25 * e; }
+      else if (act === 'hit') { d.ln = 0.5; d.fw = 0.25 + 0.1 * Math.sin(t * 22); }
+    }
+    const e = act === 'dead' ? sm(Math.min(1, t / 0.5)) : 0;
+    dummy.position.set(x, 0.25 * e, y); dummy.rotation.set(0, d.a, -Math.PI / 2 * e); dummy.scale.setScalar(sc); dummy.updateMatrix();
+    zR.copy(dummy.matrix);
+    zQ.setFromEuler(zE.set(d.ln, 0, d.ro)); zM.compose(zV.set(0, 0.55, d.fw), zQ, zS); zIMs[0][0].setMatrixAt(n, zB.multiplyMatrices(zR, zM));
+    for (let i = 1; i < 3; i++) { zQ.setFromEuler(zE.set(i === 1 ? d.sw : -d.sw, 0, 0)); zM.compose(zV.set(i === 1 ? -0.15 : 0.15, 0.55, 0), zQ, zS); zIMs[i][0].setMatrixAt(n, zB.multiplyMatrices(zR, zM)); }
+    n++;
+  };
   for (const z of G.zombies) {
     if (n >= 96) break;
-    let d = zData.get(z.id);
-    if (!d) zData.set(z.id, d = { x: z.x, y: z.y, a: Math.atan2(p.x - z.x, p.y - z.y), f });
-    const dx = z.x - d.x, dy = z.y - d.y;
-    if (dx * dx + dy * dy > 1e-5) d.a = Math.atan2(dx, dy); else if (z.state !== 'idle') d.a = Math.atan2(p.x - z.x, p.y - z.y);
-    d.x = z.x; d.y = z.y; d.f = frame;
-    const s = z.state === 'attack' ? 1 + 0.12 * Math.abs(Math.sin(now / 45)) : 1;
-    place(zIM, n, z.x, 0, z.y, d.a, s, s, s); n++;
+    const d = zData.get(z.id), ang0 = Math.atan2(p.x - z.x, p.y - z.y);
+    if (d) {
+      const dx = z.x - d.x, dy = z.y - d.y;
+      if (dx * dx + dy * dy > 1e-5) d.a = Math.atan2(dx, dy); else if (z.state !== 'idle') d.a = ang0;
+      d.x = z.x; d.y = z.y;
+    }
+    poseZ(z.id, z.x, z.y, z.anim, ang0, z.state === 'attack' ? 1 + 0.12 * Math.abs(Math.sin(now / 45)) : 1);
+    const q = zData.get(z.id); q.x = z.x; q.y = z.y; seen.add(z.id);
   }
+  for (const y of G.dying) if (n < 96 && !seen.has(y.id)) poseZ(y.id, y.x, y.y, y.anim, 0, 1);
   if (zData.size > n + 32) for (const [k, d] of zData) if (d.f !== frame) zData.delete(k);
-  zIM.count = zIK.count = n; zIM.instanceMatrix.needsUpdate = true; zIK.instanceMatrix = zIM.instanceMatrix;
+  for (const [im, ik] of zIMs) { im.count = ik.count = n; im.instanceMatrix.needsUpdate = true; ik.instanceMatrix = im.instanceMatrix; }
+
+  // arvores: lista so muda com os chunks; balanco (vento, fase por posicao) so <=30 m
+  const ts = G.chunkGen + '|' + chunks.size;
+  if (ts !== tSig) { tSig = ts; tList = G.trees.filter(t => chunks.has(t.ch)).slice(0, 768); tList.forEach((t, i) => { t.ry = t.x * 7.3; t.sc = 1.3 + (Math.abs(t.y * 3.1) % 0.5); place(tIM, i, t.x, 0, t.y, t.ry, t.sc, t.sc, t.sc); }); tIM.count = tIK.count = tList.length; tIM.instanceMatrix.needsUpdate = true; tIK.instanceMatrix = tIM.instanceMatrix; }
+  if (RM === 1) {
+    for (let i = 0; i < tList.length; i++) {
+      const t = tList[i]; if ((t.x - p.x) ** 2 + (t.y - p.y) ** 2 > 900) continue;
+      const w = Math.sin(now / 900 + t.x * 0.7 + t.y * 0.5) * 0.04;
+      dummy.position.set(t.x, 0, t.y); dummy.rotation.set(w, t.ry, w * 0.6); dummy.scale.setScalar(t.sc); dummy.updateMatrix(); tIM.setMatrixAt(i, dummy.matrix);
+    }
+    tIM.instanceMatrix.needsUpdate = true;
+  }
 
   // carros (caixa 4,2 x 2 m; modelo ~2,1 x 0,94)
   n = 0;

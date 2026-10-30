@@ -86,7 +86,11 @@
   }
   const ammoOf = p => p.inv.reduce((n, i) => n + (i.id === 'ammo' ? i.qty : 0), 0);
 
-  function hint(id, text) { if (!G.hints[id]) { G.hints[id] = 1; G.events.push({ type: 'hint', id, text }); } }
+  function hint(id, text, guia) { if (!G.hints[id]) { G.hints[id] = 1; G.events.push(guia ? { type: 'hint', id, text, guia } : { type: 'hint', id, text }); } }
+  // anim do jogador: act dura ACT[act] s (search dura enquanto p.action; dead ate renascer)
+  const ACT = { swing: 0.25, shot: 0.15, eat: 0.6, heal: 0.6, equip: 0.4, craft: 0.8, pick: 0.4, drop: 0.4, hurt: 0.3 };
+  function setAct(p, act) { if (p.anim.act === 'dead' && act !== 'dead') return; p.anim.act = act; p.anim.t = 0; }
+  function setCrouch(p, on) { if (p.crouch !== on) { p.crouch = on; G.events.push({ type: 'crouch', on }); } }
 
   function die() {
     const p = G.player, ch = chOf(p);
@@ -98,6 +102,8 @@
     if (car) car.speed = 0;
     Object.assign(p, { x: 23, y: 23, hp: 100, hunger: 100, inv: [{ id: 'food', qty: 1 }], weapon: 'pipe', equip: {}, car: null, action: null, near: null });
     G._hunger = G._starve = 0;
+    Object.assign(p, { stamina: 100, crouch: false, running: false, noise: 0 }); G._hp = 100; G._rw = false;
+    setAct(p, 'dead');
     G.dead = true; G._dead = 2; // UI mostra "Voce morreu" por 2 s; update destrava sozinho (ou G.respawn())
     G.events.push({ type: 'death' });
     G.save();
@@ -105,7 +111,7 @@
 
   function playerAttack(p) {
     if (p.weapon === 'pipe') {
-      G.cd = 0.6;
+      G.cd = 0.6; setAct(p, 'swing');
       G.events.push({ type: 'swing' });
       G.zombies.forEach(z => {
         if (dist(z, p) <= 1.5 && !blocked(p.x, p.y, z.x, z.y) && angDiff(Math.atan2(z.y - p.y, z.x - p.x), p.dir) <= Math.PI / 4) hurt(z, 25);
@@ -114,7 +120,7 @@
       const am = p.inv.find(i => i.id === 'ammo');
       if (!am) return;
       if (--am.qty <= 0) p.inv.splice(p.inv.indexOf(am), 1);
-      G.cd = 0.4;
+      G.cd = 0.4; setAct(p, 'shot');
       G.events.push({ type: 'shot', x: p.x, y: p.y, dir: p.dir });
       let best = null;
       G.zombies.forEach(z => {
@@ -128,6 +134,7 @@
   function hurt(z, dmg) {
     z.hp -= dmg;
     G.events.push({ type: 'hit', x: z.x, y: z.y });
+    if (z.hp <= 0 && !(z.anim && z.anim.act === 'dead')) { z.anim = { move: 'idle', act: 'dead', t: 0 }; G.dying.push({ id: z.id, x: z.x, y: z.y, anim: z.anim }); } // corpo some em 1,5 s
   }
 
   const idPhase = id => { let v = 0; for (const c of String(id)) v = (v * 31 + c.charCodeAt(0)) % 25; return v / 100; }; // escalona o recalculo por id
@@ -197,10 +204,13 @@
   function updateZombie(z, p, dt) {
     const d = dist(z, p);
     z.alert = Math.max(0, z.alert - dt);
+    const za = z.anim || (z.anim = { move: 'idle', act: null, t: 0 }); za.t += dt;
     const h = d < 12 ? G.houses.find(h => blocked(z.x, z.y, p.x, p.y, [h])) : null; // casa no caminho (parede/porta fechada)
     if (d <= 1) z.state = 'attack';
-    else if (d < (h && h.parts ? 3 : 8) || z.alert > 0 || (z.state === 'chase' && d < 12)) z.state = 'chase'; // abafado: 3 m
+    else if (d < (h && h.parts ? 3 : p.crouch ? 5 : 8) || d <= (p.noise || 0) || z.alert > 0 || (z.state === 'chase' && d < 12)) z.state = 'chase'; // abafado: 3 m
     else z.state = 'idle';
+    const mv = z.state === 'chase' ? 'walk' : 'idle', ac = z.state === 'attack' ? 'hit' : z.state === 'chase' && d <= 2 ? 'windup' : null;
+    za.move = mv; if (za.act !== ac) { za.act = ac; za.t = 0; }
     if (z.state === 'attack') p.hp -= 10 * dt;
     else if (z.state === 'chase') {
       const a = Math.atan2(p.y - z.y, p.x - z.x), s = 1.8 * dt;
@@ -253,7 +263,19 @@
     let mx = inp.mx, my = inp.my;
     const len = Math.hypot(mx, my);
     if (len > 1) { mx /= len; my /= len; }
-    if (len > 0.01) { p.dir = Math.atan2(my, mx); move(p, mx * 3 * dt, my * 3 * dt); }
+    const wantRun = !!inp.run && len > 0.01 && (G._rw ? p.stamina > 0 : p.stamina >= 5);
+    if (inp.crouch) { inp.crouch = false; if (!wantRun) setCrouch(p, !p.crouch); } // borda: um toque, um liga/desliga
+    if (wantRun) setCrouch(p, false);
+    const vel = wantRun ? 4.8 : p.crouch ? 1.5 : 3, ox = p.x, oy = p.y;
+    if (len > 0.01) { p.dir = Math.atan2(my, mx); move(p, mx * vel * dt, my * vel * dt); }
+    const dm = Math.hypot(p.x - ox, p.y - oy), real = dm > 0.5 * vel * dt; // deslocamento real (parado na parede nao conta)
+    p.running = wantRun && real; G._rw = p.running;
+    p.noise = !real ? 0 : p.crouch ? 3 : p.running ? 12 : 6;
+    const sp = p.stamina;
+    p.stamina = Math.max(0, Math.min(100, p.stamina + (p.running ? -18 : (real && !p.crouch ? 3 : 12) * (p.hunger < 25 ? 0.5 : 1)) * dt));
+    if (sp >= 15 && p.stamina < 15) { G.events.push({ type: 'staminaLow' }); hint('folego', 'Sem fôlego — ande para recuperar', 'correr'); }
+    if (real && len >= 0.8 && !p.running) hint('correr', 'Empurre o joystick até a borda para correr', 'correr');
+    p.anim.move = p.crouch ? 'crouch' : p.running ? 'run' : dm > 0.01 ? 'walk' : 'idle';
     p.inside = houseAt(p);
     checkRef(p);
 
@@ -280,6 +302,7 @@
       if (vis) { bd = d; p.near = { type: 'door', id: dr.id, open: dr.open }; nd = dr; }
     }));
     if (p.near && nd && !nd.open) hint('door', 'Toque AÇÃO para abrir');
+    if (p.action && p.anim.act !== 'search') setAct(p, 'search');
     if (p.action) { // vasculhar: parado 1 s; mexer ou afastar cancela
       const a = p.action, c = G.crates.find(c => c.id === a.id);
       if (len > 0.01 || !c || !p.near || p.near.id !== a.id) { p.action = null; G.events.push({ type: 'search', id: a.id, p: 0 }); }
@@ -289,7 +312,9 @@
         if (a.t >= 1) { // o que nao couber fica no movel; abre so quando esvazia
           p.action = null;
           const id = c.loot[0] && c.loot[0].id;
+          const n0 = c.loot.length;
           c.loot = c.loot.filter(it => !addItem(it));
+          if (c.loot.length < n0) setAct(p, 'pick');
           if (!c.loot.length) { c.opened = true; G.events.push({ type: 'crateOpen', id: c.id, item: id }); }
         }
       }
@@ -305,7 +330,9 @@
           else { dr.open = false; G.events.push({ type: 'door', id: dr.id, open: false }); }
         } else if (n.type === 'tomb') {
           const c = G.crates.find(c => c.id === n.id);
+          const n0 = c.loot.length;
           c.loot = c.loot.filter(it => !addItem(it));
+          if (c.loot.length < n0) setAct(p, 'pick');
           if (!c.loot.length) { c.opened = true; G.events.push({ type: 'crateOpen', id: c.id }); }
         } else {
           p.action = { type: 'search', id: n.id, t: 0 };
@@ -319,6 +346,9 @@
 
     G.zombies.forEach(z => { if (G._ls.has(z.ch)) updateZombie(z, p, dt); }); // so simula chunk carregado
     G.zombies = G.zombies.filter(z => z.hp > 0);
+    G.dying = G.dying.filter(d => (d.anim.t += dt) < 1.5);
+    // hint agachar: zumbi parado a < 10 m que ainda nao te viu
+    if (!p.crouch && G.zombies.some(z => z.state === 'idle' && dist(z, p) < 10)) hint('agachar', 'Agache para passar sem ser notado', 'agachar');
 
     G._spawn += dt;
     if (G._spawn >= 30) {
@@ -326,6 +356,10 @@
       if (G.zombies.length < 20) { const z = newZombie(); const q = randFree(15); z.x = q.x; z.y = q.y; z.ch = chOf(z); G.zombies.push(z); }
     }
 
+    const an = p.anim; an.t += dt;
+    if (p.hp < G._hp && !an.act) setAct(p, 'hurt');
+    G._hp = p.hp;
+    if (an.act === 'search' ? !p.action : an.act && an.act !== 'dead' && an.t >= ACT[an.act]) an.act = null;
     if (p.hp <= 0) die();
     if ((G._as += dt) >= 10) { G._as = 0; G.save(); }
   }
@@ -540,7 +574,7 @@
   const LISTS = ['houses', 'crates', 'zombies', 'cars', 'roads', 'trees', 'fences'];
   const parse = k => k.split(',').map(Number);
   const drivenIds = () => G.players.map(p => p.car).filter(Boolean); // shortcut: players[i].car ainda nao existe (fase carro); undefined => nada protegido
-  const strip = e => { const c = Object.assign({}, e); delete c.ch; delete c.way; delete c.side; delete c.rc; delete c.bang; delete c.last; delete c.pw; delete c.ck; delete c.fl; return c; };
+  const strip = e => { const c = Object.assign({}, e); delete c.ch; delete c.way; delete c.side; delete c.rc; delete c.bang; delete c.last; delete c.pw; delete c.ck; delete c.fl; delete c.anim; return c; };
   const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
   function syncCh() { for (const l of [G.zombies, G.cars]) for (const e of l) e.ch = chOf(e); }
   function want(rx, ry) { const w = []; for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) w.push((rx + dx) + ',' + (ry + dy)); return w; }
@@ -627,12 +661,14 @@
     rng = mulberry32(seed);
     G.t = st.t > 0 ? st.t : 0; G.dead = false; G.cd = 0; G.nextId = st.nextId > 0 ? st.nextId : 0;
     G._hunger = G._starve = G._spawn = G._as = 0;
+    G.dying = []; G._hp = 100; G._rw = false;
     G.hints = st.hints || {}; G.chunks = st.chunks || {};
     G.events = []; G.queue = []; G.loaded = []; G._ls = new Set(); G.chunkGen = 0;
     const s0 = (st.players && st.players[0]) || {}, num = (v, d) => Number.isFinite(v) ? v : d;
     const p = G.player = { x: num(s0.x, 23), y: num(s0.y, 23), dir: num(s0.dir, 0), hp: num(s0.hp, 100), hunger: num(s0.hunger, 100),
       inv: s0.inv || [{ id: 'ammo', qty: 16 }], weapon: s0.weapon || 'pipe', equip: s0.equip || {}, car: s0.car || null,
-      input: { mx: 0, my: 0, attack: false, interact: false }, near: null, inside: null, action: null };
+      input: { mx: 0, my: 0, attack: false, interact: false, run: false, crouch: false }, near: null,
+      stamina: Math.max(0, Math.min(100, num(s0.stamina, 100))), crouch: !!s0.crouch, running: false, noise: 0, anim: { move: 'idle', act: null, t: 0 }, inside: null, action: null };
     Object.defineProperty(p, 'ammo', { get() { return ammoOf(p); } }); // compat 0.1: ui.js le p.ammo
     G.players = [p]; G.input = p.input;
     p.inside = null; // recalculado no 1o step
@@ -648,7 +684,7 @@
     t: 0, map: { chunk: CH }, nextId: 0, ref: [0, 0], chunkGen: 0, _ls: new Set(), _pk: '',
     chunks: {}, loaded: [], queue: [], explored: [], roads: [], cars: [], trees: [], fences: [], gen, loot: FURN, free,
     seed: 0, players: [], input: null, // compat 0.1: alias de players[0].input
-    player: null, zombies: [], crates: [], houses: [], events: [],
+    player: null, dying: [], zombies: [], crates: [], houses: [], events: [],
     dead: false, slot: 1, hints: {}, _as: 0, _dead: 0, cd: 0, _hunger: 0, _starve: 0, _spawn: 0,
 
     init(seed, slot) { start(seed ?? Date.now(), slot || 1); },
@@ -657,7 +693,7 @@
       try {
         const chunks = Object.assign({}, G.chunks);
         for (const k of G.loaded) { const d = diffOf(k); if (d) chunks[k] = d; else delete chunks[k]; }
-        const pl = G.players.map(({ x, y, dir, hp, hunger, inv, weapon, equip, car }) => ({ x, y, dir, hp, hunger, inv, weapon, equip, car }));
+        const pl = G.players.map(({ x, y, dir, hp, hunger, inv, weapon, equip, car, stamina, crouch }) => ({ x, y, dir, hp, hunger, inv, weapon, equip, car, stamina, crouch }));
         localStorage['zl1:s' + G.slot] = JSON.stringify({ v: 2, seed: G.seed, t: G.t, nextId: G.nextId, players: pl, hints: G.hints, explored: G.explored, chunks });
       } catch (e) {
         if (typeof localStorage !== 'undefined') G.events.push({ type: 'hint', id: 'saveFull', text: 'Save cheio' }); // sem localStorage: silencio
@@ -680,7 +716,8 @@
       G.events = []; // compat 0.1: contrato manda UI limpar, mas ui.js atual nao limpa
       dt = Math.min(dt, 0.25);
       syncCh();
-      if (G.dead && (G._dead -= dt) <= 0) G.dead = false;
+      if (G.dead) G.player.anim.t += dt;
+      if (G.dead && (G._dead -= dt) <= 0) { G.dead = false; G.player.anim.act = null; }
       while (dt > 1e-9 && !G.dead) { const h = Math.min(dt, 0.05); step(h); dt -= h; }
       pump();
     },
@@ -688,12 +725,12 @@
     useItem(slot) {
       const p = G.player, s = p.inv[slot];
       if (G.dead || !s) return;
-      if (s.id === 'food') p.hunger = Math.min(100, p.hunger + 30);
-      else if (s.id === 'bandage') p.hp = Math.min(100, p.hp + 25);
+      if (s.id === 'food') { p.hunger = Math.min(100, p.hunger + 30); setAct(p, 'eat'); }
+      else if (s.id === 'bandage') { p.hp = Math.min(100, p.hp + 25); setAct(p, 'heal'); }
       else return;
       if (--s.qty <= 0) p.inv.splice(slot, 1);
     },
-    switchWeapon() { G.player.weapon = G.player.weapon === 'pipe' ? 'pistol' : 'pipe'; },
+    switchWeapon() { G.player.weapon = G.player.weapon === 'pipe' ? 'pistol' : 'pipe'; setAct(G.player, 'equip'); },
     restart() { G.init(G.seed, G.slot); },
   };
 })();

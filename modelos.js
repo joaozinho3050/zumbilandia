@@ -42,24 +42,27 @@ function face(head, geo, color, x, dy, out = 0, rz = 0) {
   const z = Math.sqrt(Math.max(R * R - x * x - dy * dy, 0)) + 0.012 + out;
   return add(head, geo, color, x, dy, z, 0, 0, rz);
 }
+// pivô = Group na articulação; malhas ficam deslocadas dentro dele (girar .rotation.x balança o membro)
+function pivot(parent, name, x, y, z) { const p = new THREE.Group(); p.name = name; p.position.set(x, y, z); parent.add(p); return p; }
+const HIP = 0.55, NECK = 1.3, SHOULDER = 1.1; // alturas das articulações (m)
 function humanoid(zombie, armor = {}) {
   const st = STYLES[FINAL[zombie ? 'zombie' : 'player']], c = st.pal, g = new THREE.Group();
   const skin = zombie ? c.zskin : c.skin, shirt = zombie ? c.zshirt : c.shirt;
-  const hr = 0.24 * st.head, hy = 1.3 + hr, front = hr * 1.02;
-  add(g, Cap(0.13, 0.55 - 0.26), c.pants, -0.15, 0.275, 0);
-  add(g, Cap(0.13, 0.55 - 0.26), c.pants, 0.15, 0.275, 0);
-  const t = add(g, Cap(0.62 * 0.45, 0.62 * 0.45, 10), shirt, 0, 0.86, 0);
-  const hd = add(g, Sph(hr * 1.05), skin, 0, hy, 0);
+  const hr = 0.24 * st.head, hy = NECK + hr, front = hr * 1.02;
+  const body = pivot(g, 'body', 0, HIP, 0), head = pivot(body, 'head', 0, NECK - HIP, 0);
+  const legL = pivot(g, 'legL', -0.15, HIP, 0), legR = pivot(g, 'legR', 0.15, HIP, 0);
+  for (const l of [legL, legR]) add(l, Cap(0.13, 0.55 - 0.26), c.pants, 0, 0.275 - HIP, 0);
+  const t = add(body, Cap(0.62 * 0.45, 0.62 * 0.45, 10), shirt, 0, 0.86 - HIP, 0);
+  const hd = add(head, Sph(hr * 1.05), skin, 0, hr, 0);
   if (zombie) {
-    add(g, Cap(0.1, 0.3), skin, -0.34, 1.05, 0.22, Math.PI / 2.2, 0, 0);
-    add(g, Cap(0.1, 0.25), skin, 0.34, 0.98, 0.2, Math.PI / 2.6, 0, 0.1);
+    add(body, Cap(0.1, 0.3), skin, -0.34, 1.05 - HIP, 0.22, Math.PI / 2.2, 0, 0);
+    add(body, Cap(0.1, 0.25), skin, 0.34, 0.98 - HIP, 0.2, Math.PI / 2.6, 0, 0.1);
     for (const sx of [-1, 1]) face(hd, Box(0.11, 0.09, 0.03), 0xfff6c2, sx * 0.12, 0.02);
     for (const sx of [-1, 1]) face(hd, Box(0.04, 0.04, 0.02), 0xd9302c, sx * 0.12, 0.02, 0.02);
     face(hd, Box(0.16, 0.035, 0.02), 0x3a2028, 0.02, -0.13, 0, 0.15);
     t.rotation.x = 0.15; hd.rotation.z = 0.22; hd.position.z = 0.08;
   } else {
-    add(g, Cap(0.1, 0.3), shirt, -0.42, 0.88, 0, 0, 0, -0.12);
-    add(g, Cap(0.1, 0.3), shirt, 0.42, 0.88, 0, 0, 0, 0.12);
+    for (const sx of [-1, 1]) add(pivot(g, sx < 0 ? 'armL' : 'armR', sx * 0.42, SHOULDER, 0), Cap(0.1, 0.3), shirt, 0, 0.88 - SHOULDER, 0, 0, 0, sx * 0.12);
     for (const sx of [-1, 1]) {
       face(hd, Box(0.1, 0.13, 0.03), 0x1d1a24, sx * 0.12, 0.01);
       face(hd, Box(0.035, 0.035, 0.02), 0xffffff, sx * 0.12 + 0.025, 0.045, 0.02);
@@ -67,18 +70,24 @@ function humanoid(zombie, armor = {}) {
     }
   }
   if (armor.head) {
-    add(g, new THREE.SphereGeometry(hr * 1.15, 10, 6, 0, Math.PI * 2, 0, Math.PI / 2), c.helm, 0, hy + 0.02, 0);
-    add(g, Box(hr * 1.6, 0.05, 0.06), 0x2a2a33, 0, hy + 0.12, front + 0.03);
+    add(head, new THREE.SphereGeometry(hr * 1.15, 10, 6, 0, Math.PI * 2, 0, Math.PI / 2), c.helm, 0, hy + 0.02 - NECK, 0);
+    add(head, Box(hr * 1.6, 0.05, 0.06), 0x2a2a33, 0, hy + 0.12 - NECK, front + 0.03);
   }
   if (armor.torso) {
-    add(g, Cap(0.7 * 0.45, 0.66 * 0.45, 10), c.jacket, 0, 0.86, 0);
-    add(g, Box(0.06, 0.5, 0.02), 0xd8c9a0, 0, 0.88, 0.23);
+    add(body, Cap(0.7 * 0.45, 0.66 * 0.45, 10), c.jacket, 0, 0.86 - HIP, 0);
+    add(body, Box(0.06, 0.5, 0.02), 0xd8c9a0, 0, 0.88 - HIP, 0.23);
   }
-  if (armor.legs) for (const sx of [-1, 1]) add(g, Box(0.3, 0.3, 0.32), c.guard, sx * 0.15, 0.25, 0.02);
+  if (armor.legs) for (const l of [legL, legR]) add(l, Box(0.3, 0.3, 0.32), c.guard, 0, 0.25 - HIP, 0.02);
   return done(g);
 }
 export const makePlayer = (opts = {}) => humanoid(false, opts.armor || {});
 export const makeZombie = () => humanoid(true);
+// partes soltas, origem na articulação (body/legs em y=0.55 do corpo inteiro; legL x=-0.15, legR x=+0.15)
+export function makeZombieParts() {
+  const z = makeZombie(), out = {};
+  for (const n of ['body', 'legL', 'legR']) { out[n] = z.getObjectByName(n); z.remove(out[n]); out[n].position.set(0, 0, 0); }
+  return out;
+}
 
 // ---------- carro (I, 'slim') ----------
 export function makeCar() {

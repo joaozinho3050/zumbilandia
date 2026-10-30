@@ -44,8 +44,12 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
 #btn-menu{right:var(--mr)}#btn-mute{right:calc(var(--mr) + 56px)}
 #btn-mute .x{display:none;color:var(--vida)}#btn-mute.m .x{display:inline}
 #joy{left:0;bottom:0;width:180px;height:180px;pointer-events:auto;touch-action:none}
-#joy .base{position:absolute;left:var(--ml);bottom:var(--mb);width:120px;height:120px;border-radius:50%;background:var(--superficie);border:2px solid var(--borda);opacity:.65;transition:opacity var(--fade)}
+#joy .base{position:absolute;left:var(--ml);bottom:var(--mb);width:120px;height:120px;border-radius:50%;background:var(--superficie);border:2px solid var(--borda);opacity:.65;transition:opacity var(--fade),border-color var(--fade)}
 #joy.active .base{opacity:1}
+#joy.run .base{border-color:var(--folego)}
+#joy .marca{position:absolute;left:0;top:0;width:100%;height:100%;fill:none;stroke:var(--borda);stroke-width:1}
+#btn-crouch{left:calc(var(--ml) + 36px);bottom:calc(var(--mb) + 136px);width:48px;height:48px}
+#btn-crouch.on{opacity:1;border-color:var(--folego)}
 #joy .nub{position:absolute;left:36px;top:36px;width:48px;height:48px;border-radius:50%;background:var(--slot);border:2px solid var(--texto)}
 #menu{z-index:5;position:absolute;left:50%;top:50%;width:92vw;height:86vh;transform:translate(-50%,-50%);display:flex;flex-direction:column;background:var(--superficie-forte);border:2px solid var(--borda);border-radius:14px;transition:opacity var(--fade);pointer-events:auto}
 #menu .tabs{display:flex;align-items:center;gap:var(--esp-1);padding:var(--esp-2);border-bottom:2px solid var(--borda);font:12px 'Pixelify Sans',monospace}
@@ -131,7 +135,8 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
     map: '<path d="M3 6l6-2 6 2 6-2v14l-6 2-6-2-6 2zM9 4v14M15 6v14"/>',
     book: '<path d="M4 5h7a2 2 0 0 1 1 1v13a2 2 0 0 0-1-1H4zM20 5h-7a2 2 0 0 0-1 1v13a2 2 0 0 1 1-1h7z"/>',
     gear: '<circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1"/>',
-    hit: '<path d="M4 18c2-8 8-13 16-14"/><path d="M14 4h6v6"/><path d="M6 20l4-4"/>'
+    hit: '<path d="M4 18c2-8 8-13 16-14"/><path d="M14 4h6v6"/><path d="M6 20l4-4"/>',
+    crouch: '<circle cx="15" cy="6" r="2.5"/><path d="M14 10l-3 4.5 4 2.5-1 4.5M11 14.5l-4 1.5v4h4"/>'
   };
   const svg = (n, c) => '<svg viewBox="0 0 24 24"' + (c ? ' style="color:' + c + '"' : '') + '>' + ICON[n] + '</svg>';
 
@@ -146,8 +151,8 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
   const DUR = { helmet: 20, jacket: 20, shinguards: 10 };
 
   const held = { atk: false }, keys = new Set(), last = {}, E = {};
-  const joy = { id: null, cx: 0, cy: 0, mx: 0, my: 0 };
-  let intT = 0, pend = false, root, armorUntil = 0, hintUntil = 0, hintNear = '', toastUntil = 0, flashUntil = 0, menuEl, startEl, confirmEl, deadEl, tourEl, tourStep = -1, tourPos;
+  const joy = { id: null, cx: 0, cy: 0, mx: 0, my: 0, run: false };
+  let intT = 0, pend = false, crouchPend = false, root, armorUntil = 0, hintUntil = 0, hintNear = '', toastUntil = 0, flashUntil = 0, menuEl, startEl, confirmEl, deadEl, tourEl, tourStep = -1, tourPos;
 
   const put = (k, v, fn) => { if (last[k] !== v) { last[k] = v; fn(v); } };
   const el = (tag, id, parent, html, cls) => {
@@ -193,7 +198,9 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
     { id: 'siphon', titulo: 'Gasolina e sifão', palavras: ['gasolina', 'sifao', 'combustivel', 'galao', 'mangueira', 'carro'], precisa: [{ item: 'hose', onde: 'baús de casa e porta-malas' }, { item: 'gascan', onde: 'baús e porta-malas' }], passos: ['Chegue perto de um carro com gasolina.', 'Segure SIFONAR até encher o galão.', 'Para abastecer, segure DESPEJAR perto do carro.'], demo: 'siphon' },
     { id: 'key', titulo: 'Chave do carro', palavras: ['chave', 'carro', 'dirigir', 'ligar'], precisa: [{ item: 'key', onde: 'baú de casa no mesmo quarteirão' }], passos: ['Procure nas casas próximas ao carro.', 'Com a chave, toque ENTRAR perto do carro.'], demo: 'car' },
     { id: 'food', titulo: 'Comida', palavras: ['comida', 'fome', 'comer'], precisa: [{ item: 'food', onde: 'baús de casa e zumbis' }], passos: ['Abra a mochila no MENU.', 'Toque na comida para comer.'], demo: 'eat' },
-    { id: 'tomb', titulo: 'Tumba', palavras: ['tumba', 'morte', 'morrer', 'mochila'], precisa: [{ item: 'tomb', onde: 'onde você morreu, marcada no mapa' }], passos: ['Abra o Mapa e ache o ponto vermelho.', 'Vá até lá e toque PEGAR.'], demo: 'tomb' }
+    { id: 'tomb', titulo: 'Tumba', palavras: ['tumba', 'morte', 'morrer', 'mochila'], precisa: [{ item: 'tomb', onde: 'onde você morreu, marcada no mapa' }], passos: ['Abra o Mapa e ache o ponto vermelho.', 'Vá até lá e toque PEGAR.'], demo: 'tomb' },
+    { id: 'correr', titulo: 'Correr', palavras: ['correr', 'corrida', 'folego', 'rapido', 'joystick', 'shift'], precisa: [], passos: ['Empurre o joystick até a borda para correr.', 'No teclado, segure SHIFT.', 'Correr gasta fôlego: ande para recuperar.'], demo: 'run' },
+    { id: 'agachar', titulo: 'Agachar', palavras: ['agachar', 'agachado', 'furtivo', 'silencio', 'esconder'], precisa: [], passos: ['Toque o botão AGACHAR acima do joystick (no teclado: C).', 'Agachado: mais lento, passos quase mudos e menos visível.', 'Toque de novo para levantar.'], demo: 'crouch' }
   ];
   const sem = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
   const nm = (id) => NOME[id] || id;
@@ -411,7 +418,7 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
       hide(deadEl, true); document.getElementById('ui').classList.remove('morto');
     });
   }
-  const PASSOS = [['#joy', 'Arraste o joystick para andar.'], ['#btn-attack', 'Toque ATACAR para bater nos zumbis.'], ['#btn-action', 'Perto de um móvel, toque BUSCAR e fique parado.'], ['#btn-menu', 'Abra o MENU e veja sua mochila.'], ['#btn-menu', 'No MENU, abra a aba Mapa.']];
+  const PASSOS = [['#joy', 'Arraste o joystick para andar. Empurre até a borda para correr.'], ['#btn-attack', 'Toque ATACAR para bater nos zumbis.'], ['#btn-action', 'Perto de um móvel, toque BUSCAR e fique parado.'], ['#btn-menu', 'Abra o MENU e veja sua mochila.'], ['#btn-menu', 'No MENU, abra a aba Mapa.']];
   function tourGo(n) {
     tourStep = n;
     if (n >= PASSOS.length) { try { localStorage['zl1.tour'] = 'done'; } catch (e) {} return hide(tourEl, true); }
@@ -460,8 +467,9 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
     E.hint.lastChild.addEventListener('click', () => toggleMenu(true));
     E.toast = el('div', 'toast', hud, '', 'hidden');
     E.flash = el('div', 'flash', hud, '', 'hidden');
-    const joyEl = el('div', 'joy', hud, '<div class="base"><div class="nub"></div></div>');
-    E.nub = joyEl.querySelector('.nub');
+    const joyEl = el('div', 'joy', hud, '<div class="base"><svg class="marca" viewBox="0 0 120 120"><circle cx="60" cy="60" r="54"/></svg><div class="nub"></div></div>');
+    E.joy = joyEl; E.nub = joyEl.querySelector('.nub');
+    E.crouch = btn('btn-crouch', hud, svg('crouch')); E.crouch.setAttribute('aria-label', 'Agachar');
     E.atk = btn('btn-attack', hud, svg('hit') + 'ATACAR');
     E.act = btn('btn-action', hud, '', 'hidden');
     E.act.className = 'hidden';
@@ -480,6 +488,7 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
     hold(E.wpn, () => window.G.switchWeapon());
     hold(E.menuB, () => toggleMenu());
     hold(E.mute, toggleMute);
+    hold(E.crouch, () => { crouchPend = true; });
 
     joyEl.addEventListener('pointerdown', (e) => {
       if (joy.id !== null) return;
@@ -495,11 +504,13 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
       const d = Math.hypot(dx, dy);
       if (d > 60) { dx *= 60 / d; dy *= 60 / d; }
       joy.mx = dx / 60; joy.my = dy / 60;
+      const m = Math.min(d, 60) / 60; // histerese: liga >= 90 %, desliga < 75 %
+      if (m >= .9) joy.run = true; else if (m < .75) joy.run = false;
       E.nub.style.transform = 'translate(' + dx + 'px,' + dy + 'px)';
     };
     const rel = (e) => {
       if (e.pointerId !== joy.id) return;
-      joy.id = null; joy.mx = joy.my = 0; joyEl.classList.remove('active'); E.nub.style.transform = '';
+      joy.id = null; joy.mx = joy.my = 0; joy.run = false; joyEl.classList.remove('active'); E.nub.style.transform = '';
     };
     joyEl.addEventListener('pointermove', move);
     joyEl.addEventListener('pointerup', rel);
@@ -515,6 +526,7 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
       else if (e.code === 'Escape' || e.code === 'Tab') toggleMenu();
       else if (e.code === 'KeyM') toggleMute();
       else if (e.code === 'KeyE') { pend = true; intT = performance.now(); }
+      else if (e.code === 'KeyC') crouchPend = true;
     });
     window.addEventListener('keyup', (e) => { keys.delete(e.code); if (e.code === 'KeyE') intT = 0; });
     window.addEventListener('blur', () => { keys.clear(); held.atk = false; intT = 0; });
@@ -529,6 +541,9 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
     const k = kx && ky ? Math.SQRT1_2 : 1, pz = UI.paused;
     inp.mx = pz ? 0 : joy.id !== null ? joy.mx : kx * k;
     inp.my = pz ? 0 : joy.id !== null ? joy.my : ky * k;
+    inp.run = !pz && (joy.run || keys.has('ShiftLeft') || keys.has('ShiftRight'));
+    if (crouchPend && !pz) inp.crouch = true; // pulso: o game alterna e zera
+    crouchPend = false;
     inp.attack = !pz && (held.atk || keys.has('Space'));
     inp.interact = !pz && (pend || (intT > 0 && now - intT > 350));
     pend = false;
@@ -589,6 +604,8 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
       E.wpn.innerHTML = (src ? '<img src="' + src + '" alt="">' : ARMA[w] || w) + (ranged ? '<b' + (am ? '' : ' class="vazio"') + '>' + am + '</b>' : '');
     });
     put('mute', !!(window.SFX && SFX.muted && SFX.muted()), (v) => { E.mute.classList.toggle('m', v); E.mute.innerHTML = svg(v ? 'muted' : 'sound'); });
+    put('run', !!p.running, (v) => E.joy.classList.toggle('run', v));
+    put('crouch', !!p.crouch, (v) => E.crouch.classList.toggle('on', v));
   }
 
   window.UI = { init, draw, paused: false };
