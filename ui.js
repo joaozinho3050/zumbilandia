@@ -46,6 +46,10 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
 #joy{left:0;bottom:0;width:180px;height:180px;pointer-events:auto;touch-action:none}
 #joy .base{position:absolute;left:var(--ml);bottom:var(--mb);width:120px;height:120px;border-radius:50%;background:var(--superficie);border:2px solid var(--borda);opacity:.65;transition:opacity var(--fade),border-color var(--fade)}
 #joy.active .base{opacity:1}
+#joy.car .base{border-radius:14px}
+#joy.car .marca{display:none}
+#fuel,#re{right:var(--mr)}#fuel{top:calc(var(--mt) + 56px);color:var(--municao)}#re{top:calc(var(--mt) + 100px);color:var(--vida)}
+#fuel svg{width:20px;height:20px}
 #joy.run .base{border-color:var(--folego)}
 #joy .marca{position:absolute;left:0;top:0;width:100%;height:100%;fill:none;stroke:var(--borda);stroke-width:1}
 #btn-crouch{left:calc(var(--ml) + 36px);bottom:calc(var(--mb) + 136px);width:48px;height:48px}
@@ -136,6 +140,8 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
     book: '<path d="M4 5h7a2 2 0 0 1 1 1v13a2 2 0 0 0-1-1H4zM20 5h-7a2 2 0 0 0-1 1v13a2 2 0 0 1 1-1h7z"/>',
     gear: '<circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1"/>',
     hit: '<path d="M4 18c2-8 8-13 16-14"/><path d="M14 4h6v6"/><path d="M6 20l4-4"/>',
+    pump: '<path d="M5 21V5a1 1 0 0 1 1-1h7a1 1 0 0 1 1 1v16M3 21h13M6 8h7"/><path d="M14 10h2.5a1.5 1.5 0 0 1 1.5 1.5v5a1.5 1.5 0 0 0 3 0V9l-3-3"/>',
+    fire: '<path d="M10 11h4v2l1.5 2v5.5h-7V15l1.5-2z"/><path d="M11 11V8.5h2V11"/><path d="M12 2c1 2 3 3 3 5a3 3 0 0 1-6 0c0-1 .6-1.7 1-2.5.2.8.6 1 1 1 0-1.5 0-2.5 1-3.5z"/>',
     crouch: '<circle cx="15" cy="6" r="2.5"/><path d="M14 10l-3 4.5 4 2.5-1 4.5M11 14.5l-4 1.5v4h4"/>'
   };
   const svg = (n, c) => '<svg viewBox="0 0 24 24"' + (c ? ' style="color:' + c + '"' : '') + '>' + ICON[n] + '</svg>';
@@ -143,14 +149,14 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
   // near.type -> [icone, rotulo <= 8 letras]
   const ACAO = {
     crate: ['search', 'BUSCAR'], tomb: ['hand', 'PEGAR'], enter: ['door', 'ENTRAR'], exit: ['exit', 'SAIR'],
-    trunk: ['trunk', 'MALA'], search: ['search', 'BUSCAR'], drop: ['hand', 'PEGAR'], fence: ['jump', 'PULAR']
+    trunk: ['trunk', 'MALA'], car: ['door', 'ENTRAR'], siphon: ['pump', 'SIFONAR'], pour: ['pump', 'DESPEJAR'], search: ['search', 'BUSCAR'], drop: ['hand', 'PEGAR'], fence: ['jump', 'PULAR']
   };
-  const acaoDe = (n) => n.type === 'door' ? (n.open ? ['door', 'FECHAR'] : ['door', 'ABRIR']) : ACAO[n.type] || ['hand', 'AÇÃO'];
+  const acaoDe = (n) => n.act ? ACAO[n.act] : n.type === 'door' ? (n.open ? ['door', 'FECHAR'] : ['door', 'ABRIR']) : ACAO[n.type] || ['hand', 'AÇÃO'];
   const NOME = { food: 'Comida', bandage: 'Bandagem', ammo: 'Munição', rag: 'Trapo', wire: 'Arame', bottle: 'Garrafa', hose: 'Mangueira', gascan: 'Galão', key: 'Chave', pipe: 'Cano', pipe_r: 'Cano reforçado', bat: 'Taco', pistol: 'Pistola', molotov: 'Molotov', helmet: 'Capacete', jacket: 'Jaqueta', shinguards: 'Caneleiras' };
   const ARMA = { pipe: 'CANO', pipe_r: 'CANO+', bat: 'TACO', pistol: 'PISTOLA', molotov: 'MOLOTOV' };
   const DUR = { helmet: 20, jacket: 20, shinguards: 10 };
 
-  const held = { atk: false }, keys = new Set(), last = {}, E = {};
+  const held = { atk: false, act: false }, keys = new Set(), last = {}, E = {};
   const joy = { id: null, cx: 0, cy: 0, mx: 0, my: 0, run: false };
   let intT = 0, pend = false, hintGuia = '', crouchPend = false, root, armorUntil = 0, hintUntil = 0, hintNear = '', toastUntil = 0, flashUntil = 0, menuEl, startEl, confirmEl, deadEl, tourEl, tourStep = -1, tourPos;
 
@@ -182,7 +188,7 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
     if (v === UI.paused || (v && startEl && !startEl.classList.contains('hidden'))) return;
     UI.paused = v;
     menuEl.classList.toggle('hidden', !v);
-    if (v) { held.atk = false; intT = 0; try { window.G.save(); } catch (e) {} buildMenu(); showTab(curTab); }
+    if (v) { held.atk = held.act = false; intT = 0; try { window.G.save(); } catch (e) {} buildMenu(); showTab(curTab); }
     else demoOff();
   }
 
@@ -249,9 +255,9 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
     panes.craft.innerHTML = rs.map((r) => {
       const ing = r.ing, falta = [];
       const ih = ing.map((x) => {
-        const id = x.id, q = x.qty, ok = have(id) >= q;
-        if (!ok) falta.push(nm(id));
-        return '<span class="' + (ok ? '' : 'no') + '">' + ico(id) + '×' + q + '</span>';
+        const id = x.id, q = x.qty, ok = x.fuel ? (window.G.player.inv || []).some((i) => i.id === id && (i.fuel || 0) >= x.fuel) : have(id) >= q;
+        if (!ok) falta.push(x.fuel ? nm(id) + ' com ' + x.fuel + ' L' : nm(id));
+        return '<span class="' + (ok ? '' : 'no') + '">' + ico(id) + (x.fuel ? x.fuel + ' L' : '×' + q) + '</span>';
       }).join('');
       const out = r.out;
       return '<div class="rec">' + ico(out) + '<div class="ing"><b>' + nm(out) + '</b>' + ih + (falta.length ? '<span class="dim">falta: ' + falta.join(', ') + '</span>' : '') + '</div><button class="btn" data-a="craft" data-v="' + r.id + '"' + (falta.length ? ' disabled' : '') + '>FABRICAR</button></div>';
@@ -459,6 +465,8 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
     E.joy = joyEl; E.nub = joyEl.querySelector('.nub');
     E.crouch = btn('btn-crouch', hud, svg('crouch')); E.crouch.setAttribute('aria-label', 'Agachar');
     E.atk = btn('btn-attack', hud, svg('hit') + 'ATACAR');
+    E.fuel = el('div', 'fuel', hud, svg('pump') + '<span>0</span>', 'pill hidden');
+    E.re = el('div', 're', hud, 'RÉ', 'pill hidden');
     E.act = btn('btn-action', hud, '', 'hidden');
     E.act.className = 'hidden';
     // anel de progresso da BUSCA (stroke-dashoffset = 1 - t; pathLength=1)
@@ -472,7 +480,7 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
     menuEl = el('div', 'menu', root, '', 'hidden');
 
     hold(E.atk, () => { held.atk = true; }, () => { held.atk = false; });
-    hold(E.act, () => { pend = true; intT = performance.now(); }, () => { intT = 0; });
+    hold(E.act, () => { pend = true; held.act = true; intT = performance.now(); }, () => { intT = 0; held.act = false; });
     hold(E.wpn, () => window.G.switchWeapon());
     hold(E.menuB, () => toggleMenu());
     hold(E.mute, toggleMute);
@@ -489,8 +497,9 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
     const move = (e) => {
       if (e.pointerId !== joy.id) return;
       let dx = e.clientX - joy.cx, dy = e.clientY - joy.cy;
-      const d = Math.hypot(dx, dy);
-      if (d > 60) { dx *= 60 / d; dy *= 60 / d; }
+      let d = Math.hypot(dx, dy);
+      if (joyEl.classList.contains('car')) { dx = Math.max(-60, Math.min(60, dx)); dy = Math.max(-60, Math.min(60, dy)); d = Math.max(Math.abs(dx), Math.abs(dy)); }
+      else if (d > 60) { dx *= 60 / d; dy *= 60 / d; }
       joy.mx = dx / 60; joy.my = dy / 60;
       const m = Math.min(d, 60) / 60; // histerese: liga >= 90 %, desliga < 75 %
       if (m >= .9) joy.run = true; else if (m < .75) joy.run = false;
@@ -517,7 +526,7 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
       else if (e.code === 'KeyC') crouchPend = true;
     });
     window.addEventListener('keyup', (e) => { keys.delete(e.code); if (e.code === 'KeyE') intT = 0; });
-    window.addEventListener('blur', () => { keys.clear(); held.atk = false; intT = 0; });
+    window.addEventListener('blur', () => { keys.clear(); held.atk = held.act = false; intT = 0; });
     buildStart(); buildDead(); buildTour(); openStart();
   }
 
@@ -527,15 +536,18 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
     const kx = (keys.has('KeyD') || keys.has('ArrowRight') ? 1 : 0) - (keys.has('KeyA') || keys.has('ArrowLeft') ? 1 : 0);
     const ky = (keys.has('KeyS') || keys.has('ArrowDown') ? 1 : 0) - (keys.has('KeyW') || keys.has('ArrowUp') ? 1 : 0);
     const k = kx && ky ? Math.SQRT1_2 : 1, pz = UI.paused;
-    inp.mx = pz ? 0 : joy.id !== null ? joy.mx : kx * k;
-    inp.my = pz ? 0 : joy.id !== null ? joy.my : ky * k;
+    const car = G.cars && G.cars.find((c) => c.id === p.car);
+    const zm = (v) => (Math.abs(v) < .12 ? 0 : v); // zona morta do volante
+    inp.mx = pz ? 0 : joy.id !== null ? (car ? zm(joy.mx) : joy.mx) : kx * k;
+    inp.my = pz ? 0 : joy.id !== null ? (car ? -zm(joy.my) : joy.my) : car ? -ky : ky * k; // no carro, para cima = acelerar
     inp.run = !pz && (joy.run || keys.has('ShiftLeft') || keys.has('ShiftRight'));
     if (crouchPend && !pz) inp.crouch = true; // pulso: o game alterna e zera
     crouchPend = false;
-    inp.attack = !pz && (held.atk || keys.has('Space'));
+    inp.attack = !pz && !car && (held.atk || keys.has('Space'));
+    inp.hold = !pz && !car && held.act && !!(p.near && p.near.act);
     const fence = p.near && p.near.type === 'fence';
     if (fence && pend && !pz) inp.jump = true; // pulso: o game consome
-    inp.interact = !pz && !fence && (pend || (intT > 0 && now - intT > 350));
+    inp.interact = !pz && !fence && !inp.hold && (pend || (intT > 0 && now - intT > 350)); // com act, segurar = hold, nao interact
     pend = false;
 
     // eventos (G empurra; UI limpa por ultimo)
@@ -577,19 +589,30 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
 
     put('time', fmt(G.t), (v) => { E.time.textContent = v; });
 
-    put('near', p.near ? p.near.type + (p.near.open ? '1' : '0') : '', (v) => {
+    const nr = car ? { type: 'exit' } : p.near;
+    put('near', nr ? nr.type + (nr.open ? '1' : '0') + (nr.act || '') : '', (v) => {
       E.act.classList.toggle('hidden', !v);
       E.act.classList.toggle('near', !!v);
-      if (v) { const a = acaoDe(p.near); E.act.innerHTML = svg(a[0]) + a[1]; E.act.appendChild(E.ring); }
+      if (v) { const a = acaoDe(nr); E.act.innerHTML = svg(a[0]) + a[1]; E.act.appendChild(E.ring); }
     });
-    const sa = p.action && p.action.type === 'search' ? Math.min(1, Math.max(0, p.action.t || 0)) : -1;
+    const gc = (p.inv || []).find((i) => i.id === 'gascan'), sf = p.action && p.action.type === 'siphon';
+    const sa = sf ? Math.min(1, ((p.action.act === 'pour' ? (G.cars.find((c) => c.id === p.action.id) || {}).fuel : gc && gc.fuel) || 0) / 10)
+      : p.action && p.action.type === 'search' ? Math.min(1, Math.max(0, p.action.t || 0)) : -1;
     put('ring', sa < 0 ? -1 : Math.round(sa * 100), (v) => {
       E.ring.classList.toggle('hidden', v < 0);
       if (v >= 0) E.ring.firstElementChild.setAttribute('stroke-dashoffset', String(1 - v / 100));
     });
 
+    const fc = car || (p.near && (p.near.type === 'car' || p.near.type === 'trunk') ? p.near : null), fl = fc ? Math.round(fc.fuel * 10) / 10 : -1;
+    put('fuel', fl, (v) => { E.fuel.classList.toggle('hidden', v < 0); E.fuel.lastChild.textContent = v < 0 ? '' : v.toFixed(1) + ' L'; });
+    put('re', !!(car && car.speed < -.5), (v) => E.re.classList.toggle('hidden', !v));
+    put('incar', !!car, (v) => {
+      E.joy.classList.toggle('car', v); E.atk.classList.toggle('hidden', v); E.crouch.classList.toggle('hidden', v);
+      if (v) { joy.mx = joy.my = 0; E.nub.style.transform = ''; }
+    });
     const w = p.weapon, ranged = w === 'pistol', am = ranged ? p.ammo | 0 : -1;
     put('wpn', w + '|' + am, () => {
+      E.atk.innerHTML = svg(w === 'molotov' ? 'fire' : 'hit') + (w === 'molotov' ? 'JOGAR' : 'ATACAR');
       const src = window.R && R.icon ? R.icon(w) : null;
       E.wpn.innerHTML = (src ? '<img src="' + src + '" alt="">' : ARMA[w] || w) + (ranged ? '<b' + (am ? '' : ' class="vazio"') + '>' + am + '</b>' : '');
     });

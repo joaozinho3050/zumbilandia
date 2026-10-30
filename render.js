@@ -53,6 +53,10 @@ let zIM, zIK, zParts, plP, zPs = [], eqSig = '000', dPool = [], dCache = new Map
    carIM, carIK, crIM = [], roofIM = [], doorIM, roofSig = '', doorA = new Map(), lastDraw = 0, playerPivot, zData = new Map(), frame = 0;
 const dummy = new THREE.Object3D(), zR = new THREE.Matrix4(), zM = new THREE.Matrix4(), zB = new THREE.Matrix4(), zQ = new THREE.Quaternion(), zE = new THREE.Euler(), zV = new THREE.Vector3(), zS = new THREE.Vector3(1, 1, 1);
 const shots = [], hits = [];
+let own, ownId = null, lidA = 0, cSm = { x: 0, y: 0, d: 1 }, sPool = [], sT = 0, fireIM, flameIM, flights = [], bottle = null;
+const OWN_LAMP = new THREE.MeshBasicMaterial({ color: 0xfff3b0, transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false, fog: false });
+const OWN_BEAM = new THREE.MeshBasicMaterial({ color: 0xfff3b0, transparent: true, opacity: 0.14, depthWrite: false, fog: false });
+const SMOKE = new THREE.MeshBasicMaterial({ color: 0xbfc4cc });
 
 function size() {
   renderer.setSize(Math.max(1, (innerWidth * f) | 0), Math.max(1, (innerHeight * f) | 0), false);
@@ -173,9 +177,27 @@ function mkRig(armor) {
     const g = new THREE.Group(); g.add(...pair(bake(o))); g.position.copy(pos); P[n] = g;
   }
   for (const n of ['head', 'armL', 'armR']) { if (n !== 'head') P[n].position.y -= P.body.position.y; P.body.add(P[n]); }
+  const hs = pair(bake(makeItem('hose'))); const hi = new THREE.Group(); hi.add(...hs); hi.scale.setScalar(0.7); P.hose = new THREE.Group(); P.hose.add(hi); P.hose.position.set(0, -0.55, 0.12); P.hose.visible = false; P.armR.add(P.hose); // mangueira na mao (so no siphon)
   const g = new THREE.Group(); g.add(P.body, P.legL, P.legR);
   for (const n in P) P[n].userData.p0 = P[n].position.clone();
+  P.hose.userData.p0 = P.hose.position.clone();
   return { g, P };
+}
+// carro proprio (criado 1x): carroceria, tampa e 4 rodas viram 1 par de malhas cada (10 calls) + 3 de farol
+function mkCarOwn() {
+  const g = makeCar({ parts: true }), N = n => g.getObjectByName(n), P = { g };
+  const bk = o => { // troca as malhas do pivo por 1 par baked no espaco local do pivo
+    const par = o.parent, p0 = o.position.clone(), q0 = o.quaternion.clone(), ms = [];
+    o.removeFromParent(); o.position.set(0, 0, 0); o.quaternion.identity(); o.traverse(m => m.isMesh && ms.push(m));
+    const b = bake(o); ms.forEach(m => m.removeFromParent()); o.add(...pair(b)); o.position.copy(p0); o.quaternion.copy(q0); par.add(o);
+  };
+  const body = P.body = N('body'), lid = P.lid = N('trunkLid'); lid.removeFromParent(); bk(body); body.add(lid); bk(lid);
+  P.w = ['FL', 'FR', 'RL', 'RR'].map(n => { const w = N('wheel' + n); bk(w); return w; });
+  P.ex = N('exhaust');
+  for (const n of ['lightL', 'lightR']) { const q = new THREE.Mesh(new THREE.PlaneGeometry(0.2, 0.1), OWN_LAMP); q.rotation.y = Math.PI / 2; q.position.x = 0.03; N(n).add(q); P[n] = q; }
+  const beam = P.beam = new THREE.Mesh(new THREE.PlaneGeometry(2.6, 1.5).rotateX(-Math.PI / 2), OWN_BEAM); beam.position.set(2.4, 0.03, 0); g.add(beam);
+  g.visible = false; g.scale.set(2, 2, 2.1); scene.add(g);
+  return P;
 }
 const freeRig = r => r.g.traverse(o => o.isMesh && o.geometry.dispose());
 function buildPlayer(armor) { // troca a armadura: dispose da geometria antiga (R.mem estavel)
@@ -194,7 +216,7 @@ function pose(rig, mv, act, t, k) {
   const amp = (mv === 'run' ? 0.7 : mv === 'crouch' ? 0.3 : 0.436) * k * RM * (mov ? 1 : 0), s = Math.sin(pPh) * amp;
   const cr = mv === 'crouch', bob = mov && RM === 1 ? Math.abs(Math.sin(pPh)) * (mv === 'run' ? 0.06 : 0.04) * k : 0;
   for (const n in P) { P[n].position.copy(P[n].userData.p0); P[n].rotation.set(0, 0, 0); P[n].scale.set(1, 1, 1); }
-  playerG.rotation.z = 0; playerG.scale.set(1, 1, 1); playerG.position.y = 0;
+  playerG.rotation.z = 0; playerG.scale.set(1, 1, 1); playerG.position.y = 0; P.hose.visible = act === 'siphon';
   P.legL.rotation.x = s; P.legR.rotation.x = -s; P.armL.rotation.x = -s; P.armR.rotation.x = s;
   P.body.rotation.x = mv === 'run' ? 0.14 : cr ? 0.1 : 0;
   P.body.position.y += bob - (cr ? 0.15 : 0);
@@ -202,6 +224,8 @@ function pose(rig, mv, act, t, k) {
   if (!mov || RM < 1) P.body.scale.y = 1 + 0.01 * (1 + Math.sin(bt * 2)) * RM;
   const u = x => Math.min(1, t / x);
   if (act === 'swing') { P.armR.rotation.x = -1.75 * Math.sin(Math.PI * u(0.25)); P.body.rotation.y = 0.3 * Math.sin(Math.PI * u(0.25)); }
+  else if (act === 'siphon') { const w = Math.sin(t * 6); P.body.rotation.x = 0.5; P.body.position.y -= 0.2; for (const l of [P.legL, P.legR]) { l.rotation.x = -0.9; l.scale.y = 0.75; l.position.y = 0.4; } P.armL.rotation.x = -1.2 + 0.1 * w; P.armR.rotation.x = -1.3 - 0.1 * w; }
+  else if (act === 'throw') { const e = u(0.4); P.armR.rotation.x = e < 0.4 ? 0.8 * sm(e / 0.4) : 0.8 - 3.1 * sm((e - 0.4) / 0.6); P.body.rotation.y = e < 0.4 ? 0.3 * e : 0.12 - 0.5 * (e - 0.4); }
   else if (act === 'shot') P.armR.rotation.x = -1.45 + 0.25 * Math.max(0, 1 - t / 0.15);
   else if (act === 'search') { const w = Math.sin(t * 14); P.armL.rotation.x = -1 + 0.5 * w; P.armR.rotation.x = -1 - 0.5 * w; P.body.rotation.x = 0.15; }
   else if (act === 'eat') P.armR.rotation.x = -2.3 * sm(u(0.2)) + 0.15 * Math.sin(t * 20);
@@ -235,7 +259,14 @@ function init(canvas) {
   roofIM = [0, 1, 2].map(i => instanced(makeRoof(6, 6, 'ABC'[i]), 64)); // cap 64 casas por paleta
   doorIM = instanced(makeDoor(1.4), 128);
   crIM = [false, true].map(o => instanced(crateModel(o), 128));
-  buildPlayer({});
+  buildPlayer({}); own = mkCarOwn();
+  const sg = new THREE.IcosahedronGeometry(1, 0);
+  for (let i = 0; i < 6; i++) { const m = new THREE.Mesh(sg, SMOKE); m.visible = false; m.userData = { t: 9 }; scene.add(m); sPool.push(m); }
+  const mb = bake(makeItem('molotov')); // garrafa em voo (2 no ar, 4 calls)
+  for (let i = 0; i < 2; i++) { const g = new THREE.Group(); g.add(...pair(mb)); g.visible = false; g.scale.setScalar(1.2); scene.add(g); flights.push(g); }
+  const fg = new THREE.ConeGeometry(0.28, 1, 5).translate(0, 0.5, 0); // 4 fogos x 3 chamas, 2 calls
+  fireIM = new THREE.InstancedMesh(fg, cmat(0xff7a1f), 12); flameIM = new THREE.InstancedMesh(fg, cmat(0xffd23f), 12);
+  fireIM.frustumCulled = flameIM.frustumCulled = false; fireIM.count = flameIM.count = 0; scene.add(fireIM, flameIM);
   const zq = makeZombieParts({ police: true }); zPs = ['body', 'legL', 'legR'].map(n => instanced(bake(zq[n]), 96));
   const rm = new THREE.MeshBasicMaterial({ color: 0xff5c57, transparent: true, opacity: 0.45, depthWrite: false, fog: false });
   ring = new THREE.Mesh(new THREE.RingGeometry(0.55, 0.75, 24).rotateX(-Math.PI / 2), rm); ring.visible = false; scene.add(ring);
@@ -260,6 +291,26 @@ function autoScale(now) {
   if (nf !== f) { f = nf; slowT = slowN = fastT = fastN = 0; size(); }
 }
 
+const cv3 = new THREE.Vector3();
+function carOwnDraw(c, p, dt, now, trunk) {
+  const o = own, inp = p.car ? p.input : { mx: 0, my: 0 }, v = c.speed || 0, st = o.st || (o.st = { v, pitch: 0, roll: 0, steer: 0, sp: 0, ph: 0 });
+  const acc = (v - st.v) / Math.max(dt, 0.001); st.v = v;
+  const k = Math.min(1, dt * 8), bump = RM === 1 ? Math.sin(now / 90) * 0.004 * Math.min(1, Math.abs(v) / 5) : 0;
+  st.pitch += (Math.max(-0.08, Math.min(0.08, acc * 0.01)) * RM - st.pitch) * k;
+  st.roll += (-inp.mx * Math.abs(v) * 0.005 * RM - st.roll) * k;
+  st.steer += (-inp.mx * 0.5 - st.steer) * Math.min(1, dt * 10);
+  o.g.position.set(c.x, 0, c.y); o.g.rotation.y = -c.dir;
+  o.body.rotation.set(st.roll + bump, 0, st.pitch); o.body.position.y = Math.abs(bump) * 2;
+  st.ph += v * dt / 2 / 0.19; // v m/s em 1/2 escala do modelo, raio 0,19
+  o.w.forEach((w, i) => { w.rotation.x = st.ph; w.rotation.y = i < 2 ? st.steer : 0; });
+  lidA += ((trunk ? 1 : 0) - lidA) * Math.min(1, dt * 8); o.lid.rotation.z = -Math.PI / 3 * lidA;
+  const on = !!(p.car && p._eng);
+  o.lightL.visible = o.lightR.visible = o.beam.visible = on;
+  if (on && RM === 1 && (sT -= dt) <= 0) {
+    sT = 0.15; const m = sPool.find(s => !s.visible);
+    if (m) { o.g.updateMatrixWorld(true); o.ex.getWorldPosition(cv3); m.position.copy(cv3); m.userData = { t: 0, vx: -Math.cos(c.dir) * 0.3 + (Math.random() - 0.5) * 0.3, vz: -Math.sin(c.dir) * 0.3 + (Math.random() - 0.5) * 0.3 }; m.scale.setScalar(0.08); m.visible = true; }
+  }
+}
 function draw(G) {
   const now = performance.now(); autoScale(now); frame++;
   syncChunks(G);
@@ -302,7 +353,7 @@ function draw(G) {
   ground.position.set(p.x, -0.01, p.y);
   const es = ['head', 'torso', 'legs'].map(k => p.equip && p.equip[k] ? 1 : 0).join('');
   if (es !== eqSig) { eqSig = es; buildPlayer({ head: es[0] === '1', torso: es[1] === '1', legs: es[2] === '1' }); }
-  playerG.position.set(p.x, 0, p.y); playerG.rotation.y = Math.PI / 2 - p.dir; animPlayer(p, dtm / 1000);
+  playerG.visible = !p.car; playerG.position.set(p.x, 0, p.y); playerG.rotation.y = Math.PI / 2 - p.dir; animPlayer(p, dtm / 1000);
   const ja = p.action && p.action.type === 'jump' ? p.action : null;
   if (ja && p.anim && p.anim.act === 'jump') { const u = Math.min(1, p.anim.t / 0.6); playerG.position.x = ja.x0 + (ja.x1 - ja.x0) * u; playerG.position.z = ja.y0 + (ja.y1 - ja.y0) * u; }
 
@@ -355,8 +406,29 @@ function draw(G) {
 
   // carros (caixa 4,2 x 2 m; modelo ~2,1 x 0,94)
   n = 0;
-  for (const c of G.cars) { if (n >= 24) break; place(carIM, n++, c.x, 0, c.y, -c.dir, 2, 2, 2.1); }
+  const tr = p.action && p.action.type === 'search' && p.action.trunk ? p.action.id : null, wantId = p.car || tr;
+  if (wantId) ownId = wantId; else if (ownId && lidA < 0.02) ownId = null; // tampa fecha antes de voltar ao instanciado
+  const oc = ownId && G.cars.find(c => c.id === ownId);
+  for (const c of G.cars) { if (n >= 24) break; if (c === oc) continue; place(carIM, n++, c.x, 0, c.y, -c.dir, 2, 2, 2.1); }
   carIM.count = carIK.count = n; carIM.instanceMatrix.needsUpdate = true; carIK.instanceMatrix = carIM.instanceMatrix;
+
+  own.g.visible = !!oc;
+  if (oc) carOwnDraw(oc, p, dt, now, tr === oc.id);
+  else if (!ownId) lidA = 0;
+  for (const m of sPool) if (m.visible) { const u = m.userData; u.t += dt; const k = u.t / 0.9; if (k >= 1) m.visible = false; else { m.position.x += u.vx * dt; m.position.y += 0.7 * dt; m.position.z += u.vz * dt; m.scale.setScalar((0.08 + 0.2 * Math.min(1, k / 0.6)) * (k > 0.6 ? 1 - (k - 0.6) / 0.4 : 1)); } }
+
+  // molotov em voo (arco) e fogo no chao (3 chamas por fogo, cap 4)
+  flights.forEach((g, i) => { const f = G.flights[i]; g.visible = !!f; if (!f) return; const u = Math.min(1, f.t / f.T); g.position.set(f.x0 + (f.x - f.x0) * u, 0.9 + 3.2 * u * (1 - u) * 1 + 0.3 * u * 0, f.y0 + (f.y - f.y0) * u); g.rotation.set(u * 14, 0, u * 6); });
+  let fn = 0;
+  for (const f of G.fires.slice(0, 4)) {
+    const age = G.t - f.t0, k = Math.min(1, age / 0.25) * Math.min(1, Math.max(0, (3 - age) / 0.5));
+    for (let j = 0; j < 3; j++) {
+      const a = j * 2.1 + f.x, r = j ? 0.5 : 0, fl = RM === 1 ? 0.75 + 0.25 * Math.sin(now / 90 + j * 2 + f.y) : 1, h = (1.25 - 0.3 * j) * fl * k;
+      place(fireIM, fn, f.x + Math.cos(a) * r, 0, f.y + Math.sin(a) * r, now / 700 + j, 1.2 * k, h, 1.2 * k);
+      place(flameIM, fn++, f.x + Math.cos(a) * r, 0, f.y + Math.sin(a) * r, 0, 0.6 * k, h * 0.6, 0.6 * k);
+    }
+  }
+  fireIM.count = flameIM.count = fn; fireIM.instanceMatrix.needsUpdate = flameIM.instanceMatrix.needsUpdate = true;
 
   // baus
   const cnt = [0, 0];
@@ -386,18 +458,24 @@ function draw(G) {
     } else if (ev.type === 'armorBreak') {
       const c = { head: 0xff5c57, torso: 0x9b6a3c, legs: 0x9aa3b5 }[ev.part] || 0x9aa3b5;
       for (let i = 0; i < 5; i++) { const m = brk.find(s => !s.visible) || brk[i]; m.material = cmat(c); m.position.set(p.x, 1, p.y); m.userData = { end: now + 300, vx: (Math.random() - 0.5) * 4, vy: 2 + Math.random() * 2, vz: (Math.random() - 0.5) * 4 }; m.visible = true; }
+    } else if (ev.type === 'burn') {
+      const z = ev.id === 'player' ? p : G.zombies.find(q => q.id === ev.id), m = hits.find(s => !s.visible) || hits[0];
+      if (z) { m.position.set(z.x, 1, z.y); m.scale.setScalar(2.4); m.visible = true; m.userData.end = now + 220; }
     } else if (ev.type === 'hit') {
       const m = hits.find(s => !s.visible) || hits[0]; m.position.set(ev.x ?? p.x, 1, ev.y ?? p.y); m.visible = true; m.userData.end = now + 80;
     }
   }
   for (const m of brk) if (m.visible) { const u = m.userData; if (now >= u.end) m.visible = false; else { u.vy -= 14 * dt; m.position.x += u.vx * dt; m.position.y = Math.max(0.05, m.position.y + u.vy * dt); m.position.z += u.vz * dt; m.rotation.x += 8 * dt; m.rotation.z += 6 * dt; } }
   for (const o of shots) if (o.visible && now >= o.userData.end) o.visible = false;
-  for (const o of hits) if (o.visible && now >= o.userData.end) o.visible = false;
+  for (const o of hits) if (o.visible && now >= o.userData.end) { o.visible = false; o.scale.setScalar(1); }
 
   // camera ~55 graus
-  const d = camera.userData.d, el = 0.96;
-  camera.position.set(p.x, 0.5 + d * Math.sin(el), p.y + d * Math.cos(el));
-  camera.lookAt(p.x, 0.5, p.y);
+  const dc = p.car && G.cars.find(c => c.id === p.car), k = 1 - Math.exp(-dt * 3);
+  cSm.x += ((dc ? Math.cos(dc.dir) * dc.speed * 0.4 : 0) - cSm.x) * k; cSm.y += ((dc ? Math.sin(dc.dir) * dc.speed * 0.4 : 0) - cSm.y) * k; cSm.d += ((dc ? 1.25 : 1) - cSm.d) * k;
+  const d = camera.userData.d * cSm.d, el = 0.96, fx = p.x + cSm.x, fy = p.y + cSm.y;
+  scene.fog.near = d + 2; scene.fog.far = d + 30;
+  camera.position.set(fx, 0.5 + d * Math.sin(el), fy + d * Math.cos(el));
+  camera.lookAt(fx, 0.5, fy);
   renderer.render(scene, camera);
 }
 
@@ -459,7 +537,7 @@ function spin(canvas, id) {
   spinCv = canvas; spinId = id; spinRaf = requestAnimationFrame(spinTick);
 }
 // demos de acao: jogador de armadura completa repetindo a acao num loop de 1,2 s (mesmo renderer, mesmo RT do spin)
-const DEMO = { run: ['run'], crouch: ['crouch'], jump: ['idle', 'jump'], equip: ['idle', 'equip'], craft: ['idle', 'craft'], search: ['idle', 'search'] };
+const DEMO = { run: ['run'], crouch: ['crouch'], jump: ['idle', 'jump'], equip: ['idle', 'equip'], siphon: ['crouch', 'siphon'], throw: ['idle', 'throw'], craft: ['idle', 'craft'], search: ['idle', 'search'] };
 function demoPose(t) {
   const [mv, act] = DEMO[spinId], s = t / 1000, c = s % 1.2, rig = demoRig;
   for (const n in rig.P) { rig.P[n].position.copy(rig.P[n].userData.p0); rig.P[n].rotation.set(0, 0, 0); rig.P[n].scale.set(1, 1, 1); }

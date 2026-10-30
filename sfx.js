@@ -1,4 +1,4 @@
-/* sfx.js: sons por evento (G.events), passo e gemido, com Web Audio (sem arquivos).
+/* sfx.js: sons por evento (G.events), passo, gemido e loops (motor, sifão, fogo), com Web Audio (sem arquivos).
    Só lê G. Mudo em localStorage['zl1.mute']. Sem Web Audio, tudo vira no-op. */
 (function () {
   'use strict';
@@ -67,6 +67,83 @@
     }, (dur + 0.1) * 1000);
   }
 
+  // Loops (motor, sifão, fogo): um por nome, ocupam 1 voz do teto até loopOff. set(k) atualiza a cada quadro.
+  const LOOPS = {};
+  function loopOn(name, make) {
+    if (LOOPS[name]) return LOOPS[name];
+    if (!ctx || muteOn || voices >= MAX_VOICES) return null;
+    voices++;
+    const nodes = [], out = ctx.createGain();
+    out.gain.value = 0;
+    out.connect(master);
+    nodes.push(out);
+    const set = make(ctx.currentTime + 0.01, nodes, out);
+    LOOPS[name] = { nodes, out, set };
+    return LOOPS[name];
+  }
+  function loopOff(name) {
+    const L = LOOPS[name];
+    if (!L) return;
+    delete LOOPS[name];
+    voices--;
+    try { L.out.gain.setTargetAtTime(0, ctx.currentTime, 0.03); } catch (e) {}
+    setTimeout(() => {
+      for (const n of L.nodes) {
+        try { if (n.stop) n.stop(); } catch (e) {}
+        try { n.disconnect(); } catch (e) {}
+      }
+    }, 200);
+  }
+  // k = 0 parado .. 1 a 11 m/s: serra + quadrada grave subindo, ruído filtrado a seguir.
+  function engineLoop(t, nodes, out) {
+    const a = ctx.createOscillator(), sq = ctx.createOscillator(), lp = ctx.createBiquadFilter();
+    const ga = ctx.createGain(), gq = ctx.createGain();
+    const ns = ctx.createBufferSource(), nf = ctx.createBiquadFilter(), ng = ctx.createGain();
+    a.type = 'sawtooth'; sq.type = 'square';
+    lp.type = 'lowpass'; lp.frequency.value = 500; lp.Q.value = 0.7;
+    ga.gain.value = 0.12; gq.gain.value = 0.06;
+    ns.buffer = noiseBuf; ns.loop = true;
+    nf.type = 'bandpass'; nf.Q.value = 0.8; ng.gain.value = 0.15;
+    a.connect(ga).connect(lp); sq.connect(gq).connect(lp); lp.connect(out);
+    ns.connect(nf).connect(ng).connect(out);
+    a.start(t); sq.start(t); ns.start(t, Math.random() * 0.5);
+    nodes.push(a, sq, lp, ga, gq, ns, nf, ng);
+    return (k) => {
+      const now = ctx.currentTime;
+      a.frequency.setTargetAtTime(40 + 80 * k, now, 0.08);
+      sq.frequency.setTargetAtTime(20 + 40 * k, now, 0.08);
+      nf.frequency.setTargetAtTime(250 + 300 * k, now, 0.1);
+      out.gain.setTargetAtTime(0.6, now, 0.05);
+    };
+  }
+  // Borbulhar: seno grave com modulação de amplitude de ~12 Hz (bolhas).
+  function bubbleLoop(t, nodes, out) {
+    const o = ctx.createOscillator(), g = ctx.createGain(), lfo = ctx.createOscillator(), lg = ctx.createGain();
+    o.type = 'sine'; o.frequency.value = 180;
+    g.gain.value = 0.2; lfo.frequency.value = 12; lg.gain.value = 0.15;
+    o.connect(g).connect(out);
+    lfo.connect(lg).connect(g.gain);
+    o.start(t); lfo.start(t);
+    nodes.push(o, g, lfo, lg);
+    out.gain.setTargetAtTime(0.7, t, 0.05);
+    return () => {};
+  }
+  // Fogo: whoosh (passa-faixa) + crepitar (passa-alta modulado). k = volume pela distância.
+  function fireLoop(t, nodes, out) {
+    const ns = ctx.createBufferSource(), bp = ctx.createBiquadFilter(), g1 = ctx.createGain();
+    const hp = ctx.createBiquadFilter(), g2 = ctx.createGain(), lfo = ctx.createOscillator(), lg = ctx.createGain();
+    ns.buffer = noiseBuf; ns.loop = true;
+    bp.type = 'bandpass'; bp.frequency.value = 700; bp.Q.value = 0.7; g1.gain.value = 0.25;
+    hp.type = 'highpass'; hp.frequency.value = 2500; g2.gain.value = 0.06;
+    lfo.type = 'square'; lfo.frequency.value = 18; lg.gain.value = 0.05;
+    ns.connect(bp).connect(g1).connect(out);
+    ns.connect(hp).connect(g2).connect(out);
+    lfo.connect(lg).connect(g2.gain);
+    ns.start(t, Math.random() * 0.5); lfo.start(t);
+    nodes.push(ns, bp, g1, hp, g2, lfo, lg);
+    return (k) => out.gain.setTargetAtTime(0.7 * k, ctx.currentTime, 0.1);
+  }
+
   const SND = {
     shot: () => voice(0.14, (t, n) => {
       noise(n, t, 0.06, 0.6, 'highpass', 1800, 0.7);
@@ -132,6 +209,28 @@
       osc(n, 'triangle', 200, 500, t, 0.2, 0.06);
     }),
     climb: () => voice(0.14, (t, n) => noise(n, t, 0.14, 0.22, 'bandpass', 1800, 3, 0.02)), // raspar madeira
+    engineOn: () => voice(0.4, (t, n) => { // arranque: giro curto subindo
+      osc(n, 'sawtooth', 50, 110, t, 0.35, 0.14);
+      noise(n, t, 0.35, 0.12, 'bandpass', 300, 0.8, 0.02);
+    }),
+    engineOff: () => voice(0.5, (t, n) => osc(n, 'sawtooth', 100, 35, t, 0.45, 0.14)), // giro caindo
+    brake: () => voice(0.2, (t, n) => noise(n, t, 0.18, 0.2, 'bandpass', 3200, 2, 0.02)), // chiado curto
+    crash: () => voice(0.35, (t, n) => { // pancada + vidro leve
+      osc(n, 'sine', 110, 40, t, 0.25, 0.6);
+      noise(n, t, 0.2, 0.2, 'highpass', 3500, 0.7, 0.002);
+    }),
+    run_over: () => voice(0.25, (t, n) => { // baque
+      osc(n, 'sine', 120, 45, t, 0.2, 0.6);
+      noise(n, t, 0.08, 0.3, 'lowpass', 300, 0.7, 0.002);
+    }),
+    trunk: () => voice(0.2, (t, n) => { // tranca: clique seco e trava
+      noise(n, t, 0.03, 0.4, 'highpass', 2500, 0.7, 0.002);
+      osc(n, 'square', 1500, 1500, t + 0.07, 0.04, 0.12);
+    }),
+    throw: () => voice(0.4, (t, n) => noise(n, t, 0.35, 0.25, 'bandpass', 900, 1, 0.05)), // sopro da garrafa
+    fire: () => voice(0.6, (t, n) => noise(n, t, 0.5, 0.35, 'lowpass', 900, 0.5, 0.1)),   // whoosh ao acender
+    burn: () => voice(0.15, (t, n) => noise(n, t, 0.14, 0.2, 'highpass', 2000, 0.7, 0.005)), // chiado curto
+    noKey: () => voice(0.4, (t, n) => [0, 0.18].forEach((d) => osc(n, 'square', 150, 150, t + d, 0.1, 0.14))), // dois bipes graves
   };
 
   // Evento -> som. door: abrir/fechar pelo ev.open. search: só o início (p:0 com action ativa; cancelamento tem action null).
@@ -144,7 +243,9 @@
       return;
     }
     if (ev.type === 'search') { const a = G.player && G.player.action; if (ev.p === 0 && a && a.id === ev.id) SND.search(); return; }
-    if (SND[ev.type]) SND[ev.type]();
+    if (ev.type === 'engine') return (ev.on ? SND.engineOn : SND.engineOff)();
+    if (SND[ev.type]) SND[ev.type](); // siphon/pour não têm one-shot: o loop do sifão cuida
+
   }
 
   // Lê G.events (sem limpar) e gera passo/gemido pelo estado do jogo.
@@ -178,6 +279,16 @@
               }
             }
           }
+          // loops: motor (dirigindo com motor ligado), sifão (action siphon) e fogo (G.fires < 15 m). Param ao sair/morrer/mudo.
+          const car = p.car && (G.cars || []).find((c) => c.id === p.car);
+          if (!G.dead && p._eng && car) { const L = loopOn('engine', engineLoop); if (L) L.set(Math.min(1, Math.abs(car.speed || 0) / 11)); }
+          else loopOff('engine');
+          if (!G.dead && p.action && p.action.type === 'siphon') { const L = loopOn('siphon', bubbleLoop); if (L) L.set(1); }
+          else loopOff('siphon');
+          let fd = Infinity;
+          for (const f of G.fires || []) fd = Math.min(fd, Math.hypot(f.x - p.x, f.y - p.y));
+          if (!G.dead && fd < 15) { const L = loopOn('fire', fireLoop); if (L) L.set(1 - fd / 15); }
+          else loopOff('fire');
         }
         lastX = p.x; lastY = p.y;
       }
@@ -186,6 +297,7 @@
 
   function mute(v) {
     muteOn = !!v;
+    if (muteOn) for (const k of Object.keys(LOOPS)) loopOff(k);
     try { localStorage.setItem(MUTE_KEY, muteOn ? '1' : '0'); } catch (e) {}
     try { if (master) master.gain.setTargetAtTime(muteOn ? 0 : MASTER, ctx.currentTime, 0.02); } catch (e) {}
   }

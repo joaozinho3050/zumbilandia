@@ -106,21 +106,39 @@ export function makeZombieParts(opts = {}) {
 }
 
 // ---------- carro (I, 'slim') ----------
-export function makeCar() {
-  const c = STYLES[FINAL.car].pal, g = new THREE.Group(), acc = c.accent;
-  add(g, Box(2.0, 0.32, 0.92), c.car, 0, 0.42, 0);
-  for (const z of [-0.475, 0.475]) add(g, Box(1.7, 0.07, 0.04), acc, 0, 0.47, z);
-  add(g, Cyl(0.42, 0.56, 0.32, 4), c.glass, -0.1, 0.75, 0, 0, Math.PI / 4, 0).scale.set(1.25, 1, 0.95);
-  add(g, Box(0.9, 0.05, 0.7), c.car, -0.1, 0.935, 0);
-  for (const x of [-1.04, 1.04]) add(g, Box(0.08, 0.1, 0.94), 0x5a5f6e, x, 0.3, 0);
+// parts:true = pivôs nomeados (M4 §3). body: tudo que fica na suspensão; wheelFL/FR (dianteiras, x>0) e
+// wheelRL/RR giram em x (eixo), as dianteiras viram em y; trunkLid: dobradiça em (-0.6, 0.58), abre com rotation.z = -π/3;
+// exhaust, lightL (z<0), lightR (z>0): marcadores vazios. Sem opção = mesma geometria de antes, sem pivôs.
+export function makeCar(opts = {}) {
+  const c = STYLES[FINAL.car].pal, g = new THREE.Group(), acc = c.accent, parts = !!opts.parts;
+  const b = parts ? pivot(g, 'body', 0, 0, 0) : g;
+  const x0 = parts ? -0.6 : -1;          // com parts, x < -0.6 é a tampa do porta-malas (peça própria)
+  add(b, Box(1 - x0, 0.32, 0.92), c.car, (1 + x0) / 2, 0.42, 0);
+  for (const z of [-0.475, 0.475]) add(b, Box(1.7, 0.07, 0.04), acc, 0, 0.47, z);
+  add(b, Cyl(0.42, 0.56, 0.32, 4), c.glass, -0.1, 0.75, 0, 0, Math.PI / 4, 0).scale.set(1.25, 1, 0.95);
+  add(b, Box(0.9, 0.05, 0.7), c.car, -0.1, 0.935, 0);
+  for (const x of [-1.04, 1.04]) add(b, Box(0.08, 0.1, 0.94), 0x5a5f6e, x, 0.3, 0);
   for (const z of [-0.3, 0.3]) {
-    add(g, Box(0.05, 0.09, 0.16), 0xfff3b0, 1.03, 0.47, z);
-    add(g, Box(0.05, 0.08, 0.14), 0xd9302c, -1.03, 0.47, z);
+    add(b, Box(0.05, 0.09, 0.16), 0xfff3b0, 1.03, 0.47, z);
+    add(b, Box(0.05, 0.08, 0.14), 0xd9302c, -1.03, 0.47, z);
   }
   const wr = 0.19;
-  for (const x of [-0.62, 0.62]) for (const z of [-0.5, 0.5]) {
-    add(g, Cyl(wr, wr, 0.16, 10), c.wheel, x, wr, z, Math.PI / 2, 0, 0);
-    add(g, Cyl(0.08, 0.08, 0.02, 8), 0xc9d3e0, x, wr, z + Math.sign(z) * 0.09, Math.PI / 2, 0, 0);
+  if (parts) {
+    pivot(b, 'lightL', 1.07, 0.47, -0.3); pivot(b, 'lightR', 1.07, 0.47, 0.3); pivot(b, 'exhaust', -1.06, 0.2, 0);
+    const lid = pivot(b, 'trunkLid', -0.6, 0.58, 0); add(lid, Box(0.4, 0.32, 0.92), c.car, -0.2, -0.16, 0);
+    for (const [n, x, z] of [['wheelFL', 0.62, -0.5], ['wheelFR', 0.62, 0.5], ['wheelRL', -0.62, -0.5], ['wheelRR', -0.62, 0.5]]) {
+      // eixo gira 90° em y: o x local do pivô vira o z do carro; o pivô gira em x (roda) em torno desse eixo
+      const axle = pivot(g, 'axle' + n.slice(5), x, wr, z); axle.rotation.y = Math.PI / 2;
+      const w = pivot(axle, n, 0, 0, 0); w.rotation.order = 'YXZ'; // Ry(direção)·Rx(giro): gira no próprio eixo mesmo virado
+      // mesma orientação de polígono da versão sem pivôs (Rx(π/2)), só que com eixo no x local
+      const spin = m => { m.rotation.order = 'YXZ'; m.rotation.set(Math.PI / 2, -Math.PI / 2, 0); return m; };
+      spin(add(w, Cyl(wr, wr, 0.16, 10), c.wheel)); spin(add(w, Cyl(0.08, 0.08, 0.02, 8), 0xc9d3e0, -Math.sign(z) * 0.09));
+    }
+  } else {
+    for (const x of [-0.62, 0.62]) for (const z of [-0.5, 0.5]) {
+      add(g, Cyl(wr, wr, 0.16, 10), c.wheel, x, wr, z, Math.PI / 2, 0, 0);
+      add(g, Cyl(0.08, 0.08, 0.02, 8), 0xc9d3e0, x, wr, z + Math.sign(z) * 0.09, Math.PI / 2, 0, 0);
+    }
   }
   return done(g);
 }
