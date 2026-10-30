@@ -1,0 +1,163 @@
+<title>Sons do Zumbilândia</title>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=Pixelify+Sans:wght@500;700&display=swap');
+:root{--fundo:#2b2236;--slot:#3d3150;--borda:#5d4a78;--texto:#fff1e0;--acento:#ff8c69;--raio:14px;--toque:48px;--sombra:0 2px 8px rgba(21,18,26,.45)}
+*{box-sizing:border-box}
+body{margin:0;background:var(--fundo);color:var(--texto);font:16px/1.4 'Atkinson Hyperlegible',system-ui,sans-serif;padding:16px;max-width:1100px;margin-inline:auto}
+h1,h2,.num{font-family:'Pixelify Sans',monospace;text-shadow:0 1px 0 #15121a}
+h1{font-size:28px;margin:8px 0}
+h2{font-size:22px;color:var(--acento);margin:28px 0 12px}
+.aviso{background:var(--slot);border:2px solid var(--borda);border-radius:var(--raio);padding:12px 16px;box-shadow:var(--sombra)}
+.aviso p{margin:0 0 10px}
+.lista{display:grid;grid-template-columns:1fr;gap:12px}
+@media(min-width:640px){.lista{grid-template-columns:1fr 1fr}}
+@media(min-width:960px){.lista{grid-template-columns:1fr 1fr 1fr}}
+.card{background:var(--slot);border:2px solid var(--borda);border-radius:var(--raio);padding:12px;display:flex;flex-direction:column;gap:6px;box-shadow:var(--sombra)}
+.card h3{margin:0;font-size:18px;display:flex;gap:8px;align-items:center}
+.num{background:var(--acento);color:#2b2236;border-radius:8px;min-width:32px;text-align:center;padding:0 6px;text-shadow:none}
+.card p{margin:0;font-size:14px}
+.card b{color:var(--acento)}
+button{min-height:var(--toque);min-width:var(--toque);border-radius:var(--raio);border:2px solid var(--borda);background:var(--fundo);color:var(--texto);font:700 16px 'Atkinson Hyperlegible',sans-serif;cursor:pointer;padding:0 16px;margin-top:auto}
+button:hover,button.on{background:var(--acento);color:#2b2236;border-color:var(--acento)}
+label.sl{display:flex;gap:8px;align-items:center;font-size:14px;min-height:var(--toque)}
+input[type=range]{flex:1;min-height:var(--toque)}
+</style>
+<h1>Sons do Zumbilândia</h1>
+<div class="aviso">
+<p><b>Toque em qualquer botão para liberar o som (exigência do celular).</b> <span id="st"></span></p>
+<button id="mudo">Tirar do mudo</button>
+</div>
+<div id="app"></div>
+<script src="sfx.js"></script>
+<script>
+(function () {
+  // G falso mínimo: só o que o sfx.js lê.
+  const P = { x: 0, y: 0, stamina: 100, crouch: false, running: false, noise: 6, car: null, action: null, anim: {} };
+  const G = window.G = { players: [P], player: P, cars: [{ id: 'c1', x: 0, y: 0, speed: 0 }], fires: [], zombies: [], events: [], dead: false };
+  const Z = { id: 'z1', x: 5, y: 0, state: 'idle', anim: {} };
+
+  const um = (ev) => () => { G.events.push(Object.assign({}, ev)); };
+
+  // [secao, nome, quando, como, evento]
+  const UM = [
+    ['Personagem', 'Pulo', 'Quando o jogador pula (obstáculo/cerca).', 'Ruído passa-faixa (800 Hz) em sopro curto + triângulo subindo de 200 a 500 Hz.', { type: 'jump' }],
+    ['Personagem', 'Agachar', 'Ao ligar/desligar o agachar.', 'Ruído passa-faixa (2,5 kHz) suave, como roçar de roupa.', { type: 'crouch' }],
+    ['Personagem', 'Dano recebido', 'Quando o jogador leva dano.', 'Triângulo caindo de 420 a 140 Hz em 0,25 s.', { type: 'hurt' }],
+    ['Personagem', 'Morte do jogador', 'Quando a vida chega a zero.', 'Três triângulos (acorde 330/262/196 Hz) caindo 30%, longos (1,2 s).', { type: 'death' }],
+    ['Combate', 'Tiro', 'Ao disparar uma arma de fogo.', 'Ruído passa-alta (1,8 kHz) de estalo + triângulo grave caindo de 140 a 45 Hz.', { type: 'shot' }],
+    ['Combate', 'Golpe no ar', 'Ao balançar uma arma corpo a corpo.', 'Ruído passa-faixa (900 Hz) com ataque lento, como um assobio de ar.', { type: 'swing' }],
+    ['Combate', 'Acerto', 'Quando um golpe ou tiro atinge alguém.', 'Seno grave caindo de 150 a 45 Hz (pancada).', { type: 'hit' }],
+    ['Combate', 'Arremesso de garrafa', 'Ao arremessar um molotov.', 'Ruído passa-faixa (900 Hz) longo, sopro da garrafa.', { type: 'throw' }],
+    ['Combate', 'Fogo acendendo', 'Quando o molotov quebra e acende o fogo.', 'Ruído passa-baixa (900 Hz) de whoosh com ataque suave.', { type: 'fire' }],
+    ['Combate', 'Queimando', 'Quando alguém leva dano do fogo.', 'Chiado curto: ruído passa-alta (2 kHz).', { type: 'burn' }],
+    ['Combate', 'Armadura quebrando', 'Quando uma armadura chega a zero de durabilidade.', 'Estalo de ruído passa-alta + dois senos agudos (2,2 e 2,9 kHz) tilintando.', { type: 'armorBreak' }],
+    ['Zumbis', 'Zumbi se preparando', 'Quando um zumbi a menos de 12 m arma o ataque.', 'Serra grave (90 a 60 Hz) + ruído passa-baixa: rosnado curto.', { type: 'windup', id: 'z1' }, 'z'],
+    ['Casa e itens', 'Abrir baú', 'Ao abrir baú, móvel ou porta-malas.', 'Serra subindo de 200 a 600 Hz, curta.', { type: 'crateOpen' }],
+    ['Casa e itens', 'Abrir porta', 'Ao abrir uma porta.', 'Triângulo subindo de 170 a 380 Hz: rangido curto.', { type: 'door', open: true }],
+    ['Casa e itens', 'Fechar porta', 'Ao fechar uma porta.', 'Seno grave caindo de 120 a 50 Hz: batida.', { type: 'door', open: false }],
+    ['Casa e itens', 'Vasculhar', 'No início de vasculhar um móvel.', 'Três estalos de ruído passa-faixa (1,4 kHz), como remexer.', { type: 'search', id: 'm1', p: 0 }, 's'],
+    ['Casa e itens', 'Arrombar porta', 'Quando uma porta trancada é arrombada.', 'Três pancadas: seno grave (90 a 40 Hz) + ruído passa-baixa.', { type: 'doorBreak' }],
+    ['Casa e itens', 'Largar item', 'Ao largar um item no chão.', 'Seno caindo de 110 a 55 Hz + ruído passa-baixa curto: baque.', { type: 'drop' }],
+    ['Casa e itens', 'Pegar item', 'Ao pegar um item do chão ou do contêiner.', 'Triângulo agudo (1,4 a 1,8 kHz) + ruído passa-alta: estalo.', { type: 'pick' }],
+    ['Casa e itens', 'Equipar', 'Ao equipar roupa ou armadura.', 'Ruído passa-faixa (tecido) + quadrada de 2,4 kHz (fivela).', { type: 'equip' }],
+    ['Casa e itens', 'Fabricar', 'Ao fabricar algo no crafting.', 'Três cliques metálicos: triângulo de 2,6 kHz + ruído passa-faixa.', { type: 'craft' }],
+    ['Carro', 'Ligar motor', 'Ao girar a chave e ligar o carro.', 'Serra subindo de 50 a 110 Hz + ruído passa-faixa grave.', { type: 'engine', on: true }],
+    ['Carro', 'Desligar motor', 'Ao desligar o carro.', 'Serra caindo de 100 a 35 Hz.', { type: 'engine', on: false }],
+    ['Carro', 'Freada', 'Ao frear forte.', 'Ruído passa-faixa agudo (3,2 kHz), chiado curto.', { type: 'brake' }],
+    ['Carro', 'Batida', 'Quando o carro bate em algo.', 'Seno grave (110 a 40 Hz) + ruído passa-alta de vidro.', { type: 'crash' }],
+    ['Carro', 'Atropelar', 'Quando o carro atropela um zumbi.', 'Seno grave (120 a 45 Hz) + ruído passa-baixa: baque.', { type: 'run_over' }],
+    ['Carro', 'Porta-malas / trava', 'Ao trancar/destrancar o carro ou o porta-malas.', 'Clique de ruído passa-alta + quadrada de 1,5 kHz.', { type: 'trunk' }],
+    ['Carro', 'Sem chave', 'Ao tentar usar um carro sem a chave.', 'Dois bipes graves: quadrada de 150 Hz.', { type: 'noKey' }],
+    ['Ambiente e interface', 'Mochila cheia', 'Quando não cabe o item na mochila.', 'Duas quadradas curtas (220 e 175 Hz).', { type: 'full' }],
+    ['Ambiente e interface', 'Dica', 'Quando aparece uma dica.', 'Seno puro de 880 Hz, curto.', { type: 'hint' }],
+  ];
+  // [secao, nome, quando, como, estado ligado, estado desligado, extra]
+  const reset = () => { P.stamina = 100; P.crouch = P.running = false; P.noise = 6; P.car = null; P._eng = false; P.action = null; P.x = P.y = 0; G.fires = []; G.zombies = []; };
+  const LOOPS = [
+    ['Personagem', 'Passos andando', 'Enquanto o jogador anda, um passo a cada 0,45 s.', 'Ruído passa-baixa (400 Hz) curto, volume pelo raio de ruído (6 m).', 'walk'],
+    ['Personagem', 'Passos correndo', 'Enquanto o jogador corre, um passo a cada 0,28 s, mais alto.', 'Mesmo ruído passa-baixa, volume maior (raio de ruído 12 m).', 'run'],
+    ['Personagem', 'Passos agachado', 'Enquanto o jogador anda agachado, a cada 0,7 s, quase mudo.', 'Mesmo ruído passa-baixa, volume mínimo (raio de ruído 3 m).', 'crouch'],
+    ['Personagem', 'Respiração ofegante', 'Quando o fôlego fica abaixo de 15, a cada 1,2 s.', 'Ruído passa-baixa (700 Hz) longo e suave.', 'pant'],
+    ['Zumbis', 'Gemido de zumbi', 'Quando um zumbi persegue a menos de 10 m, a cada 3 s.', 'Seno grave (110 a 80 Hz) com vibrato de 6 Hz.', 'groan'],
+    ['Zumbis', 'Raspar na cerca', 'Enquanto um zumbi sobe a cerca a menos de 12 m.', 'Ruído passa-faixa (1,8 kHz, Q alto), a cada 0,5 s.', 'climb'],
+    ['Carro', 'Motor (parado e acelerando)', 'Enquanto o jogador dirige com o motor ligado.', 'Serra + quadrada graves subindo com a velocidade, mais ruído passa-faixa, num filtro passa-baixa.', 'engine'],
+    ['Casa e itens', 'Sifão', 'Enquanto o jogador sifona gasolina de um carro.', 'Seno de 180 Hz com amplitude modulada a 12 Hz: bolhas.', 'siphon'],
+    ['Ambiente e interface', 'Fogo por perto', 'Quando há fogo a menos de 15 m; mais alto quanto mais perto.', 'Ruído passa-faixa (whoosh) + passa-alta modulado por quadrada de 18 Hz (crepitar).', 'fire'],
+  ];
+
+  // Estado do G falso por interruptor ativo.
+  const ativos = new Set(); let vel = 0, raf = 0, px = 0;
+  function aplicar() {
+    reset(); P.x = px;
+    const a = (k) => ativos.has(k);
+    if (a('walk') || a('run') || a('crouch')) { P.noise = a('run') ? 12 : a('crouch') ? 3 : 6; P.running = a('run'); P.crouch = a('crouch') && !a('run'); P.x += 0.05; px = P.x; }
+    if (a('pant')) P.stamina = 5;
+    if (a('groan')) G.zombies.push(Object.assign({}, Z, { state: 'chase', x: P.x + 5 }));
+    if (a('climb')) G.zombies.push({ id: 'z2', x: P.x + 6, y: 0, state: 'idle', anim: { act: 'climb' } });
+    if (a('engine')) { P.car = 'c1'; P._eng = true; G.cars[0].speed = vel; }
+    if (a('siphon')) P.action = { type: 'siphon', id: 's1' };
+    if (a('fire')) G.fires = [{ x: P.x + 3, y: 0 }];
+  }
+  function quadro() {
+    if (!ativos.size) { raf = 0; aplicar(); SFX.draw(G); return; } // um quadro vazio desliga os loops
+    aplicar(); SFX.draw(G); raf = requestAnimationFrame(quadro);
+  }
+
+  const app = document.getElementById('app');
+  let n = 0, secao = '', lista = null;
+  function card(sec, nome, quando, como, extra) {
+    if (sec !== secao) {
+      secao = sec;
+      const h = document.createElement('h2'); h.textContent = sec; app.appendChild(h);
+      lista = document.createElement('div'); lista.className = 'lista'; app.appendChild(lista);
+    }
+    const c = document.createElement('div'); c.className = 'card';
+    c.innerHTML = '<h3><span class="num">' + (++n) + '</span><span></span></h3><p><b>Quando toca:</b> <span class="q"></span></p><p><b>Como é feito:</b> <span class="c"></span></p>';
+    c.querySelector('h3 span:last-child').textContent = nome;
+    c.querySelector('.q').textContent = quando; c.querySelector('.c').textContent = como;
+    lista.appendChild(c);
+    return c;
+  }
+  const SECOES = ['Personagem', 'Combate', 'Zumbis', 'Casa e itens', 'Carro', 'Ambiente e interface'];
+  const nomes = [];
+  for (const s of SECOES) {
+    for (const [sec, nome, q, c, ev, tipo] of UM.filter((r) => r[0] === s)) {
+      const el = card(sec, nome, q, c); nomes.push(n + ' — ' + nome);
+      const b = document.createElement('button'); b.textContent = '▶ Tocar'; b.setAttribute('aria-label', 'Tocar ' + nome);
+      b.onclick = () => {
+        reset();
+        if (tipo === 'z') G.zombies = [Object.assign({}, Z)];
+        if (tipo === 's') P.action = { id: ev.id, type: 'search' };
+        G.events.push(Object.assign({}, ev));
+        SFX.draw(G); G.events.length = 0;
+        if (!ativos.size) { P.action = null; G.zombies = []; }
+      };
+      el.appendChild(b);
+    }
+    for (const [sec, nome, q, c, k] of LOOPS.filter((r) => r[0] === s)) {
+      const el = card(sec, nome, q, c); nomes.push(n + ' — ' + nome);
+      if (k === 'engine') {
+        const l = document.createElement('label'); l.className = 'sl';
+        l.innerHTML = 'Parado <input type="range" min="0" max="11" step="0.5" value="0" aria-label="Velocidade do carro"> 11 m/s';
+        l.querySelector('input').oninput = (e) => { vel = +e.target.value; };
+        el.appendChild(l);
+      }
+      const b = document.createElement('button'); b.textContent = '○ Ligar'; b.setAttribute('aria-pressed', 'false');
+      b.onclick = () => {
+        const on = !ativos.has(k);
+        on ? ativos.add(k) : ativos.delete(k);
+        b.classList.toggle('on', on); b.textContent = on ? '● Desligar' : '○ Ligar'; b.setAttribute('aria-pressed', on);
+        if (!raf) raf = requestAnimationFrame(quadro);
+      };
+      el.appendChild(b);
+    }
+  }
+  window.SONS_LISTA = nomes;
+
+  const st = document.getElementById('st'), mudo = document.getElementById('mudo');
+  const mostra = () => { st.textContent = SFX.muted() ? 'Estado: MUDO.' : 'Estado: som ligado.'; mudo.style.display = SFX.muted() ? '' : 'none'; };
+  mudo.onclick = () => { SFX.mute(false); mostra(); };
+  mostra();
+})();
+</script>
