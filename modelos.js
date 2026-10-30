@@ -45,7 +45,7 @@ function face(head, geo, color, x, dy, out = 0, rz = 0) {
 // pivô = Group na articulação; malhas ficam deslocadas dentro dele (girar .rotation.x balança o membro)
 function pivot(parent, name, x, y, z) { const p = new THREE.Group(); p.name = name; p.position.set(x, y, z); parent.add(p); return p; }
 const HIP = 0.55, NECK = 1.3, SHOULDER = 1.1; // alturas das articulações (m)
-function humanoid(zombie, armor = {}, police = false) {
+function humanoid(zombie, armor = {}, police = false, back = null) {
   const st = STYLES[FINAL[zombie ? 'zombie' : 'player']], c = st.pal, g = new THREE.Group();
   const skin = zombie ? c.zskin : c.skin, shirt = zombie ? (police ? 0x5b7bd5 : c.zshirt) : c.shirt;
   const hr = 0.24 * st.head, hy = NECK + hr, front = hr * 1.02;
@@ -94,9 +94,10 @@ function humanoid(zombie, armor = {}, police = false) {
     add(body, Box(0.06, 0.5, 0.02), 0xd8c9a0, 0, 0.88 - HIP, 0.23);
   }
   if (armor.legs) for (const l of [legL, legR]) add(l, Box(0.3, 0.3, 0.32), c.guard, 0, 0.25 - HIP, 0.02);
+  if (back) body.add(bagGroup(back));
   return done(g);
 }
-export const makePlayer = (opts = {}) => humanoid(false, opts.armor || {});
+export const makePlayer = (opts = {}) => humanoid(false, opts.armor || {}, false, opts.back || null);
 export const makeZombie = (opts = {}) => humanoid(true, {}, !!opts.police);
 // partes soltas, origem na articulação (body/legs em y=0.55 do corpo inteiro; legL x=-0.15, legR x=+0.15)
 export function makeZombieParts(opts = {}) {
@@ -204,9 +205,38 @@ const ITEMS = {
     for (const y of [0.09, 0.25]) add(g, Box(0.2, 0.04, 0.16), 0xd8c9a0, s * 0.13, y, 0); } },
 };
 export function makeItem(id) {
+  if (BAGS[id]) { const g = new THREE.Group(); BAGS[id].build(g); return done(g); }
   const f = ITEMS[id]; if (!f) throw new Error('item desconhecido: ' + id);
   const g = new THREE.Group(); f(g, STYLES[FINAL.items].pal); return done(g);
 }
+
+// ---------- mochilas (M4.5 §2): build(g) monta em volta da origem, frente (bolsos) em +z, alça de mão no topo ----------
+const BAGS = {
+  bag_school: { d: 0.2, build(g) {
+    add(g, softGeo(0.32, 0.36, 0.2, 0.08), 0xff8c69, 0, 0, 0);
+    add(g, softGeo(0.2, 0.14, 0.04, 0.04), 0xff8c69, 0, -0.08, 0.125);           // bolso frontal, sai 4 cm do corpo
+    add(g, new THREE.TorusGeometry(0.07, 0.018, 6, 10), 0x2f2a35, 0, 0.18, 0);    // alça de mão
+  } },
+  bag_hiking: { d: 0.22, build(g) {
+    add(g, softGeo(0.3, 0.6, 0.22, 0.1), 0x78a865, 0, 0, 0);
+    add(g, Cap(0.09, 0.1), 0xff5c57, 0, 0.36, 0, 0, 0, Math.PI / 2);             // saco de dormir enrolado (eixo x)
+    for (const x of [-0.08, 0.08]) add(g, Box(0.07, 0.05, 0.03), 0x9aa3b5, x, 0, 0.12); // fivelas
+  } },
+  bag_military: { d: 0.24, build(g) {
+    add(g, softGeo(0.4, 0.44, 0.24, 0.06), 0x4a5266, 0, 0, 0);
+    for (const sx of [-1, 1]) add(g, softGeo(0.18, 0.26, 0.06, 0.04), 0x4a5266, sx * 0.22, -0.02, 0, 0, Math.PI / 2, 0); // bolsos laterais
+    add(g, new THREE.TorusGeometry(0.07, 0.018, 6, 10), 0x2f2a35, 0, 0.22, 0);    // alça de mão
+  } },
+};
+// mochila vestida, origem no pivô body do jogador: bolsos para trás (-z), costas no tronco, alças sobre os ombros
+function bagGroup(id) {
+  const B = BAGS[id]; if (!B) throw new Error('mochila desconhecida: ' + id);
+  const g = new THREE.Group(), b = new THREE.Group();
+  b.position.set(0, 0.31, -(0.239 + B.d / 2)); b.rotation.y = Math.PI; g.add(b); B.build(b);
+  for (const sx of [-1, 1]) add(g, Cap(0.035, 0.3), 0x2f2a35, sx * 0.13, 0.52, -0.22); // alças
+  return g;
+}
+export function makeBackpack(id) { return done(bagGroup(id)); }
 
 // ---------- cenário ----------
 export function makeTree() {

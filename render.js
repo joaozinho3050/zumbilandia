@@ -170,8 +170,8 @@ function crateModel(open) {
 function place(im, i, x, y, z, ry, sx = 1, sy = 1, sz = 1) { dummy.position.set(x, y, z); dummy.rotation.set(0, ry, 0); dummy.scale.set(sx, sy, sz); dummy.updateMatrix(); im.setMatrixAt(i, dummy.matrix); }
 
 // ---------- jogador: pivos body(head,armL,armR), legL, legR; cada um 1 par de malhas (12 calls) ----------
-function mkRig(armor) {
-  const m = makePlayer({ armor }), P = {};
+function mkRig(armor, back) {
+  const m = makePlayer({ armor, back }), P = {};
   for (const n of ['head', 'armL', 'armR', 'legL', 'legR', 'body']) { // head antes do body: sai do corpo
     const o = m.getObjectByName(n), pos = o.position.clone(); o.removeFromParent(); o.position.set(0, 0, 0);
     const g = new THREE.Group(); g.add(...pair(bake(o))); g.position.copy(pos); P[n] = g;
@@ -200,9 +200,9 @@ function mkCarOwn() {
   return P;
 }
 const freeRig = r => r.g.traverse(o => o.isMesh && o.geometry.dispose());
-function buildPlayer(armor) { // troca a armadura: dispose da geometria antiga (R.mem estavel)
+function buildPlayer(armor, back) { // troca a armadura: dispose da geometria antiga (R.mem estavel)
   if (plRig) { scene.remove(playerG); freeRig(plRig); }
-  plRig = mkRig(armor); playerG = plRig.g; plP = plRig.P; scene.add(playerG);
+  plRig = mkRig(armor, back); playerG = plRig.g; plP = plRig.P; scene.add(playerG);
 }
 const sm = x => x * x * (3 - 2 * x);
 function animPlayer(p, dt) {
@@ -351,8 +351,9 @@ function draw(G) {
   doorIM[0].count = doorIM[1].count = dn; doorIM[0].instanceMatrix.needsUpdate = true; doorIM[1].instanceMatrix = doorIM[0].instanceMatrix;
 
   ground.position.set(p.x, -0.01, p.y);
-  const es = ['head', 'torso', 'legs'].map(k => p.equip && p.equip[k] ? 1 : 0).join('');
-  if (es !== eqSig) { eqSig = es; buildPlayer({ head: es[0] === '1', torso: es[1] === '1', legs: es[2] === '1' }); }
+  const bk = p.equip && p.equip.back && p.equip.back.id || null;
+  const es = ['head', 'torso', 'legs'].map(k => p.equip && p.equip[k] ? 1 : 0).join('') + (bk || '');
+  if (es !== eqSig) { eqSig = es; buildPlayer({ head: es[0] === '1', torso: es[1] === '1', legs: es[2] === '1' }, bk); }
   playerG.visible = !p.car; playerG.position.set(p.x, 0, p.y); playerG.rotation.y = Math.PI / 2 - p.dir; animPlayer(p, dtm / 1000);
   const ja = p.action && p.action.type === 'jump' ? p.action : null;
   if (ja && p.anim && p.anim.act === 'jump') { const u = Math.min(1, p.anim.t / 0.6); playerG.position.x = ja.x0 + (ja.x1 - ja.x0) * u; playerG.position.z = ja.y0 + (ja.y1 - ja.y0) * u; }
@@ -493,6 +494,7 @@ function itemSetup() {
 function itemLoad(id) { // modelo centrado na origem; camera 3/4 enquadrada pela Box3
   itemSetup();
   let m; try { m = makeItem(id); } catch (e) { return false; }
+  for (const o of iPivot.children) o !== iRig?.g && o.traverse(x => x.isMesh && x.geometry.dispose());
   iPivot.clear(); iPivot.rotation.y = 0; iPivot.add(m);
   const b = new THREE.Box3().setFromObject(m), c = b.getCenter(new THREE.Vector3()); m.position.sub(c);
   iR = b.getSize(new THREE.Vector3()).length() / 2;
@@ -524,7 +526,7 @@ function spinStop() { cancelAnimationFrame(spinRaf); spinRaf = 0; spinCv = null;
 function spinTick(t) {
   if (!spinCv) return;
   spinRaf = requestAnimationFrame(spinTick);
-  if (t - spinT < 33) return; spinT = t;
+  if (t - spinT < 100) return; spinT = t;
   if (demoRig) demoPose(t); else iPivot.rotation.y = t / 1000 * 0.8;
   const cv = spinCv.getContext('2d'); cv.imageSmoothingEnabled = false;
   const tmp = spinTick.c || (spinTick.c = document.createElement('canvas')); tmp.width = tmp.height = 160;

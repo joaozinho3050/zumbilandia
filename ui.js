@@ -65,30 +65,6 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
 #menu .pane.on{display:block}
 #menu h3{margin:0 0 var(--esp-2);font:16px 'Pixelify Sans',monospace;font-weight:400}
 #menu h3.full{color:var(--vida)}
-#menu .grid{display:grid;grid-template-columns:repeat(4,56px);gap:var(--esp-2)}
-#menu .slot{position:relative;width:56px;height:56px;padding:0;border:2px solid var(--borda);border-radius:14px;background:var(--slot);display:flex;flex-direction:column;align-items:center;justify-content:center;font-size:10px;line-height:1}
-#menu .slot.sel{border-color:var(--texto)}
-#menu .slot:empty{border-style:dashed;background:none}
-#menu .slot img{width:36px;height:36px;image-rendering:pixelated}
-#menu .slot svg{width:28px;height:28px}
-#menu .slot b{position:absolute;right:4px;top:2px;font:12px 'Pixelify Sans',monospace;font-weight:400;text-shadow:var(--sombra-texto)}
-#menu .row{display:flex;gap:var(--esp-3);align-items:flex-start}
-#menu .row>*{min-width:0}
-#menu .det{flex:1;min-height:56px}
-#menu .det canvas.spin{display:block;width:112px;height:112px;margin:0 0 4px;image-rendering:pixelated}
-#menu .btn{min-height:48px;padding:0 var(--esp-4);border:2px solid var(--borda);border-radius:14px;background:var(--slot);font-size:14px}
-#menu .btn:disabled{opacity:.35}
-#menu .rec{display:flex;align-items:center;gap:var(--esp-2);padding:var(--esp-2) 0;border-bottom:1px solid var(--borda)}
-#menu .rec .ing{flex:1;display:flex;flex-wrap:wrap;gap:var(--esp-2);align-items:center}
-#menu .ing span{display:inline-flex;align-items:center;gap:2px}
-#menu .ing .no{opacity:.35}
-#menu .ing img,#menu .rec>img{width:28px;height:28px;image-rendering:pixelated}
-#menu .dim{color:var(--armadura)}
-#menu .eq{display:flex;gap:var(--esp-4);align-items:flex-start}
-#menu .eq .col{display:flex;flex-direction:column;gap:var(--esp-2)}
-#menu .eq .slot{width:64px;height:64px}
-#menu .dur{position:absolute;left:8px;bottom:5px;width:48px;height:6px;background:var(--fundo);border-radius:3px;overflow:hidden}
-#menu .dur i{display:block;height:100%;background:var(--armadura)}
 #tab-map{text-align:center}
 #tab-map canvas{width:min(320px,60vh);height:min(320px,60vh);image-rendering:pixelated;border:2px solid var(--borda);border-radius:14px;background:var(--fundo)}
 #menu input{width:100%;height:48px;padding:0 var(--esp-3);border:2px solid var(--borda);border-radius:14px;background:var(--slot);color:var(--texto);font:16px 'Atkinson Hyperlegible',sans-serif;touch-action:manipulation;user-select:text;-webkit-user-select:text}
@@ -115,6 +91,34 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
 #tour .tip div{display:flex;gap:var(--esp-2);align-items:center}
 #tour .tip button{flex:1;min-height:48px;border:2px solid var(--borda);border-radius:14px;background:var(--slot);color:var(--texto);font:400 14px 'Pixelify Sans',monospace}
 #tour .tip i{font:400 14px 'Pixelify Sans',monospace;font-style:normal;color:var(--municao)}
+#container{z-index:5;position:absolute;left:50%;top:50%;width:92vw;height:86vh;transform:translate(-50%,-50%);display:flex;flex-direction:column;background:var(--superficie-forte);border:2px solid var(--borda);border-radius:14px;transition:opacity var(--fade);pointer-events:auto;touch-action:pan-y;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
+#ui:has(#container:not(.hidden)) #hint{top:auto;bottom:max(8px,env(safe-area-inset-bottom));z-index:6}
+#container .top{display:flex;align-items:center;justify-content:flex-end;gap:var(--esp-2);padding:var(--esp-2);border-bottom:2px solid var(--borda)}
+#container .top .sp{flex:1}
+#menu .pane.cols.on{display:flex;overflow:hidden;padding:0}
+.ip button{color:var(--texto);font-family:inherit;touch-action:pan-y}
+.ip .btn,#menu .btn{min-width:48px;min-height:48px;padding:0 var(--esp-4);border:2px solid var(--borda);border-radius:14px;background:var(--slot);font:14px 'Pixelify Sans',monospace}
+.ip .btn:disabled,#menu .btn:disabled{opacity:.35}
+.ip.cols,.ip .cols{flex:1;min-height:0;display:flex}
+.ip .col{flex:1;min-width:0;overflow-y:auto;touch-action:pan-y;padding:var(--esp-3)}
+.ip .col+.col{border-left:2px solid var(--borda)}
+.ip h3{margin:0 0 var(--esp-2);font:16px 'Pixelify Sans',monospace;font-weight:400}
+.ip h3.full{color:var(--vida)}
+.ip .grid{display:grid;grid-template-columns:repeat(auto-fill,56px);gap:var(--esp-2)}
+.ip .slot{position:relative;overflow:hidden;width:56px;height:56px;padding:0;border:2px solid var(--borda);border-radius:14px;background:var(--slot);display:flex;align-items:center;justify-content:center;font-size:10px;line-height:1}
+.ip .slot:disabled{border-style:dashed;background:none}
+.ip .slot.ex{border-color:var(--municao)}
+.ip .slot.sel{border-color:var(--texto)}
+.ip .slot.no img{opacity:.35}
+.ip .slot img{width:36px;height:36px;image-rendering:pixelated;pointer-events:none}
+.ip .slot b{position:absolute;right:4px;top:2px;font:12px 'Pixelify Sans',monospace;font-weight:400;text-shadow:var(--sombra-texto)}
+.ip .slot>i{position:absolute;inset:0;background:var(--texto);opacity:0;transform:scaleY(0);transform-origin:bottom;pointer-events:none}
+.ip .slot.h>i{opacity:.35;transform:scaleY(1);transition:transform 400ms linear}
+.ip .dur{position:absolute;left:6px;right:6px;bottom:4px;height:5px;background:var(--fundo);border-radius:3px;overflow:hidden}
+.ip .dur i{display:block;height:100%;background:var(--armadura)}
+.ip canvas.spin{display:block;width:96px;height:96px;margin:0 0 4px;image-rendering:pixelated}
+.ip .acts{display:flex;flex-wrap:wrap;gap:var(--esp-2);margin-top:var(--esp-2)}
+.dim{color:var(--armadura)}
 @media (prefers-reduced-motion:reduce){#ui *{transition:none!important;animation:none!important}}`;
 
   const ICON = {
@@ -152,13 +156,15 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
     trunk: ['trunk', 'MALA'], car: ['door', 'ENTRAR'], siphon: ['pump', 'SIFONAR'], pour: ['pump', 'DESPEJAR'], search: ['search', 'BUSCAR'], drop: ['hand', 'PEGAR'], fence: ['jump', 'PULAR']
   };
   const acaoDe = (n) => n.act ? ACAO[n.act] : n.type === 'door' ? (n.open ? ['door', 'FECHAR'] : ['door', 'ABRIR']) : ACAO[n.type] || ['hand', 'AÇÃO'];
-  const NOME = { food: 'Comida', bandage: 'Bandagem', ammo: 'Munição', rag: 'Trapo', wire: 'Arame', bottle: 'Garrafa', hose: 'Mangueira', gascan: 'Galão', key: 'Chave', pipe: 'Cano', pipe_r: 'Cano reforçado', bat: 'Taco', pistol: 'Pistola', molotov: 'Molotov', helmet: 'Capacete', jacket: 'Jaqueta', shinguards: 'Caneleiras' };
+  const NOME = { food: 'Comida', bandage: 'Bandagem', ammo: 'Munição', rag: 'Trapo', wire: 'Arame', bottle: 'Garrafa', hose: 'Mangueira', gascan: 'Galão', key: 'Chave', pipe: 'Cano', pipe_r: 'Cano reforçado', bat: 'Taco', pistol: 'Pistola', molotov: 'Molotov', helmet: 'Capacete', jacket: 'Jaqueta', shinguards: 'Caneleiras', bag_school: 'Mochila escolar', bag_hiking: 'Mochila de trilha', bag_military: 'Mochila militar' };
+  const BAG = { bag_school: 4, bag_hiking: 8, bag_military: 12 };
+  const CNOME = { fridge: 'Geladeira', cabinet: 'Armário', wardrobe: 'Guarda-roupa', drawer: 'Gaveta', shelf: 'Gôndola', box: 'Caixa', trunk: 'Porta-malas', tomb: 'Tumba' };
   const ARMA = { pipe: 'CANO', pipe_r: 'CANO+', bat: 'TACO', pistol: 'PISTOLA', molotov: 'MOLOTOV' };
   const DUR = { helmet: 20, jacket: 20, shinguards: 10 };
 
   const held = { atk: false, act: false }, keys = new Set(), last = {}, E = {};
   const joy = { id: null, cx: 0, cy: 0, mx: 0, my: 0, run: false };
-  let intT = 0, pend = false, hintGuia = '', crouchPend = false, root, armorUntil = 0, hintUntil = 0, hintNear = '', toastUntil = 0, flashUntil = 0, menuEl, startEl, confirmEl, deadEl, tourEl, tourStep = -1, tourPos;
+  let intT = 0, pend = false, hintGuia = '', crouchPend = false, root, armorUntil = 0, hintUntil = 0, hintNear = '', toastUntil = 0, flashUntil = 0, menuEl, startEl, confirmEl, deadEl, tourEl, tourStep = -1, tourPos, contEl, contSig = '', hp = null;
 
   const put = (k, v, fn) => { if (last[k] !== v) { last[k] = v; fn(v); } };
   const el = (tag, id, parent, html, cls) => {
@@ -184,12 +190,13 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
   function toggleMute() { try { SFX.mute(!SFX.muted()); } catch (e) {} }
 
   function toggleMenu(open) {
+    if (contEl && !contEl.classList.contains('hidden')) return;
     const v = open === undefined ? !UI.paused : open;
     if (v === UI.paused || (v && startEl && !startEl.classList.contains('hidden'))) return;
     UI.paused = v;
     menuEl.classList.toggle('hidden', !v);
     if (v) { held.atk = held.act = false; intT = 0; try { window.G.save(); } catch (e) {} buildMenu(); showTab(curTab); }
-    else demoOff();
+    else { demoOff(); spinOff(); }
   }
 
   // ---- MENU (U3) ----
@@ -203,6 +210,7 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
   };
   const have = (id) => ((window.G.player.inv || []).filter((i) => i.id === id).reduce((a, i) => a + (i.qty == null ? 1 : i.qty), 0));
   const say = (t) => { E.toast.textContent = t; toastUntil = performance.now() + 2000; };
+  const spinOff = () => { try { window.R && R.spin && R.spin(null); } catch (e) {} };
   const demoOff = () => { try { window.R && R.demo && R.demo(null); } catch (e) {} };
 
   let curTab = 'inv', selInv = -1, guideQ = '', guideOpen = null, mapRaf = 0, panes = {}, tabBtns = {};
@@ -210,58 +218,75 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
 
   function showTab(id) {
     if (curTab === 'guide' && id !== 'guide') demoOff();
+    if (id !== 'inv') spinOff();
     curTab = id;
     for (const k in panes) { panes[k].classList.toggle('on', k === id); tabBtns[k].classList.toggle('on', k === id); }
     ({ inv: renderInv, equip: renderEquip, craft: renderCraft, map: renderMap, guide: renderGuide, settings: renderSettings })[id]();
   }
 
-  function slotHtml(it, i, extra) {
-    if (!it) return '<button class="slot" disabled></button>';
-    const q = it.id === 'gascan' && it.fuel != null ? Math.round(it.fuel / 10 * 100) + '%' : it.qty > 1 ? it.qty : '';
-    return '<button class="slot' + (i === selInv ? ' sel' : '') + '" data-a="slot" data-v="' + i + '" aria-label="' + nm(it.id) + '">' + ico(it.id) + (extra || '') + (q !== '' ? '<b>' + q + '</b>' : '') + '</button>';
+  // ---- componente único de painel de itens (duas colunas): slot, coluna, aviso ----
+  const qtxt = (it) => it.id === 'gascan' && it.fuel != null ? Math.round(it.fuel / 10 * 100) + '%' : it.qty > 1 ? it.qty : '';
+  // o: a (atributos), ex, sel, no (esmaecido), hold (overlay do segurar), lab (rótulo se vazio), q (texto no canto), dur, tag
+  function slotH(it, o) {
+    o = o || {};
+    const cls = 'slot' + (o.ex ? ' ex' : '') + (o.sel ? ' sel' : '') + (o.no ? ' no' : ''), tag = o.tag || 'button';
+    if (!it) return '<' + tag + ' class="' + cls + '" disabled' + (o.lab ? ' aria-label="' + o.lab + '"' : '') + '>' + (o.lab ? '<span class="dim">' + o.lab + '</span>' : '') + '</' + tag + '>';
+    const q = o.q != null ? o.q : qtxt(it), d = o.dur != null ? '<span class="dur"><i style="width:' + Math.round(Math.max(0, Math.min(1, o.dur)) * 100) + '%"></i></span>' : '';
+    return '<' + tag + (tag === 'div' ? ' role="button" tabindex="0"' : '') + ' class="' + cls + '" ' + (o.a || '') + ' aria-label="' + (o.lab || nm(it.id)) + '">' + ico(it.id) + (o.hold ? '<i></i>' : '') + (q !== '' ? '<b>' + q + '</b>' : '') + d + '</' + tag + '>';
   }
+  const col = (t, full, body) => '<div class="col"><h3' + (full ? ' class="full"' : '') + '>' + t + '</h3>' + body + '</div>';
+  const grid = (h) => '<div class="grid">' + h + '</div>';
+  const durOf = (it) => it.dur == null ? null : it.dur / (DUR[it.id] || it.dur || 1);
+
+  const cap = (p) => window.G.capOf ? window.G.capOf(p) : 8;
+  const capTxt = (p) => cap(p) > 8 ? '8+' + (cap(p) - 8) : '8';
+  const bagCol = (p, f) => { // coluna da mochila: f(item, i) -> opções do slot
+    const inv = p.inv || [];
+    let g = '';
+    for (let i = 0; i < Math.max(cap(p), inv.length); i++) g += slotH(inv[i], Object.assign({ ex: i >= 8 }, inv[i] && f(inv[i], i)));
+    return col('Mochila ' + inv.length + '/' + capTxt(p), inv.length >= cap(p), grid(g));
+  };
+  const equipavel = (id) => !!(DUR[id] || BAG[id]);
 
   function renderInv() {
-    const inv = window.G.player.inv || [], n = inv.length, it = inv[selInv];
-    let g = '';
-    for (let i = 0; i < 8; i++) g += slotHtml(inv[i], i, inv[i] ? '<span>' + nm(inv[i].id).slice(0, 7) + '</span>' : '');
+    const p = window.G.player, inv = p.inv || [], it = inv[selInv];
     let det = '<span class="dim">Toque num item.</span>';
     if (it) {
-      const usa = it.id === 'food' || it.id === 'bandage';
-      det = '<canvas class="spin" width="160" height="160"></canvas><h3>' + nm(it.id) + ' ×' + (it.qty || 1) + '</h3><div class="dim">' + (usa ? 'Toque de novo para usar.' : DUR[it.id] ? 'Veja a aba Equipar.' : ['pistol','bat','pipe','pipe_r','molotov'].includes(it.id) ? 'Arma — troque com o botão ARMA.' : 'Material para fabricar ou usar no mundo.') + '</div>' +
-        (usa ? '<button class="btn" data-a="use" data-v="' + selInv + '">USAR</button> ' : '') + (DUR[it.id] ? '<button class="btn" data-a="eq" data-v="' + it.id + '">EQUIPAR</button> ' : '') + '<button class="btn" data-a="drop" data-v="' + selInv + '">LARGAR</button>';
+      const usa = it.id === 'food' || it.id === 'bandage', d = durOf(it);
+      det = '<canvas class="spin" width="160" height="160"></canvas><h3>' + nm(it.id) + ' ×' + (it.qty || 1) + (d != null ? ' · dur ' + it.dur : '') + '</h3><div class="dim">' + (usa ? 'Toque de novo para usar.' : equipavel(it.id) ? 'Pode ser equipado.' : ['pistol','bat','pipe','pipe_r','molotov'].includes(it.id) ? 'Arma — troque com o botão ARMA.' : 'Material para fabricar ou usar no mundo.') + '</div><div class="acts">' +
+        (usa ? '<button class="btn" data-a="use" data-v="' + selInv + '">USAR</button>' : '') + (equipavel(it.id) ? '<button class="btn" data-a="eq" data-v="' + it.id + '">EQUIPAR</button>' : '') + '<button class="btn" data-a="drop" data-v="' + selInv + '">LARGAR</button></div>';
     }
-    panes.inv.innerHTML = '<h3' + (n >= 8 ? ' class="full"' : '') + '>Mochila ' + n + '/8</h3><div class="row"><div class="grid">' + g + '</div><div class="det">' + det + '</div></div>';
+    panes.inv.innerHTML = bagCol(p, (x, i) => ({ a: 'data-a="slot" data-v="' + i + '"', sel: i === selInv, dur: durOf(x) })) + '<div class="col">' + det + '</div>';
     // item selecionado girando em 3D (mesmo renderer do jogo)
     const cv = panes.inv.querySelector('canvas.spin');
     try { window.R && R.spin && R.spin(cv || null, it ? it.id : null); } catch (e) {}
   }
 
   function renderEquip() {
-    const G = window.G, eq = G.player.equip || {};
-    const nomes = { head: 'Cabeça', torso: 'Tronco', legs: 'Pernas' };
-    let col = '';
-    for (const part of ['head', 'torso', 'legs']) {
+    const G = window.G, p = G.player, eq = p.equip || {};
+    const nomes = { head: 'Cabeça', torso: 'Tronco', legs: 'Pernas', back: 'Costas' };
+    let g = '';
+    for (const part in nomes) {
       const it = eq[part];
-      col += it ? '<button class="slot" data-a="un" data-v="' + part + '" aria-label="' + nomes[part] + ': ' + nm(it.id) + '">' + ico(it.id) + '<span class="dur"><i style="width:' + Math.round(Math.min(1, it.dur / (DUR[it.id] || it.dur || 1)) * 100) + '%"></i></span></button>' : '<button class="slot" disabled aria-label="' + nomes[part] + '"><span class="dim">' + nomes[part].slice(0, 4) + '</span></button>';
+      g += slotH(it, { a: 'data-a="un" data-v="' + part + '"', lab: nomes[part] + (it ? ': ' + nm(it.id) : ''), dur: it && part !== 'back' ? durOf(it) : null });
     }
-    const lista = (G.player.inv || []).filter((i) => DUR[i.id]).map((i) => '<button class="btn" data-a="eq" data-v="' + i.id + '">' + nm(i.id) + '</button>').join(' ');
-    panes.equip.innerHTML = '<div class="eq"><svg viewBox="0 0 24 24" style="width:96px;height:120px;color:var(--borda)">' + ICON.man + '</svg><div class="col">' + col + '</div><div class="det"><h3>Equipados</h3>' +
-      (lista ? lista : '<span class="dim">Nenhuma peça</span>') + '</div></div>';
+    panes.equip.innerHTML = col('Equipados', false, grid(g) + '<p class="dim">Toque na peça para tirar.</p>') +
+      bagCol(p, (x) => equipavel(x.id) ? { a: 'data-a="eq" data-v="' + x.id + '"', dur: durOf(x) } : { no: true });
   }
 
+  let selRec = '';
+  const okIng = (x) => x.fuel ? (window.G.player.inv || []).some((i) => i.id === x.id && (i.fuel || 0) >= x.fuel) : have(x.id) >= x.qty;
   function renderCraft() {
-    const G = window.G, rs = G.recipes || [];
-    panes.craft.innerHTML = rs.map((r) => {
-      const ing = r.ing, falta = [];
-      const ih = ing.map((x) => {
-        const id = x.id, q = x.qty, ok = x.fuel ? (window.G.player.inv || []).some((i) => i.id === id && (i.fuel || 0) >= x.fuel) : have(id) >= q;
-        if (!ok) falta.push(x.fuel ? nm(id) + ' com ' + x.fuel + ' L' : nm(id));
-        return '<span class="' + (ok ? '' : 'no') + '">' + ico(id) + (x.fuel ? x.fuel + ' L' : '×' + q) + '</span>';
-      }).join('');
-      const out = r.out;
-      return '<div class="rec">' + ico(out) + '<div class="ing"><b>' + nm(out) + '</b>' + ih + (falta.length ? '<span class="dim">falta: ' + falta.join(', ') + '</span>' : '') + '</div><button class="btn" data-a="craft" data-v="' + r.id + '"' + (falta.length ? ' disabled' : '') + '>FABRICAR</button></div>';
-    }).join('') || '<span class="dim">Sem receitas</span>';
+    const rs = window.G.recipes || [], r = rs.find((x) => x.id === selRec) || rs[0];
+    const pode = (x) => x.ing.every(okIng);
+    const left = grid(rs.map((x) => slotH({ id: x.out }, { tag: 'div', a: 'data-a="rec" data-v="' + x.id + '"', sel: x === r, no: !pode(x), q: '', lab: nm(x.out) })).join(''));
+    let right = '<span class="dim">Sem receitas</span>';
+    if (r) {
+      const falta = r.ing.filter((x) => !okIng(x)).map((x) => nm(x.id) + (x.fuel ? ' com ' + x.fuel + ' L' : ''));
+      right = '<h3>' + nm(r.out) + '</h3>' + grid(r.ing.map((x) => slotH({ id: x.id }, { tag: 'div', no: !okIng(x), q: x.fuel ? x.fuel + ' L' : Math.min(have(x.id), 99) + '/' + x.qty })).join('')) +
+        (falta.length ? '<p class="dim">falta: ' + falta.join(', ') + '</p>' : '') + '<div class="acts"><button class="btn" data-a="craft" data-v="' + r.id + '"' + (falta.length ? ' disabled' : '') + '>FABRICAR</button></div>';
+    }
+    panes.craft.innerHTML = '<div class="col"><h3>Receitas</h3>' + left + '</div><div class="col">' + right + '</div>';
   }
 
   // Mapa: 5x5 chunks em volta do jogador, 48 px por chunk (1,2 px/m), cache por chunk, 4 novos por frame
@@ -331,6 +356,50 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
     panes.settings.innerHTML = '<h3>Ajustes</h3><button class="btn" data-a="mute">Som: ' + (m ? 'mudo' : 'ligado') + '</button> <button class="btn" data-a="exit">Sair para o início</button> <button class="btn" data-a="delw">Apagar este mundo</button>';
   }
 
+  // ---- CONTÊINER (M4.5): esquerda = contêiner, direita = mochila ----
+  function contData(G, p) {
+    const o = p.open, e = o && (o.type === 'trunk' ? G.cars : G.crates).find((c) => c.id === o.id);
+    return e && { list: o.type === 'trunk' ? e.trunk : e.loot, name: CNOME[o.type === 'trunk' ? 'trunk' : e.tomb ? 'tomb' : e.kind] || 'Móvel', cap: o.type === 'trunk' ? 10 : e.tomb ? Infinity : e.kind === 'shelf' ? 8 : 6 };
+  }
+  function renderCont(G, p, c) {
+    const cs = (list, n, side, ex) => { let g = ''; for (let i = 0; i < Math.max(n, list.length); i++) g += slotH(list[i], { a: 'data-s="' + side + '" data-i="' + i + '"', hold: true, ex: ex && i >= 8 }); return g; };
+    contEl.querySelector('.cols').innerHTML = col(c.name + ' ' + c.list.length + (c.cap === Infinity ? '' : '/' + c.cap), c.list.length >= c.cap, grid(cs(c.list, c.cap === Infinity ? 0 : c.cap, 'c'))) +
+      col('Mochila ' + p.inv.length + '/' + capTxt(p), p.inv.length >= cap(p), grid(cs(p.inv, cap(p), 'inv', true)));
+  }
+  function holdEnd() { if (hp) { clearTimeout(hp.t); hp.b.classList.remove('h'); hp = null; } }
+  function buildCont() {
+    contEl = el('div', 'container', root, '<div class="top"><button class="btn" data-k="all">Pegar tudo</button><button class="btn" data-k="x" aria-label="Fechar">✕</button></div><div class="cols"></div>', 'hidden ip');
+    const G = () => window.G;
+    contEl.addEventListener('pointerdown', (e) => {
+      const k = e.target.closest('[data-k]'), b = e.target.closest('[data-s]');
+      if (k) { if (k.dataset.k === 'x') G().closeC(); else G().takeAll(); return; }
+      if (!b || hp) return;
+      const f = b.dataset.s, i = +b.dataset.i;
+      hp = { b, x: e.clientX, y: e.clientY, t: setTimeout(() => { const h = hp; hp = null; h.b.classList.remove('h'); G().moveItem(f, i, 1); }, G().HOLD_MS || 400) };
+      void b.offsetWidth; b.classList.add('h');
+    });
+    contEl.addEventListener('pointermove', (e) => { if (hp && Math.hypot(e.clientX - hp.x, e.clientY - hp.y) > 8) holdEnd(); });
+    const up = (e) => {
+      if (!hp) return;
+      const h = hp, ok = e.type === 'pointerup'; holdEnd();
+      if (ok) G().moveItem(h.b.dataset.s, +h.b.dataset.i);
+    };
+    contEl.addEventListener('pointerup', up);
+    document.addEventListener('pointercancel', holdEnd);
+    contEl.addEventListener('contextmenu', (e) => e.preventDefault());
+    document.addEventListener('pointerdown', (e) => { if (!contEl.classList.contains('hidden') && !contEl.contains(e.target)) window.G.closeC(); });
+  }
+  function contTick(G, p) {
+    const c = contData(G, p), on = !!c, was = !contEl.classList.contains('hidden');
+    if (on !== was) {
+      hide(contEl, !on); contSig = '';
+      if (on) { held.atk = held.act = false; intT = 0; UI.paused = true; } else { holdEnd(); if (menuEl.classList.contains('hidden')) UI.paused = false; }
+    }
+    if (!on) return;
+    const sig = JSON.stringify([c.list, p.inv, cap(p)]);
+    if (sig !== contSig) { contSig = sig; holdEnd(); renderCont(G, p, c); }
+  }
+
   function menuClick(e) {
     const b = e.target.closest('[data-a]');
     if (!b) return;
@@ -340,6 +409,7 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
       const i = +v, it = G.player.inv[i];
       if (i === selInv && it && (it.id === 'food' || it.id === 'bandage')) { G.useItem(i); if (!G.player.inv[i]) selInv = -1; } else selInv = i;
     } else if (a === 'use') { G.useItem(+v); if (!G.player.inv[+v]) selInv = -1; }
+    else if (a === 'rec') selRec = v;
     else if (a === 'eq') G.equip(v);
     else if (a === 'un') G.unequip(v);
     else if (a === 'drop') { G.drop(+v); if (!G.player.inv[+v]) selInv = -1; }
@@ -359,7 +429,7 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
     }
     const x = el('button', null, tabs, '✕', 'x'); x.setAttribute('aria-label', 'Fechar');
     x.addEventListener('click', () => toggleMenu(false));
-    for (const [, , id] of ABAS) panes[id] = el('div', 'tab-' + id, menuEl, '', 'pane');
+    for (const [, , id] of ABAS) panes[id] = el('div', 'tab-' + id, menuEl, '', 'pane' + (['inv', 'equip', 'craft'].includes(id) ? ' cols ip' : ''));
     menuEl.addEventListener('click', menuClick);
     document.addEventListener('pointerdown', (e) => { if (UI.paused && startEl.classList.contains('hidden') && !menuEl.contains(e.target) && !E.menuB.contains(e.target)) toggleMenu(false); });
     const vv = window.visualViewport;
@@ -527,7 +597,7 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
     });
     window.addEventListener('keyup', (e) => { keys.delete(e.code); if (e.code === 'KeyE') intT = 0; });
     window.addEventListener('blur', () => { keys.clear(); held.atk = held.act = false; intT = 0; });
-    buildStart(); buildDead(); buildTour(); openStart();
+    buildStart(); buildDead(); buildTour(); buildCont(); openStart();
   }
 
   function draw(G) {
@@ -589,7 +659,8 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
 
     put('time', fmt(G.t), (v) => { E.time.textContent = v; });
 
-    const nr = car ? { type: 'exit' } : p.near;
+    contTick(G, p);
+    const nr = p.open ? null : car ? { type: 'exit' } : p.near;
     put('near', nr ? nr.type + (nr.open ? '1' : '0') + (nr.act || '') : '', (v) => {
       E.act.classList.toggle('hidden', !v);
       E.act.classList.toggle('near', !!v);

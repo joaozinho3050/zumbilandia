@@ -231,12 +231,34 @@
     fire: () => voice(0.6, (t, n) => noise(n, t, 0.5, 0.35, 'lowpass', 900, 0.5, 0.1)),   // whoosh ao acender
     burn: () => voice(0.15, (t, n) => noise(n, t, 0.14, 0.2, 'highpass', 2000, 0.7, 0.005)), // chiado curto
     noKey: () => voice(0.4, (t, n) => [0, 0.18].forEach((d) => osc(n, 'square', 150, 150, t + d, 0.1, 0.14))), // dois bipes graves
+    openCrate: () => voice(0.2, (t, n) => { // madeira: rangido de porta de armário
+      osc(n, 'triangle', 180, 420, t, 0.16, 0.15);
+      noise(n, t, 0.08, 0.15, 'bandpass', 1800, 3, 0.005);
+    }),
+    openTrunk: () => voice(0.3, (t, n) => { // tranca (clique) + tampa rangendo
+      noise(n, t, 0.03, 0.4, 'highpass', 2500, 0.7, 0.002);
+      osc(n, 'square', 1500, 1500, t + 0.07, 0.04, 0.12);
+      osc(n, 'triangle', 150, 300, t + 0.14, 0.15, 0.1);
+    }),
+    openTomb: () => voice(0.35, (t, n) => noise(n, t, 0.3, 0.25, 'lowpass', 600, 0.5, 0.03)), // terra/pá suave
+    stowBag: () => voice(0.2, (t, n) => { // tecido + zíper curto
+      noise(n, t, 0.12, 0.2, 'bandpass', 1200, 0.8, 0.03);
+      osc(n, 'square', 2600, 2600, t + 0.09, 0.02, 0.07);
+    }),
+    stowBox: () => voice(0.14, (t, n) => { // baque leve no contêiner
+      osc(n, 'sine', 140, 60, t, 0.1, 0.3);
+      noise(n, t, 0.05, 0.12, 'lowpass', 300, 0.7, 0.003);
+    }),
+    closeBox: () => voice(0.12, (t, n) => osc(n, 'sine', 140, 90, t, 0.1, 0.3)), // batida suave ao fechar
   };
 
   // Evento -> som. door: abrir/fechar pelo ev.open. search: só o início (p:0 com action ativa; cancelamento tem action null).
-  // windup: rosnado só se o zumbi estiver a <12 m do jogador.
+  // windup: rosnado só se o zumbi estiver a <12 m do jogador. open: ev.kind = crate|trunk|tomb. move: to 'inv' = mochila.
   function play(ev, G) {
     if (ev.type === 'door') return (ev.open ? SND.doorOpen : SND.doorClose)();
+    if (ev.type === 'open') return (ev.kind === 'trunk' ? SND.openTrunk : ev.kind === 'tomb' ? SND.openTomb : SND.openCrate)();
+    if (ev.type === 'move') return (ev.to === 'inv' ? SND.stowBag : SND.stowBox)();
+    if (ev.type === 'close') return SND.closeBox();
     if (ev.type === 'windup') {
       const z = (G.zombies || []).find((e) => e.id === ev.id), p = G.player;
       if (z && p && Math.hypot(z.x - p.x, z.y - p.y) < 12) SND.windup();
