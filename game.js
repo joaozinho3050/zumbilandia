@@ -130,33 +130,118 @@
     G.events.push({ type: 'hit', x: z.x, y: z.y });
   }
 
+  const idPhase = id => { let v = 0; for (const c of String(id)) v = (v * 31 + c.charCodeAt(0)) % 25; return v / 100; }; // escalona o recalculo por id
+  // proximo waypoint contra a casa h (so ela): vao/porta aberta visivel mais perto do alvo; senao porta fechada; senao canto
+  function navWay(z, p, h) {
+    const cur = z.way, cand = [];
+    (h.gaps || []).forEach((g, gi) => {
+      const dr = (h.doors || []).find(d => Math.abs(d.x + d.w / 2 - g.x) < 1e-6 && Math.abs(d.y + d.h / 2 - g.y) < 1e-6), closed = dr && !dr.open;
+      if (closed) dr.open = true; // a propria porta nao tapa a vista ate ela
+      const vis = !blocked(z.x, z.y, g.x, g.y, [h]);
+      if (closed) dr.open = false;
+      if (vis && !(z.last || []).some(l => l.h === h.id && l.gi === gi && G.t - l.t < 10)) cand.push({ x: g.x, y: g.y, gi, dr: closed ? dr : null, s: Math.hypot(g.x - p.x, g.y - p.y) });
+    });
+    const zd = dist(z, p), open = cand.filter(c => !c.dr), shut = cand.filter(c => c.dr), fwd = l => l.filter(c => c.s < zd - 0.3); // so vaos que aproximam do alvo
+    let pool = fwd(open).length ? fwd(open) : fwd(shut).length ? fwd(shut) : open.length ? open : shut;
+    let best = pool.reduce((b, c) => (!b || c.s < b.s ? c : b), null);
+    const keep = cur && cur.gi !== undefined && cur.h === h.id && G.t - cur.t0 < 6 && !cur.dr && cand.find(c => c.gi === cur.gi && !c.dr);
+    if (keep) best = keep; // compromisso: segue o vao escolhido ate atravessar (evita vai-e-volta entre dois vaos)
+    if (best) {
+      let u = cur && cur.gi === best.gi && cur.h === h.id ? [cur.ux, cur.uy] : null; // direcao de travessia fixada na 1a visada
+      if (!u) { // normal do vao (eixo x se a parede e vertical), voltada para o lado do alvo
+        const g = best, vert = h.parts.some(q => g.x >= q.x - 0.02 && g.x <= q.x + q.w + 0.02 && (Math.abs(q.y + q.h - (g.y - 0.7)) < 0.03 || Math.abs(q.y - (g.y + 0.7)) < 0.03)); // parede vertical: o vao de 1,4 m acaba em y±0,7
+        const n = vert ? [1, 0] : [0, 1], sg = (g.x - z.x) * n[0] + (g.y - z.y) * n[1] >= 0 ? 1 : -1;
+        u = [n[0] * sg, n[1] * sg];
+      }
+      const s0 = (z.x - best.x) * u[0] + (z.y - best.y) * u[1]; // <0 antes do vao, >0 depois
+      if (s0 > 0.3 && !best.dr) z.last = (z.last || []).filter(l => G.t - l.t < 10).concat({ h: h.id, gi: best.gi, t: G.t }); // vao atravessado: nao volta por ele (10 s)
+      if (s0 > 0.3 && !best.dr) { z.way = null; return navWay(z, p, h); }
+      const lat = Math.abs((z.x - best.x) * -u[1] + (z.y - best.y) * u[0]), k = best.dr ? 0 : s0 < -0.6 || (s0 < -0.3 && lat > 0.15) ? -0.5 : 0.6; // alinha 0,5 m antes do vao; depois atravessa 0,6 m
+      return { x: best.x + u[0] * k, y: best.y + u[1] * k, gi: best.gi, h: h.id, hh: h, dr: best.dr, ux: u[0], uy: u[1], t0: cur && cur.gi === best.gi && cur.h === h.id ? cur.t0 : G.t };
+    }
+    // nenhum vao visivel (zumbi em volta da casa): vai ao canto (folga 0,6 m) que encurta mais o trajeto
+    if (cur && cur.gi === undefined && Math.hypot(cur.x - z.x, cur.y - z.y) > 0.3 && !blocked(z.x, z.y, cur.x, cur.y, [h])) return cur;
+    const m = 0.6, cs = [[h.x - m, h.y - m], [h.x + h.w + m, h.y - m], [h.x - m, h.y + h.h + m], [h.x + h.w + m, h.y + h.h + m]];
+    let bw = null, bs = 1e9;
+    for (const c of cs) {
+      const sc = Math.hypot(c[0] - z.x, c[1] - z.y) + Math.hypot(c[0] - p.x, c[1] - p.y);
+      if (sc < bs && Math.hypot(c[0] - z.x, c[1] - z.y) > 0.3 && !blocked(z.x, z.y, c[0], c[1], [h])) { bs = sc; bw = { x: c[0], y: c[1] }; }
+    }
+    return bw;
+  }
+
+  // BFS em grade 0,3 m com free(): ponto ~5 celulas adiante no caminho ate a celula alcancavel mais perto de (gx,gy); contorna moveis
+  function pathTo(z, gx, gy) {
+    const S = 0.3, x0 = Math.min(z.x, gx) - 3, y0 = Math.min(z.y, gy) - 3, nx = Math.ceil((Math.abs(z.x - gx) + 6) / S), ny = Math.ceil((Math.abs(z.y - gy) + 6) / S);
+    if (nx * ny > 8000) return null; // shortcut: alvo longe demais para a grade, volta ao rumo direto
+    const prev = new Int32Array(nx * ny).fill(-2), cx = i => x0 + (i % nx + 0.5) * S, cy = i => y0 + (Math.floor(i / nx) + 0.5) * S;
+    const s0 = Math.floor((z.y - y0) / S) * nx + Math.floor((z.x - x0) / S), qu = [s0];
+    prev[s0] = -1;
+    let best = s0, bd = Math.hypot(cx(s0) - gx, cy(s0) - gy);
+    for (let k = 0; k < qu.length; k++) {
+      const c = qu[k], i = c % nx, j = Math.floor(c / nx);
+      for (const [di, dj] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const a = i + di, b = j + dj, n = b * nx + a;
+        if (a < 0 || b < 0 || a >= nx || b >= ny || prev[n] !== -2 || !free(cx(n), cy(n))) continue;
+        prev[n] = c; qu.push(n);
+        const d = Math.hypot(cx(n) - gx, cy(n) - gy);
+        if (d < bd - 1e-9) { bd = d; best = n; }
+      }
+    }
+    const path = []; for (let c = best; c !== -1; c = prev[c]) path.push(c);
+    path.reverse();
+    const t = path[Math.min(5, path.length - 1)];
+    return { x: cx(t), y: cy(t) };
+  }
+
   function updateZombie(z, p, dt) {
     const d = dist(z, p);
     z.alert = Math.max(0, z.alert - dt);
+    const h = d < 12 ? G.houses.find(h => blocked(z.x, z.y, p.x, p.y, [h])) : null; // casa no caminho (parede/porta fechada)
     if (d <= 1) z.state = 'attack';
-    else if (d < 8 || z.alert > 0 || (z.state === 'chase' && d < 12)) z.state = 'chase';
+    else if (d < (h && h.parts ? 3 : 8) || z.alert > 0 || (z.state === 'chase' && d < 12)) z.state = 'chase'; // abafado: 3 m
     else z.state = 'idle';
     if (z.state === 'attack') p.hp -= 10 * dt;
     else if (z.state === 'chase') {
-      // direto; se bater na quina, gira para o lado (sticky) ate achar passagem
       const a = Math.atan2(p.y - z.y, p.x - z.x), s = 1.8 * dt;
       z.side = z.side || (rng() < 0.5 ? 1 : -1);
       const tryDir = ang => { const nx = z.x + Math.cos(ang) * s, ny = z.y + Math.sin(ang) * s; if (!free(nx, ny)) return false; z.x = nx; z.y = ny; return true; };
-      const h = G.houses.find(h => blocked(z.x, z.y, p.x, p.y, [h]));
-      if (!h) { z.way = null; if (tryDir(a)) return; } else {
-        // casa no caminho: vai ao canto (folga 0,6 m) que encurta mais o trajeto e que ele enxerga
-        const m = 0.6, cs = [[h.x - m, h.y - m], [h.x + h.w + m, h.y - m], [h.x - m, h.y + h.h + m], [h.x + h.w + m, h.y + h.h + m]];
-        let best = z.way && Math.hypot(z.way[0] - z.x, z.way[1] - z.y) > 0.3 && !blocked(z.x, z.y, z.way[0], z.way[1], [h]) ? z.way : null, bs = 1e9;
-        if (!best) for (const c of cs) {
-          const sc = Math.hypot(c[0] - z.x, c[1] - z.y) + Math.hypot(c[0] - p.x, c[1] - p.y);
-          if (sc < bs && Math.hypot(c[0] - z.x, c[1] - z.y) > 0.3 && !blocked(z.x, z.y, c[0], c[1], [h])) { bs = sc; best = c; }
+      const slide = ang => { const c = Math.cos(ang) * s, n = Math.sin(ang) * s; // so um eixo (encosta e desliza)
+        for (const [ax, ay] of Math.abs(c) > Math.abs(n) ? [[c, 0], [0, n]] : [[0, n], [c, 0]]) if (Math.abs(ax + ay) > s * 0.3 && free(z.x + ax, z.y + ay)) { z.x += ax; z.y += ay; return true; }
+        return false; };
+      z.fl = z.fl || 0;
+      let aim = null;
+      if (!h) { // reta livre; se vinha de um vao, termina a travessia (o corpo de 0,4 m nao cabe em qualquer reta livre)
+        z.bang = 0;
+        const cw = z.way;
+        if (cw && cw.hh && G.t - cw.t0 < 4) {
+          if ((z.rc -= dt) <= 0) { z.rc = 0.25; const nw = navWay(z, p, cw.hh); z.way = nw && nw.gi === cw.gi ? nw : null; }
+          if (z.way) aim = Math.atan2(z.way.y - z.y, z.way.x - z.x);
+        } else z.way = null;
+      } else {
+        z.rc = (z.rc === undefined ? idPhase(z.id) : z.rc) - dt;
+        if (z.rc <= 0 || !z.way) { z.rc = 0.25; z.way = navWay(z, p, h); }
+        const w = z.way;
+        if (w && w.dr && dBox(w.dr, z.x, z.y) < 0.75) { // porta fechada no caminho: bate 4 s e arromba
+          if ((z.bang = (z.bang || 0) + dt) >= 4) { w.dr.open = true; G.events.push({ type: 'doorBreak', id: w.dr.id }); z.bang = 0; z.way = null; }
+          return;
         }
-        z.way = best;
-        if (best && tryDir(Math.atan2(best[1] - z.y, best[0] - z.x))) return;
-        if (tryDir(a)) return;
+        z.bang = 0;
+        if (w) aim = Math.atan2(w.y - z.y, w.x - z.x);
+      }
+      if (!z.ck || G.t - z.ck.t > 0.6) { // empacado (<0,25 m em 0,6 s): grade ate o alvo (vao atual ou jogador)
+        if (z.ck && Math.hypot(z.x - z.ck.x, z.y - z.ck.y) < 0.25) { const g = z.way && !z.way.dr ? z.way : p, q = pathTo(z, g.x, g.y); if (q) z.pw = { x: q.x, y: q.y, t: G.t + 0.9 }; }
+        z.ck = { x: z.x, y: z.y, t: G.t };
+      }
+      if (z.pw && z.pw.t > G.t) aim = Math.atan2(z.pw.y - z.y, z.pw.x - z.x);
+      const b = aim !== null ? aim : a;
+      if (tryDir(b)) { z.fl = 0; return; }
+      if (++z.fl >= 4 && !(z.pw && z.pw.t > G.t)) { // 4 passos seguidos sem avancar: grade ja
+        const g = z.way && !z.way.dr ? z.way : p, q = pathTo(z, g.x, g.y); z.fl = 0;
+        if (q) { z.pw = { x: q.x, y: q.y, t: G.t + 0.9 }; if (tryDir(Math.atan2(q.y - z.y, q.x - z.x))) return; }
       }
       for (const o of [Math.PI / 2, 2.0, 2.6]) for (const sd of [z.side, -z.side]) // sem rota: desliza pela tangente
-        if (tryDir(a + o * sd)) { z.side = sd; return; }
+        if (tryDir(b + o * sd) || slide(b + o * sd)) { z.side = sd; return; }
     }
   }
 
@@ -285,7 +370,8 @@
         const x = side < 2 ? (side === 0 ? bx + gap : bx + 14 - gap - w) : bx + 1.5 + r() * (11 - w);
         const y = side >= 2 ? (side === 2 ? by + gap : by + 14 - gap - h) : by + 1.5 + r() * (11 - h);
         if (!hs.every(q => x > q.x + q.w + 1.5 || x + w < q.x - 1.5 || y > q.y + q.h + 1.5 || y + h < q.y - 1.5)) continue;
-        hs.push({ x, y, w, h, side });
+        const dd = [x - bx, bx + 14 - x - w, y - by, by + 14 - y - h]; // porta na parede da rua mais proxima (bordas do quarteirao)
+        hs.push({ x, y, w, h, side: dd.indexOf(Math.min(...dd)) });
         return true;
       }
       return false;
@@ -399,6 +485,10 @@
         if (j === 0 && i === keyAt) f.loot = [{ id: 'key', car: car.id, qty: 1 }];
         delete f._b; o.crates.push(f);
       });
+      if (r() < 0.5) for (let t = 0; t < 20; t++) { // guarda interno: ponto livre num comodo qualquer (todos alcancaveis)
+        const m = hh.rooms[Math.floor(r() * hh.rooms.length)], zx = m.x0 + 0.7 + r() * (m.x1 - m.x0 - 1.4), zy = m.y0 + 0.7 + r() * (m.y1 - m.y0 - 1.4);
+        if (!hitHouse(hh, hh.furn, zx, zy, 0.6)) { q.iz = [zx, zy]; break; }
+      }
       delete hh.rooms; delete hh.furn; delete hh.ok;
       return hh;
     });
@@ -410,7 +500,8 @@
       o.zombies.push({ id: nid(), ch, x, y, hp: 60, state: 'idle', alert: 0, atk: 0, runner, police, drop: dropId && mkItem(r, dropId) });
       zs.push([x, y]);
     };
-    if (hs.length) for (let i = 0; i < 10; i++) {
+    if (hs.length && hs[0].iz && (!origin || Math.hypot(hs[0].iz[0] - 23, hs[0].iz[1] - 23) > 10)) addZ(hs[0].iz[0], hs[0].iz[1]);
+    else if (hs.length) for (let i = 0; i < 10; i++) {
       const a = r() * 6.283, d = 1.5 + r() * 1.5, x = hs[0].cx + Math.cos(a) * d, y = hs[0].cy + Math.sin(a) * d;
       if (zOk(x, y, 0.6)) { addZ(x, y); break; }
     }
@@ -437,6 +528,10 @@
     const sh = e => { e.x += ox; e.y += oy; return e; };
     [o.houses, o.crates, o.zombies, o.trees, o.fences].forEach(l => l.forEach(sh));
     o.houses.forEach(h => [h.parts, h.gaps, h.doors].forEach(l => l.forEach(sh)));
+    // porta encostada na parede leste/sul: soma exata em float (x+w === h.x+h.w) para testes de borda
+    o.houses.forEach(h => { const d = h.doors[0], pd = h.parts.find(q => q.door); for (const [p, l, T] of [['x', 'w', h.x + h.w], ['y', 'h', h.y + h.h]]) {
+      if (Math.abs(d[p] + d[l] - T) > 1e-6) continue;
+      d[l] = pd[l] = T - d[p]; } }); // Sterbenz: a subtracao e exata, logo x + w === T
     o.cars.forEach(c => { c.x += ox; c.y += oy; });
     return o;
   }
@@ -445,7 +540,7 @@
   const LISTS = ['houses', 'crates', 'zombies', 'cars', 'roads', 'trees', 'fences'];
   const parse = k => k.split(',').map(Number);
   const drivenIds = () => G.players.map(p => p.car).filter(Boolean); // shortcut: players[i].car ainda nao existe (fase carro); undefined => nada protegido
-  const strip = e => { const c = Object.assign({}, e); delete c.ch; delete c.way; delete c.side; return c; };
+  const strip = e => { const c = Object.assign({}, e); delete c.ch; delete c.way; delete c.side; delete c.rc; delete c.bang; delete c.last; delete c.pw; delete c.ck; delete c.fl; return c; };
   const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
   function syncCh() { for (const l of [G.zombies, G.cars]) for (const e of l) e.ch = chOf(e); }
   function want(rx, ry) { const w = []; for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) w.push((rx + dx) + ',' + (ry + dy)); return w; }
