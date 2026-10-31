@@ -344,7 +344,7 @@ function folha(g, x0, y0, lw, lh, d, dir, color, knob, open) {
   return p;
 }
 
-// móveis (ESTILO.md): medidas w×d×h em m, base no chão, frente +z. open:true = versão vasculhada
+// móveis (ESTILO.md): medidas w×d×h em m, base no chão, FRENTE SEMPRE +z (costas/cabeceira em -z, encostam na parede; render.js gira por c.wall). open:true = versão vasculhada
 export function makeFurniture(kind, opts = {}) {
   const g = new THREE.Group(), op = !!opts.open;
   switch (kind) {
@@ -390,6 +390,76 @@ export function makeFurniture(kind, opts = {}) {
       add(g, softGeo(0.45, 0.25, 0.4, 0.04), 0x5e5b6b, 0, 0.125, 0);
       add(g, Box(0.3, 0.16, 0.03), 0x4a5266, 0, 0.31, -0.08).rotation.x = -0.5;
       break;
+    case 'stove': { // fogão: corpo branco, tampo escuro com 4 bocas, painel e porta do forno
+      add(g, softGeo(0.7, 0.9, 0.6, 0.05), 0xe6f7ff, 0, 0.45, 0);
+      add(g, Box(0.7, 0.04, 0.6), 0x5e5b6b, 0, 0.92, 0);
+      for (const x of [-0.17, 0.17]) for (const z of [-0.14, 0.14]) add(g, Cyl(0.09, 0.09, 0.03, 10), 0x2f2a35, x, 0.95, z);
+      add(g, Box(0.6, 0.12, 0.05), 0x5e5b6b, 0, 0.84, -0.3);   // painel traseiro
+      folha(g, -0.3, 0.05, 0.6, 0.55, 0.6, 1, 0xe6f7ff, 0x9aa3b5, op);
+      for (const x of [-0.2, 0, 0.2]) add(g, Cyl(0.03, 0.03, 0.04, 8), 0x2f2a35, x, 0.72, 0.31, Math.PI / 2, 0, 0);
+      break; }
+    case 'sink': // pia: gabinete, tampo, cuba de metal e torneira
+      add(g, softGeo(0.76, 0.85, 0.46, 0.05), 0xeab26a, 0, 0.425, 0);
+      add(g, Box(0.8, 0.05, 0.5), 0xe6f7ff, 0, 0.875, 0);
+      add(g, Cyl(0.2, 0.17, 0.08, 10), 0x9aa3b5, 0, 0.9, 0.03).scale.x = 1.4;
+      add(g, Cyl(0.025, 0.025, 0.2, 8), 0x9aa3b5, 0, 1.0, -0.2);
+      add(g, Cyl(0.02, 0.02, 0.14, 8), 0x9aa3b5, 0, 1.09, -0.13, Math.PI / 2, 0, 0);
+      folha(g, -0.19, 0.03, 0.36, 0.78, 0.46, 1, 0xeab26a, 0x6e4422, false);
+      folha(g, 0.19, 0.03, 0.36, 0.78, 0.46, -1, 0xeab26a, 0x6e4422, false);
+      break;
+    case 'bed': // cama 1,0×2,0×0,6: estrado, colchão, travesseiro, coberta; cabeceira em -z
+      add(g, softGeo(1.0, 0.3, 2.0, 0.05).rotateX(Math.PI / 2), 0xeab26a, 0, 0.15, 0);
+      add(g, softGeo(0.9, 0.2, 1.9, 0.08).rotateX(Math.PI / 2), 0xfff3d6, 0, 0.4, 0);
+      add(g, Box(1.04, 0.6, 0.08), 0xeab26a, 0, 0.3, -1.0);
+      add(g, Cap(0.14, 0.4), 0xfff3d6, 0, 0.58, -0.7, 0, 0, Math.PI / 2);
+      add(g, softGeo(0.94, 0.06, 1.15, 0.03).rotateX(Math.PI / 2), 0xff8c69, 0, 0.53, 0.3);
+      break;
+    case 'nightstand': // criado-mudo 0,45×0,4×0,5 com gaveta
+      add(g, softGeo(0.45, 0.5, 0.4, 0.05), 0xeab26a, 0, 0.25, 0);
+      add(g, softGeo(0.38, 0.18, 0.04, 0.03), 0xeab26a, 0, 0.35, 0.2 + (op ? 0.18 : 0));
+      add(g, Cap(0.02, 0.1), 0x6e4422, 0, 0.35, 0.23 + (op ? 0.18 : 0)).rotation.z = Math.PI / 2;
+      add(g, softGeo(0.38, 0.18, 0.04, 0.03), 0xeab26a, 0, 0.14, 0.2);
+      add(g, Cap(0.02, 0.1), 0x6e4422, 0, 0.14, 0.23).rotation.z = Math.PI / 2;
+      break;
+    case 'toilet': // vaso 0,4×0,6×0,8
+      add(g, Cyl(0.18, 0.13, 0.4, 10), 0xe6f7ff, 0, 0.2, 0.1);
+      add(g, Cyl(0.2, 0.2, 0.05, 10), 0xe6f7ff, 0, 0.43, 0.1);
+      add(g, softGeo(0.38, 0.45, 0.18, 0.05), 0xe6f7ff, 0, 0.62, -0.2);
+      add(g, Cyl(0.03, 0.03, 0.04, 8), 0x9aa3b5, 0.12, 0.87, -0.2);
+      break;
+    case 'medcab': // armarinho de parede 0,5×0,15×0,6, base em y=1.2
+      add(g, softGeo(0.5, 0.6, 0.16, 0.04), 0xe6f7ff, 0, 1.5, 0);
+      folha(g, -0.23, 1.23, 0.46, 0.54, 0.16, 1, 0xe6f7ff, 0x9aa3b5, op);
+      if (!op) { add(g, Box(0.16, 0.05, 0.03), 0xff5c57, 0, 1.5, 0.1); add(g, Box(0.05, 0.16, 0.03), 0xff5c57, 0, 1.5, 0.1); }
+      break;
+    case 'sofa': { // sofá 1,8×0,8×0,85
+      const C = opts.color || 0x9b6a3c;
+      add(g, softGeo(1.8, 0.4, 0.8, 0.08), C, 0, 0.2, 0);
+      add(g, softGeo(1.8, 0.5, 0.2, 0.08), C, 0, 0.6, -0.3);
+      for (const s of [-1, 1]) add(g, Cap(0.12, 0.4), C, s * 0.85, 0.45, 0.02);
+      for (const x of [-0.4, 0.4]) add(g, softGeo(0.7, 0.14, 0.55, 0.05), 0xfff3d6, x, 0.45, 0.1);
+      for (const s of [-1, 1]) add(g, Sph(0.12, 8, 6), 0xff8c69, s * 0.65, 0.62, -0.1);
+      break; }
+    case 'bookshelf': { // estante 1,0×0,3×1,8 com livros
+      add(g, softGeo(1.0, 1.8, 0.3, 0.04), 0x9b6a3c, 0, 0.9, 0);
+      const L = [0xff5c57, 0x5b7bd5, 0x78a865, 0xf2d16b, 0xff8c69]; let i = 0;
+      for (const y of [0.3, 0.7, 1.1, 1.5]) {
+        add(g, Box(0.92, 0.04, 0.34), 0xeab26a, 0, y - 0.18, 0);
+        for (let x = -0.4; x < 0.42; x += 0.11, i++) add(g, Box(0.08, 0.26 + (i % 3) * 0.03, 0.2), L[i % 5], x, y - 0.03, 0.08 + (op && y === 1.1 && i % 4 === 0 ? 0.06 : 0));
+      }
+      break; }
+    case 'toolbox': { // caixa de ferramentas 0,46×0,3×0,3: corpo vermelho, alça, trincos; tampa em pivô atrás
+      const R = 0xff5c57;
+      add(g, softGeo(0.46, 0.2, 0.3, 0.04), R, 0, 0.1, 0);
+      const p = new THREE.Group(); p.position.set(0, 0.2, -0.15); p.rotation.x = op ? -1.8 : 0; g.add(p);
+      add(p, softGeo(0.46, 0.06, 0.3, 0.03), R, 0, 0.03, 0.15);
+      add(p, Cap(0.015, 0.2), 0x2f2a35, 0, 0.1, 0.15, 0, 0, Math.PI / 2);
+      for (const x of [-0.15, 0.15]) add(p, Box(0.05, 0.05, 0.02), 0x9aa3b5, x, 0.02, 0.3);
+      break; }
+    case 'table': // mesa 1,2×0,8×0,75, 4 pés
+      add(g, softGeo(1.2, 0.06, 0.8, 0.03).rotateX(Math.PI / 2), 0xeab26a, 0, 0.72, 0);
+      for (const x of [-0.54, 0.54]) for (const z of [-0.34, 0.34]) add(g, Cyl(0.04, 0.04, 0.7, 6), 0x9b6a3c, x, 0.35, z);
+      break;
     default: throw new Error('móvel desconhecido: ' + kind);
   }
   return done(g);
@@ -398,4 +468,69 @@ export function makeFurniture(kind, opts = {}) {
 // assoalho de interior: 1 cm acima do chão (grama em y=0)
 export function makeFloor(w, d) {
   const g = new THREE.Group(); add(g, Box(w, 0.01, d), ASSOALHO, 0, 0.005, 0); return done(g);
+}
+
+// ---------- portas legíveis, cadeado, props de rua ----------
+const escurece = (c, k = 0.7) => { const o = new THREE.Color(c); o.multiplyScalar(k); return o.getHex(); };
+// batente no vão (x de 0 a w, como makeDoor): montantes 0,08 + verga; sobressai 3 cm de cada lado da parede de 0,2
+export function makeDoorFrame(w = 1.4, h = 2.0, wallColor = CASA.A.wall) {
+  const g = new THREE.Group(), c = escurece(wallColor), T = 0.26;
+  for (const x of [-0.04, w + 0.04]) add(g, Box(0.09, h + 0.1, T), c, x, (h + 0.1) / 2, 0);
+  add(g, Box(w + 0.18, 0.1, T), c, w / 2, h + 0.05, 0);
+  return done(g);
+}
+// soleira 0,1 m + capacho; frente +z, x de 0 a w
+export function makeDoorstep(w = 1.4) {
+  const g = new THREE.Group();
+  add(g, softGeo(w + 0.2, 0.1, 0.4, 0.03), 0xd6cfc4, w / 2, 0.05, 0.3);
+  add(g, softGeo(w * 0.6, 0.04, 0.3, 0.02), 0xeab26a, w / 2, 0.12, 0.34);
+  return done(g);
+}
+export function makePadlock() {
+  const g = new THREE.Group();
+  add(g, softGeo(0.12, 0.1, 0.05, 0.02), 0xf2d16b, 0, 0, 0);
+  add(g, new THREE.TorusGeometry(0.04, 0.012, 6, 10, Math.PI), 0x9aa3b5, 0, 0.05, 0);
+  return done(g);
+}
+ITEMS.cutter = (g, c) => {
+  for (const [s, col] of [[-1, 0xff5c57], [1, 0x2f2a35]]) {
+    add(g, Cap(0.045, 0.5), col, s * 0.07, 0.22, 0, 0, 0, -s * 0.2);
+    add(g, Box(0.07, 0.14, 0.05), 0x9aa3b5, -s * 0.06, 0.6, 0, 0, 0, s * 0.35);
+  }
+  add(g, Cyl(0.03, 0.03, 0.08, 8), 0x9aa3b5, 0, 0.48, 0, Math.PI / 2, 0, 0);
+};
+export function makeProp(kind) {
+  const g = new THREE.Group();
+  switch (kind) {
+    case 'lamp':
+      add(g, Cyl(0.04, 0.05, 2.6, 6), 0x2f2a35, 0, 1.3, 0);
+      add(g, Cyl(0.1, 0.1, 0.06, 8), 0x2f2a35, 0, 0.03, 0);
+      add(g, Sph(0.16, 8, 6), 0xfff3b0, 0, 2.7, 0);
+      break;
+    case 'trash':
+      add(g, Cyl(0.28, 0.24, 0.8, 8), 0x78a865, 0, 0.4, 0);
+      add(g, Cyl(0.3, 0.3, 0.06, 8), 0x78a865, 0, 0.83, 0);
+      add(g, Cap(0.03, 0.14), 0x2f2a35, 0, 0.9, 0, 0, 0, Math.PI / 2);
+      break;
+    case 'mailbox':
+      add(g, Cyl(0.04, 0.04, 1.0, 6), 0x2f2a35, 0, 0.5, 0);
+      add(g, Cap(0.15, 0.3), 0xff5c57, 0, 1.1, 0, Math.PI / 2, 0, 0);
+      add(g, Box(0.03, 0.12, 0.06), 0xf2d16b, 0.17, 1.2, 0.05);
+      break;
+    case 'hydrant':
+      add(g, Cyl(0.14, 0.17, 0.6, 8), 0xff5c57, 0, 0.3, 0);
+      add(g, Sph(0.15, 8, 6), 0xff5c57, 0, 0.66, 0);
+      add(g, Cyl(0.05, 0.05, 0.4, 6), 0x9aa3b5, 0, 0.4, 0, 0, 0, Math.PI / 2);
+      break;
+    case 'bench':
+      add(g, Box(1.4, 0.06, 0.4), 0xeab26a, 0, 0.45, 0);
+      add(g, Box(1.4, 0.3, 0.05), 0xeab26a, 0, 0.7, -0.2);
+      for (const x of [-0.6, 0.6]) add(g, Box(0.06, 0.45, 0.36), 0x2f2a35, x, 0.225, 0);
+      break;
+    case 'bush':
+      add(g, new THREE.IcosahedronGeometry(0.45, 0), 0x78a865, 0, 0.4, 0);
+      break;
+    default: throw new Error('prop desconhecido: ' + kind);
+  }
+  return done(g);
 }

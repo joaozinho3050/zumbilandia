@@ -15,7 +15,7 @@
   // AABB {x,y,w,h}; movel-conteiner: x,y = centro, w,h = pegada
   const inBox = (b, x, y, m) => x > b.x - m && x < b.x + b.w + m && y > b.y - m && y < b.y + b.h + m;
   const cbox = c => ({ x: c.x - c.w / 2, y: c.y - c.h / 2, w: c.w, h: c.h });
-  const solid = (h, q) => !(q.door && h.doors.find(d => d.id === q.door).open); // porta aberta nao colide
+  const solid = (h, q) => { if (!q.door) return true; const d = h.doors.find(d => d.id === q.door); return !d.open || !!d.locked; }; // porta aberta nao colide; trancada e sempre solida
   // ponto (raio m) bate na casa? lote primeiro; so entao partes e moveis (sem cache). Casa sem parts = bloco solido.
   function hitHouse(h, cs, x, y, m) {
     if (!inBox(h, x, y, m)) return false;
@@ -47,9 +47,11 @@
   // caixa (AABB) do carro: centro x,y, 4,2 m de comprimento no eixo da dir
   const carBox = c => { const v = Math.abs(Math.sin(c.dir)) > 0.5; return { x: c.x - (v ? 1 : 2.1), y: c.y - (v ? 2.1 : 1), w: v ? 2 : 4.2, h: v ? 4.2 : 2 }; };
   // ponto (com raio m) livre? dentro do mapa; fora de casas, carros (AABB) e arvores (circulo r 0,4)
+  // props que colidem (poste, hidrante), em cache enquanto G.props nao muda
+  function pcol() { if (G._pcs !== G.props || G._pcn !== G.props.length) { G._pcs = G.props; G._pcn = G.props.length; G._pc = G.props.filter(p => p.r); } return G._pc; }
   function free(x, y, m, skipId) {
     m = m === undefined ? R : m;
-    return !G.houses.some(h => hitHouse(h, G.crates, x, y, m)) && !G.cars.some(c => c.id !== skipId && inBox(carBox(c), x, y, m)) && !G.trees.some(t => Math.hypot(x - t.x, y - t.y) < 0.4 + m) && !G.fences.some(f => inBox(f, x, y, m)); // cercas por ultimo
+    return !G.houses.some(h => hitHouse(h, G.crates, x, y, m)) && !G.cars.some(c => c.id !== skipId && inBox(carBox(c), x, y, m)) && !G.trees.some(t => Math.hypot(x - t.x, y - t.y) < 0.4 + m) && !G.fences.some(f => inBox(f, x, y, m)) && !pcol().some(p => Math.hypot(x - p.x, y - p.y) < p.r + m); // cercas e postes por ultimo
   }
   // move por eixo (desliza nas paredes)
   function move(o, dx, dy) {
@@ -66,7 +68,8 @@
   }
   function newZombie() {
     const p = randFree(25);
-    return { id: 'p:' + G.nextId++, ch: chOf(p), x: p.x, y: p.y, hp: 60, state: 'idle', alert: 0, atk: 0, runner: rng() < 0.2, police: false };
+    const zid = 'p:' + G.nextId++;
+    return { id: zid, ch: chOf(p), x: p.x, y: p.y, hp: 60, state: 'idle', alert: 0, atk: 0, runner: rng() < 0.05, police: false, ...zv(zid) };
   }
 
   const STACK = { food: 5, bandage: 5, rag: 10, wire: 10, ammo: 24, bottle: 3 };
@@ -99,7 +102,7 @@
 
   function hint(id, text, guia) { if (!G.hints[id]) { G.hints[id] = 1; G.events.push(guia ? { type: 'hint', id, text, guia } : { type: 'hint', id, text }); } }
   // anim do jogador: act dura ACT[act] s (search dura enquanto p.action; dead ate renascer)
-  const ACT = { swing: 0.25, shot: 0.15, eat: 0.6, heal: 0.6, equip: 0.4, craft: 0.8, pick: 0.4, drop: 0.4, hurt: 0.3, windup: 1.0, jump: 0.6, climb: 2, throw: 0.4 };
+  const ACT = { swing: 0.25, shot: 0.15, eat: 0.6, heal: 0.6, equip: 0.4, craft: 0.8, pick: 0.4, drop: 0.4, hurt: 0.3, windup: 1.0, jump: 0.6, climb: 2, throw: 0.4, cut: 1.5 };
   function setAct(p, act) { if (p.anim.act === 'dead' && act !== 'dead') return; p.anim.act = act; p.anim.t = 0; }
   function setCrouch(p, on) { if (p.crouch !== on) { p.crouch = on; G.events.push({ type: 'crouch', on }); } }
 
@@ -215,6 +218,29 @@
     if (pour) { c.fuel += m; gc.fuel = gf - m; } else { c.fuel -= m; gc.fuel = gf + m; }
     G.events.push({ type: pour ? 'pour' : 'siphon', l: m, id: c.id });
   }
+  // alvo tocado -> {near, dr?} se valido (<= 2,5 m e sem parede no meio; a propria porta nao tapa a linha); senao null
+  function pickTarget(p, t) {
+    const sees = (x, y, dr) => { const o = dr && [dr.open, dr.locked]; if (dr) { dr.open = true; dr.locked = false; } const b = blocked(p.x, p.y, x, y); if (dr) { dr.open = o[0]; dr.locked = o[1]; } return !b; };
+    if (t.type === 'door') {
+      const dr = G.houses.flatMap(h => h.doors || []).find(d => d.id === t.id);
+      return dr && dBox(dr, p.x, p.y) <= 2.5 && sees(dr.x + dr.w / 2, dr.y + dr.h / 2, dr) ? { near: { type: 'door', id: dr.id, open: dr.open, locked: !!dr.locked }, dr } : null;
+    }
+    const l = t.type === 'drop' ? G.drops : t.type === 'crate' || t.type === 'tomb' ? G.crates : null, e = l && l.find(c => c.id === t.id);
+    if (!e || e.scenery || (t.type === 'tomb') !== !!e.tomb) return null;
+    return (e.w ? dBox(cbox(e), p.x, p.y) : dist(e, p)) <= 2.5 && sees(e.x, e.y) ? { near: { type: t.type, id: e.id } } : null;
+  }
+  // CORTAR: segurar AÇÃO 1,5 s perto de porta trancada com alicate; joystick > 0,3 ou soltar cancela
+  function updateCut(p, car, len, dt) {
+    const n = p.near, a = p.action, dr = n && n.type === 'door' && n.locked && G.houses.flatMap(h => h.doors || []).find(d => d.id === n.id), cu = p.inv.find(i => i.id === 'cutter');
+    if (a && a.type === 'cut' && (!p.input.hold || len > 0.3 || !dr || !cu || a.id !== n.id || G.dead)) { p.action = null; return; }
+    if (!a && dr && cu && p.input.hold && !car && !G.dead) { p.action = { type: 'cut', id: dr.id, t: 0 }; setAct(p, 'cut'); }
+    if (!p.action || p.action.type !== 'cut') return;
+    p.noise = 6;
+    if ((p.action.t += dt) < 1.5) return;
+    p.action = null; dr.locked = false; dr.open = true; p.input.hold = false;
+    G.events.push({ type: 'cut', id: dr.id }, { type: 'door', id: dr.id, open: true });
+    if (--cu.dur <= 0) { p.inv.splice(p.inv.indexOf(cu), 1); G.events.push({ type: 'toolBreak' }); hint('toolBreak', 'O alicate quebrou — procure outro em caixas de ferramentas', 'cutter'); }
+  }
   function playerAttack(p) {
     if (p.weapon === 'molotov') return G.throw();
     if (p.weapon !== 'pistol') {
@@ -285,10 +311,10 @@
   function navWay(z, p, h) {
     const cur = z.way, cand = [];
     (h.gaps || []).forEach((g, gi) => {
-      const dr = (h.doors || []).find(d => Math.abs(d.x + d.w / 2 - g.x) < 1e-6 && Math.abs(d.y + d.h / 2 - g.y) < 1e-6), closed = dr && !dr.open;
-      if (closed) dr.open = true; // a propria porta nao tapa a vista ate ela
+      const dr = (h.doors || []).find(d => Math.abs(d.x + d.w / 2 - g.x) < 1e-6 && Math.abs(d.y + d.h / 2 - g.y) < 1e-6), closed = dr && (!dr.open || dr.locked), lk = dr && dr.locked;
+      if (closed) { dr.open = true; dr.locked = false; } // a propria porta nao tapa a vista ate ela
       const vis = !blocked(z.x, z.y, g.x, g.y, [h]);
-      if (closed) dr.open = false;
+      if (closed) { dr.open = false; dr.locked = lk; }
       if (vis && !(z.last || []).some(l => l.h === h.id && l.gi === gi && G.t - l.t < 10)) cand.push({ x: g.x, y: g.y, gi, dr: closed ? dr : null, s: Math.hypot(g.x - p.x, g.y - p.y) });
     });
     const zd = dist(z, p), open = cand.filter(c => !c.dr), shut = cand.filter(c => c.dr), fwd = l => l.filter(c => c.s < zd - 0.3); // so vaos que aproximam do alvo
@@ -362,7 +388,7 @@
     za.move = mv; if (za.act !== ac && za.act !== 'climb') { za.act = ac; za.t = 0; }
     if (z.state === 'attack') return;
     if (z.state === 'chase') {
-      const a = Math.atan2(p.y - z.y, p.x - z.x), s = (z.runner ? 3.6 : 2.2) * dt;
+      const a = Math.atan2(p.y - z.y, p.x - z.x), s = (z.runner ? 4 : 2.2) * dt;
       z.side = z.side || (rng() < 0.5 ? 1 : -1);
       const tryDir = ang => { const nx = z.x + Math.cos(ang) * s, ny = z.y + Math.sin(ang) * s; if (!free(nx, ny)) return false; z.x = nx; z.y = ny; return true; };
       const slide = ang => { const c = Math.cos(ang) * s, n = Math.sin(ang) * s; // so um eixo (encosta e desliza)
@@ -392,8 +418,12 @@
         z.rc = (z.rc === undefined ? idPhase(z.id) : z.rc) - dt;
         if (z.rc <= 0 || !z.way) { z.rc = 0.25; z.way = navWay(z, p, h); }
         const w = z.way;
-        if (w && w.dr && dBox(w.dr, z.x, z.y) < 0.75) { // porta fechada no caminho: bate 4 s e arromba
-          if ((z.bang = (z.bang || 0) + dt) >= 4) { w.dr.open = true; G.events.push({ type: 'doorBreak', id: w.dr.id }); z.bang = 0; z.way = null; }
+        if (w && w.dr && dBox(w.dr, z.x, z.y) < 0.75) { // porta fechada no caminho: bate 4 s e arromba; trancada: bate 6 s e desiste (esse vao fica 10 s em z.last)
+          if ((z.bang = (z.bang || 0) + dt) >= (w.dr.locked ? 6 : 4)) {
+            if (w.dr.locked) z.last = (z.last || []).filter(l => G.t - l.t < 10).concat({ h: w.h, gi: w.gi, t: G.t });
+            else { w.dr.open = true; G.events.push({ type: 'doorBreak', id: w.dr.id }); }
+            z.bang = 0; z.way = null;
+          }
           return;
         }
         z.bang = 0;
@@ -429,15 +459,15 @@
     const wantRun = !car && !jp && !!inp.run && len > 0.01 && (G._rw ? p.stamina > 0 : p.stamina >= 5);
     if (inp.crouch) { inp.crouch = false; if (!car && !wantRun) setCrouch(p, !p.crouch); } // borda: um toque, um liga/desliga
     if (wantRun) setCrouch(p, false);
-    const vel = wantRun ? 4.8 : p.crouch ? 1.5 : 3, ox = p.x, oy = p.y;
+    const vel = wantRun ? (p.hunger < 25 ? 3.6 : 4.2) : p.crouch ? 1.5 : 3, ox = p.x, oy = p.y;
     if (car) driveCar(p, car, mx, my, dt);
     else if (jp) { const a = p.action; a.t += dt; const f = Math.min(1, a.t / ACT.jump); p.x = a.x0 + (a.x1 - a.x0) * f; p.y = a.y0 + (a.y1 - a.y0) * f; if (f >= 1) p.action = null; }
-    else if (len > 0.01) { p.dir = Math.atan2(my, mx); move(p, mx * vel * dt, my * vel * dt); }
+    else if (len > 0.01 && !(p.action && p.action.type === 'cut' && len <= 0.3)) { p.dir = Math.atan2(my, mx); move(p, mx * vel * dt, my * vel * dt); } // cortando: zona morta 0,3 do joystick
     const dm = Math.hypot(p.x - ox, p.y - oy), real = !car && dm > 0.5 * vel * dt; // deslocamento real (parado na parede nao conta)
     p.running = wantRun && real; G._rw = p.running;
     p.noise = car ? (p._eng ? 15 + 2 * Math.abs(car.speed) : 0) : !real ? 0 : p.crouch ? 3 : p.running ? 12 : 6;
     const sp = p.stamina;
-    p.stamina = Math.max(0, Math.min(100, p.stamina + (p.running ? -18 : (real && !p.crouch ? 3 : 12) * (p.hunger < 25 ? 0.5 : 1)) * dt));
+    p.stamina = Math.max(0, Math.min(100, p.stamina + (p.running ? -28 : (real && !p.crouch ? 2 : 8) * (p.hunger < 25 ? 0.5 : 1)) * dt));
     if (sp >= 15 && p.stamina < 15) { G.events.push({ type: 'staminaLow' }); hint('folego', 'Sem fôlego — ande para recuperar', 'correr'); }
     if (real && len >= 0.8 && !p.running) hint('correr', 'Empurre o joystick até a borda para correr', 'correr');
     p.anim.move = car ? 'idle' : p.crouch ? 'crouch' : p.running ? 'run' : dm > 0.01 ? 'walk' : 'idle';
@@ -461,6 +491,7 @@
     p.near = null;
     let bd = 1.5, nd = null;
     if (!car) G.crates.forEach(c => {
+      if (c.scenery) return; // cenario (cama, sofa, mesa, vaso, pia, caixa): so colide
       const d = c.w ? dBox(cbox(c), p.x, p.y) : dist(c, p);
       if (d < bd && !blocked(p.x, p.y, c.x, c.y)) { bd = d; p.near = { type: c.tomb ? 'tomb' : 'crate', id: c.id }; }
     });
@@ -471,12 +502,18 @@
     if (!car) G.houses.forEach(h => (h.doors || []).forEach(dr => {
       const d = dBox(dr, p.x, p.y) - (dr.open ? 0.3 : 0); // porta aberta perto: FECHAR ganha de leve
       if (d >= bd) return;
-      const o = dr.open; dr.open = true; // a propria porta nao tapa a linha ate ela
+      const o = dr.open, lk = dr.locked; dr.open = true; dr.locked = false; // a propria porta nao tapa a linha ate ela
       const vis = !blocked(p.x, p.y, dr.x + dr.w / 2, dr.y + dr.h / 2);
-      dr.open = o;
-      if (vis) { bd = d; p.near = { type: 'door', id: dr.id, open: dr.open }; nd = dr; }
+      dr.open = o; dr.locked = lk;
+      if (vis) { bd = d; p.near = { type: 'door', id: dr.id, open: dr.open, locked: !!dr.locked }; nd = dr; }
     }));
-    if (p.near && nd && !nd.open) hint('door', 'Toque AÇÃO para abrir', 'porta');
+    // tocar para vasculhar: input.target {type,id} valido (<= 2,5 m, sem parede no meio) vira o alvo; persiste enquanto ha acao (vasculhar 1 s)
+    if (inp.target) { if (!p.action) p._tg = inp.target; inp.target = null; }
+    if (p._tg && !car && !G.dead) { const t = pickTarget(p, p._tg); if (t) { p.near = t.near; nd = t.dr || null; } else p._tg = null; } else p._tg = null;
+    if (p.near && nd && p.near.type === 'door') {
+      if (nd.locked) { const cut = p.inv.some(i => i.id === 'cutter'); hint(cut ? 'cut' : 'locked', cut ? 'Porta trancada: segure CORTAR 1,5 s com o alicate' : 'Trancada com cadeado — procure um alicate corta-cadeado em caixas de ferramentas nas casas, depósitos de mercado e porta-malas', cut ? 'cutter' : 'locked'); }
+      else if (!nd.open) hint('door', 'Toque AÇÃO para abrir', 'porta');
+    }
     if (!car && !p.near) { // mala (traseira, com loot) ganha de carro; litros do tanque em near.fuel
       let cd = 1.5, nc = null, tk = null;
       for (const c of G.cars) {
@@ -525,7 +562,10 @@
         if (n.type === 'fence') { /* PULAR trata a cerca */ }
         else if (n.type === 'door') {
           const dr = G.houses.flatMap(h => h.doors || []).find(d => d.id === n.id);
-          if (!dr.open) { dr.open = true; G.events.push({ type: 'door', id: dr.id, open: true }); }
+          if (dr.locked) {
+            if (p.inv.some(i => i.id === 'cutter')) hint('cutTap', 'Segure CORTAR 1,5 s', 'cutter');
+            else { G.events.push({ type: 'locked', id: dr.id }); hint('locked', 'Trancada com cadeado — procure um alicate corta-cadeado em caixas de ferramentas nas casas, depósitos de mercado e porta-malas', 'locked'); }
+          } else if (!dr.open) { dr.open = true; G.events.push({ type: 'door', id: dr.id, open: true }); }
           else if ([p].concat(G.zombies).some(e => dBox(dr, e.x, e.y) < 1)) G.events.push({ type: 'hint', id: 'doorBusy', text: 'Saia da porta para fechar' });
           else { dr.open = false; G.events.push({ type: 'door', id: dr.id, open: false }); }
         } else if (n.type === 'drop') {
@@ -547,6 +587,8 @@
       }
     }
 
+    updateCut(p, car, len, dt);
+    if (!p.action) p._tg = null;
     if (inp.attack && G.cd <= 0 && !car) playerAttack(p);
     updateFire(dt);
     updateSiphon(p, car, len, dt);
@@ -571,7 +613,7 @@
     const an = p.anim; an.t += dt;
     if (p.hp < G._hp && !an.act) setAct(p, 'hurt');
     G._hp = p.hp;
-    if (an.act === 'search' || an.act === 'siphon' ? !p.action && !p.open : an.act && an.act !== 'dead' && an.t >= ACT[an.act]) an.act = null;
+    if (an.act === 'search' || an.act === 'siphon' || an.act === 'cut' ? !p.action && !p.open : an.act && an.act !== 'dead' && an.t >= ACT[an.act]) an.act = null;
     if (p.hp <= 0) die();
     if ((G._as += dt) >= 10) { G._as = 0; G.save(); }
   }
@@ -585,29 +627,39 @@
   const BLK = [[6, 6], [26, 6], [6, 26], [26, 26]]; // quarteiroes 14x14 (locais)
   // loot por movel (soma 100); gascan sai vazio (mkItem)
   const FURN = {
-    fridge: [['food', 22], [null, 78]],
-    cabinet: [['food', 10], ['bottle', 10], ['rag', 8], [null, 72]],
-    wardrobe: [['rag', 20], ['jacket', 4], ['helmet', 2], ['shinguards', 2], ['bag_school', 3], ['bag_hiking', 1], [null, 68]],
-    drawer: [['wire', 14], ['rag', 8], ['bandage', 6], ['ammo', 3], ['pistol', 1], [null, 68]],
+    fridge: [['food', 10], [null, 90]],
+    cabinet: [['food', 3], ['bottle', 3], ['rag', 3], [null, 91]],
+    stove: [['food', 2], [null, 98]],
+    wardrobe: [['rag', 7], ['jacket', 1.5], ['helmet', 1], ['shinguards', 0.5], ['bag_school', 1], ['bag_hiking', 0.5], [null, 88.5]],
+    nightstand: [['rag', 3.5], ['bottle', 1.5], ['ammo', 0.5], [null, 94.5]],
+    medcab: [['bandage', 4], [null, 96]],
+    bookshelf: [['rag', 4], [null, 96]],
+    drawer: [['wire', 5], ['rag', 3], ['bandage', 1.5], ['ammo', 1], ['pistol', 0.5], [null, 89]],
     shelf: [['food', 18], ['rag', 6], ['bandage', 3], [null, 73]],
-    box: [['food', 10], ['wire', 12], ['hose', 6], ['gascan', 6], ['rag', 8], [null, 58]],
+    toolbox: [['cutter', 6], ['wire', 29], ['pipe', 5], ['rag', 10], [null, 50]], // caixa de ferramentas (rara, RNG proprio 17); fora do REPO
+    box: [['food', 10], ['wire', 12], ['hose', 6], ['gascan', 6], ['rag', 8], ['cutter', 4], [null, 54]], // cutter por ultimo: sorteios anteriores nao mudam
   };
-  const FD = { fridge: [0.8, 0.8], cabinet: [1.2, 0.5], wardrobe: [1.2, 0.6], drawer: [0.9, 0.5], shelf: [2, 0.7], box: [0.8, 0.8] }; // w,h do movel
+  // dimensoes (w,h) de cada movel; SCEN = cenario (so colide, sem loot); ROOM = moveis de cada tipo de comodo, em ordem de prioridade
+  const FD = { fridge: [0.8, 0.8], cabinet: [1.2, 0.5], wardrobe: [1.2, 0.6], drawer: [0.9, 0.5], shelf: [2, 0.7], box: [0.8, 0.8], stove: [0.7, 0.6], sink: [0.8, 0.5], bed: [1, 2], nightstand: [0.5, 0.5], toilet: [0.5, 0.7], medcab: [0.5, 0.3], sofa: [1.8, 0.8], bookshelf: [1.2, 0.4], table: [1, 1], toolbox: [0.5, 0.35] };
+  const SCEN = new Set(['bed', 'sofa', 'table', 'toilet', 'sink', 'register']);
+  const ROOM = { sala: ['drawer', 'sofa', 'bookshelf', 'table'], cozinha: ['fridge', 'stove', 'sink', 'cabinet'], quarto: ['bed', 'wardrobe', 'nightstand'], banheiro: ['toilet', 'sink', 'medcab'] };
   const WT = 0.2, DW = 1.4; // parede, vao
   const dBox = (b, x, y) => Math.hypot(Math.max(b.x - x, 0, x - b.x - b.w), Math.max(b.y - y, 0, y - b.y - b.h));
-  const TRUNK = [['rag', 12], ['wire', 8], ['food', 6], ['bottle', 6], ['hose', 6], ['gascan', 5], ['pipe', 5], ['bag_hiking', 2], [null, 50]]; // porta-malas (soma 100), RNG proprio
+  const TRUNK = [['rag', 12], ['wire', 8], ['food', 6], ['bottle', 6], ['hose', 6], ['gascan', 5], ['pipe', 5], ['bag_hiking', 2], ['cutter', 3], [null, 47]]; // porta-malas (soma 100), RNG proprio
   const UNIQUE_SPAWN = new Set(['key', 'gascan', 'hose']);
   const REPO = [['rag', 30], ['food', 15], ['wire', 15], ['bottle', 10], ['bandage', 3], [null, 27]];
   const COMMON = [['rag', 55], ['food', 25], ['wire', 20]];
+  const P_TB = 0.37; // chance de caixa de ferramentas por casa (calibrada)
+  const zv = id => { let h = 0; for (let i = 0; i < id.length; i++) h = Math.imul(h ^ id.charCodeAt(i), 0x9E3779B1) >>> 0; h = Math.imul(h ^ (h >>> 15), 0x85EBCA6B) >>> 0; return { look: h % 8, size: 0.9 + ((h >>> 8) % 201) / 1000 }; }; // variacao visual do zumbi, por id
   function pick(r, tab) { let v = r() * 100; for (const [id, w] of tab) if ((v -= w) < 0) return id; return null; }
-  function mkItem(r, id) { return id === 'gascan' ? { id, fuel: 0, qty: 1 } : id === 'ammo' ? { id, qty: 3 + Math.floor(r() * 4) } : { id, qty: 1 }; }
+  function mkItem(r, id) { return id === 'gascan' ? { id, fuel: 0, qty: 1 } : id === 'cutter' ? { id, qty: 1, dur: 4 } : id === 'ammo' ? { id, qty: 3 + Math.floor(r() * 4) } : { id, qty: 1 }; }
 
   // pura: so le G.seed. Tudo em coordenadas de mundo.
   function gen(cx, cy) {
     const r = mulberry32(hash(G.seed, cx, cy)), ox = cx * CH, oy = cy * CH, ch = cx + ',' + cy;
     const origin = cx === 0 && cy === 0, near = Math.abs(cx) + Math.abs(cy) === 1;
     let n = 0; const nid = () => ch + ':' + n++;
-    const o = { roads: [], houses: [], crates: [], zombies: [], cars: [], trees: [], fences: [] };
+    const o = { roads: [], houses: [], crates: [], zombies: [], cars: [], trees: [], fences: [], props: [] };
     for (const k of [0, 20]) { o.roads.push({ x: ox + k, y: oy, w: 6, h: CH }, { x: ox, y: oy + k, w: CH, h: 6 }); }
     // supermercado: 1 por grupo 2x2, sorteado entre os chunks elegiveis (fora de (0,0) e vizinhos); mb = quarteirao do lote
     const gx = cx >> 1, gy = cy >> 1, el = [];
@@ -615,17 +667,18 @@
     const mh = hash(G.seed, gx, gy, 7), mb = el.length && el[mh % el.length] === ch ? (mh >>> 8) % 4 : -1;
     const mk = mb < 0 ? null : { x: BLK[mb][0] + 1, y: BLK[mb][1] + 1.5, w: 12, h: 11 };
     const hs = [], inH = (x, y, m) => hs.concat(mk || []).some(h => x > h.x - m && x < h.x + h.w + m && y > h.y - m && y < h.y + h.h + m);
-    // casa 5-8 m no quarteirao b, encostada (folga 1,5-2,2) numa rua; side = parede da rua (porta)
+    // casa 5-6 m no quarteirao b, encostada (folga 1-1,5 da calcada, 1 m entre casas) numa rua; side = parede da rua (porta)
     function place(b) {
       const [bx, by] = BLK[b];
       if (b === mb) return false;
-      for (let i = 0; i < 30; i++) {
-        const w = 5 + r() * 3, h = 5 + r() * 3, side = Math.floor(r() * 4), gap = 1.5 + r() * 0.7;
-        const x = side < 2 ? (side === 0 ? bx + gap : bx + 14 - gap - w) : bx + 1.5 + r() * (11 - w);
-        const y = side >= 2 ? (side === 2 ? by + gap : by + 14 - gap - h) : by + 1.5 + r() * (11 - h);
-        if (!hs.every(q => x > q.x + q.w + 1.5 || x + w < q.x - 1.5 || y > q.y + q.h + 1.5 || y + h < q.y - 1.5)) continue;
+      const s0 = Math.floor(r() * 4), t0 = r(), first = !hs.some(q => q.b === b);
+      for (const sz of [[5 + r(), 5 + r()], [5, 5], [5, 5, 1]]) for (let si = 0; si < 4; si++) for (let k = 0; k < 12; k++) { // varre lados e posicoes (a partir de um ponto sorteado): 2 casas por quarteirao quase sempre cabem
+        const [w, h] = sz, side = (s0 + si) % 4, gap = sz[2] || 1 + r() * 0.5, f = first ? (t0 < 0.5 ? 0 : 1) : (t0 + k / 12) % 1; // 1a casa no canto, deixa o resto para a 2a
+        const x = side < 2 ? (side === 0 ? bx + gap : bx + 14 - gap - w) : bx + 1 + f * (12 - w);
+        const y = side >= 2 ? (side === 2 ? by + gap : by + 14 - gap - h) : by + 1 + f * (12 - h);
+        if (!hs.every(q => x >= q.x + q.w + 1 || x + w <= q.x - 1 || y >= q.y + q.h + 1 || y + h <= q.y - 1)) continue;
         const dd = [x - bx, bx + 14 - x - w, y - by, by + 14 - y - h]; // porta na parede da rua mais proxima (bordas do quarteirao)
-        hs.push({ x, y, w, h, side: dd.indexOf(Math.min(...dd)) });
+        hs.push({ x, y, w, h, b, side: dd.indexOf(Math.min(...dd)) });
         return true;
       }
       return false;
@@ -670,7 +723,7 @@
         const t = lo + 0.8 + r() * (len - 1.6), sc = Math.min(1.3, ...tj.map(j => Math.abs(t - j)));
         if (sc > bs) { bs = sc; c = t; }
       }
-      const did = nid(), dr = vw ? { id: did, x: side ? X1 - WT : x, y: c - DW / 2, w: WT, h: DW, open: true } : { id: did, x: c - DW / 2, y: side === 3 ? Y1 - WT : y, w: DW, h: WT, open: true };
+      const did = nid(), dr = vw ? { id: did, x: side ? X1 - WT : x, y: c - DW / 2, w: WT, h: DW, open: false, locked: false } : { id: did, x: c - DW / 2, y: side === 3 ? Y1 - WT : y, w: DW, h: WT, open: false, locked: false };
       parts.push(Object.assign({ door: did }, { x: dr.x, y: dr.y, w: dr.w, h: dr.h }));
       gaps.push({ x: dr.x + dr.w / 2, y: dr.y + dr.h / 2 });
       const wall = (sx, sy, sw, sh) => { if (sw > 0.01 && sh > 0.01) parts.push({ x: sx, y: sy, w: sw, h: sh }); };
@@ -679,32 +732,34 @@
       if (side === 3) { wall(x, Y1 - WT, c - DW / 2 - x, WT); wall(c + DW / 2, Y1 - WT, X1 - c - DW / 2, WT); } else wall(x, Y1 - WT, w, WT);
       if (side === 0) { wall(x, y + WT, WT, c - DW / 2 - y - WT); wall(x, c + DW / 2, WT, Y1 - WT - c - DW / 2); } else wall(x, y + WT, WT, h - 2 * WT);
       if (side === 1) { wall(X1 - WT, y + WT, WT, c - DW / 2 - y - WT); wall(X1 - WT, c + DW / 2, WT, Y1 - WT - c - DW / 2); } else wall(X1 - WT, y + WT, WT, h - 2 * WT);
-      // moveis: gaveteiro no comodo da porta, geladeira+armario no 1o outro (cozinha), guarda-roupa nos demais
+      // comodos com tipo e moveis proprios: sala (porta) + cozinha + quarto + banheiro; 2 comodos = sala+cozinha ou quarto+banheiro
       const inn = vw ? [side ? X1 - WT - 0.3 : x + WT + 0.3, c] : [c, side === 3 ? Y1 - WT - 0.3 : y + WT + 0.3];
       const dRoom = rooms.find(m => inn[0] >= m.x0 && inn[0] <= m.x1 && inn[1] >= m.y0 && inn[1] <= m.y1) || rooms[0];
-      const kit = rooms.find(m => m !== dRoom);
-      const want = [[dRoom, 'drawer'], [kit, 'fridge'], [kit, 'cabinet']].concat(rooms.filter(m => m !== dRoom && m !== kit).map(m => [m, 'wardrobe']));
+      const others = rooms.filter(m => m !== dRoom);
+      if (rooms.length === 2) { const pair = r() < 0.5 ? ['sala', 'cozinha'] : ['quarto', 'banheiro']; dRoom.type = pair[0]; others[0].type = pair[1]; }
+      else { dRoom.type = 'sala'; others.forEach((m, i) => { m.type = ['cozinha', 'quarto', 'banheiro'][i]; }); }
       const furn = [];
-      for (const [m, kind] of want) {
+      for (const m of rooms) for (const kind of ROOM[m.type]) {
         const I = { x0: m.x0 + (m.x0 === x ? WT : WT / 2), x1: m.x1 - (m.x1 === X1 ? WT : WT / 2), y0: m.y0 + (m.y0 === y ? WT : WT / 2), y1: m.y1 - (m.y1 === Y1 ? WT : WT / 2) };
         for (let i = 0; i < 24; i++) {
-          const s = Math.floor(r() * 4), hz = s < 2, [fw, fh] = FD[kind], bw = hz ? fw : fh, bh = hz ? fh : fw;
-          if (bw > I.x1 - I.x0 || bh > I.y1 - I.y0) continue;
-          const bx = hz ? I.x0 + r() * (I.x1 - I.x0 - bw) : s === 2 ? I.x0 : I.x1 - bw, by = hz ? (s === 0 ? I.y0 : I.y1 - bh) : I.y0 + r() * (I.y1 - I.y0 - bh);
+          const fr = kind === 'table', s = fr ? -1 : Math.floor(r() * 4), hz = s < 2, [fw, fh] = FD[kind], bw = hz ? fw : fh, bh = hz ? fh : fw, pad = fr ? 0.4 : 0;
+          if (bw + 2 * pad > I.x1 - I.x0 || bh + 2 * pad > I.y1 - I.y0 || (fr && Math.min(I.x1 - I.x0, I.y1 - I.y0) < 3)) continue; // mesa so em comodo largo
+          const bx = fr || hz ? I.x0 + pad + r() * (I.x1 - I.x0 - bw - 2 * pad) : s === 2 ? I.x0 : I.x1 - bw, by = fr ? I.y0 + pad + r() * (I.y1 - I.y0 - bh - 2 * pad) : hz ? (s === 0 ? I.y0 : I.y1 - bh) : I.y0 + r() * (I.y1 - I.y0 - bh);
           const b = { x: bx, y: by, w: bw, h: bh };
-          if (gaps.some(g => dBox(b, g.x, g.y) < 1.2) || furn.some(f => bx < f.x + f.w && bx + bw > f.x && by < f.y + f.h && by + bh > f.y)) continue;
-          furn.push({ id: nid(), ch, x: bx + bw / 2, y: by + bh / 2, w: bw, h: bh, kind, opened: false, loot: [], tomb: false, _b: b });
+          if (gaps.some(g => dBox(b, g.x, g.y) < 1.2) || furn.some(f => bx < f._b.x + f._b.w + 0.1 && bx + bw > f._b.x - 0.1 && by < f._b.y + f._b.h + 0.1 && by + bh > f._b.y - 0.1)) continue;
+          furn.push({ id: nid(), ch, x: bx + bw / 2, y: by + bh / 2, w: bw, h: bh, kind, room: m.type, wall: s, opened: SCEN.has(kind), loot: [], tomb: false, _b: b });
+          if (SCEN.has(kind)) furn[furn.length - 1].scenery = true;
           break;
         }
       }
       const hh = { id, ch, x, y, w, h, kind: 'house', pal: Math.floor(r() * 3), roof: r() < 0.5 ? '4' : '2', parts, gaps, doors: [dr], rooms, furn };
-      hh.ok = furn.length >= 3 && reach(hh, [vw ? (side ? X1 + 1 : x - 1) : c, vw ? c : (side === 3 ? Y1 + 1 : y - 1)]);
+      hh.ok = furn.length >= 3 && furn.some(f => !f.scenery) && reach(hh, [vw ? (side ? X1 + 1 : x - 1) : c, vw ? c : (side === 3 ? Y1 + 1 : y - 1)]);
       return hh;
     }
     // BFS em grade 0,25 m com raio 0,4 (mesma regra de free): cada comodo e cada movel alcancaveis a partir de fora da porta
     function reach(hh, st) { // mesma regra de hitHouse, sem alocacao no laco quente (era 70 % do gen)
       const S = 0.25, x0 = hh.x - 1.5, y0 = hh.y - 1.5, nx = Math.ceil((hh.w + 3) / S), ny = Math.ceil((hh.h + 3) / S), seen = new Uint8Array(nx * ny);
-      const sp = hh.parts.filter(q => solid(hh, q)), fb = hh.furn.filter(c => c.w).map(cbox), bl = sp.concat(fb);
+      const sp = hh.parts.filter(q => !q.door), fb = hh.furn.filter(c => c.w).map(cbox), bl = sp.concat(fb);
       const ok = (i, j) => {
         if (i < 0 || j < 0 || i >= nx || j >= ny) return false;
         const x = x0 + (i + 0.5) * S, y = y0 + (j + 0.5) * S;
@@ -727,23 +782,23 @@
         return false;
       };
       return hh.rooms.every(m => any(m.x0, m.x1, m.y0, m.y1, (px, py) => px > m.x0 + WT && px < m.x1 - WT && py > m.y0 + WT && py < m.y1 - WT))
-        && hh.furn.every(f => any(f.x - 1.3, f.x + 1.3, f.y - 1.3, f.y + 1.3, (px, py) => Math.hypot(px - f.x, py - f.y) <= 1.3));
+        && hh.furn.every(f => { const t = f.scenery ? 1.35 : 1.3; return any(f.x - t, f.x + t, f.y - t, f.y + t, (px, py) => px > hh.x + WT && px < hh.x + hh.w - WT && py > hh.y + WT && py < hh.y + hh.h - WT && Math.hypot(px - f.x, py - f.y) <= t); }); // celula DENTRO da casa (nao vale alcancar pela parede)
     }
     // mercado: salao (3 gondolas, 2 caixas) + deposito ao norte (divisoria com vao 1,4 m, 2-3 caixas); porta dupla 2 m ao sul
     function market() {
       const { x, y, w, h } = mk, X1 = x + w, Y1 = y + h, DY = y + 3.4, id = nid();
       for (let tr = 0; tr < 12; tr++) {
         const c = x + 4 + r() * 4, g = x + 3 + r() * 6, d1 = nid(), d2 = nid();
-        const dr = [{ id: d1, x: c - 1, y: Y1 - WT, w: 1, h: WT, open: true }, { id: d2, x: c, y: Y1 - WT, w: 1, h: WT, open: true }];
+        const dr = [{ id: d1, x: c - 1, y: Y1 - WT, w: 1, h: WT, open: false, locked: false }, { id: d2, x: c, y: Y1 - WT, w: 1, h: WT, open: false, locked: false }];
         const parts = [{ x, y, w, h: WT }, { x, y: y + WT, w: WT, h: h - 2 * WT }, { x: X1 - WT, y: y + WT, w: WT, h: h - 2 * WT }, { x, y: Y1 - WT, w: c - 1 - x, h: WT }, { x: c + 1, y: Y1 - WT, w: X1 - c - 1, h: WT },
           { x: x + WT, y: DY - WT / 2, w: g - DW / 2 - x - WT, h: WT }, { x: g + DW / 2, y: DY - WT / 2, w: X1 - WT - g - DW / 2, h: WT }];
         dr.forEach(q => parts.push({ door: q.id, x: q.x, y: q.y, w: q.w, h: q.h }));
-        const furn = [], add = (kind, fx, fy, loot) => { const [fw, fh] = FD[kind] || [0.8, 0.6]; furn.push({ id: nid(), ch, x: fx, y: fy, w: fw, h: fh, kind, opened: !loot, loot: loot ? [mkItem(r, pick(r, FURN[kind]))].filter(i => i.id) : [], tomb: false }); };
+        const furn = [], add = (kind, fx, fy, loot) => { const [fw, fh] = FD[kind] || [0.8, 0.6]; furn.push({ id: nid(), ch, x: fx, y: fy, w: fw, h: fh, kind, opened: !loot, loot: loot ? [mkItem(r, pick(r, FURN[kind]))].filter(i => i.id) : [], tomb: false, scenery: kind === 'register' }); };
         for (const k of [2.2, 6, 9.8]) add('shelf', x + k, y + 5.4, 1);
         add('register', x + 1.5, Y1 - 1.5); add('register', x + w - 1.5, Y1 - 1.5);
         const bs = [1.2, 3.6, 6, 8.4, 10.8].filter(k => Math.abs(x + k - g) >= 1.6);
         bs.slice(0, 2 + Math.floor(r() * 2)).forEach(k => add('box', x + k, y + WT + 0.4, 1));
-        const rooms = [{ x0: x, y0: y, x1: X1, y1: DY }, { x0: x, y0: DY, x1: X1, y1: Y1 }];
+        const rooms = [{ x0: x, y0: y, x1: X1, y1: DY, type: 'deposito' }, { x0: x, y0: DY, x1: X1, y1: Y1, type: 'salao' }];
         const hh = { id, ch, x, y, w, h, kind: 'market', pal: 0, roof: '2', parts, gaps: [{ x: g, y: DY }, { x: c, y: Y1 - WT / 2 }], doors: dr, rooms, furn };
         if (reach(hh, [c, Y1 + 1])) { // 2 zumbis no salao (livres de moveis)
           for (let k = 0; k < 2; k++) for (let i = 0; i < 20; i++) {
@@ -757,8 +812,8 @@
     }
     const mz = [];
     BLK.forEach((_, b) => {
-      const v = r(), k = b === mb ? 0 : origin ? (b === 0 || b === 3 ? 1 : 0) : v < 0.3 ? 0 : v < 0.7 ? 1 : 2;
-      for (let j = 0; j < k && hs.length < 6; j++) place(b);
+      const k = b === mb ? 0 : origin ? (b === 0 || b === 3 ? 1 : 0) : 2; // 2 casas por quarteirao (spawn: 1 em 2 quarteiroes)
+      for (let j = 0; j < k && hs.length < 12; j++) place(b);
     });
     let wantCar = !origin && (near || r() < 0.15);
     if (!origin && !hs.length) { if (near) for (let b = Math.floor(r() * 4); !hs.length; b = (b + 1) % 4) place(b); else wantCar = false; }
@@ -772,30 +827,44 @@
     }
     // casas (planta, paredes, porta) e moveis-conteiner; chave e garantias de (0,0) no 1o movel da casa
     const keyAt = car ? Math.floor(r() * hs.length) : -1;
+    const tb = mulberry32(hash(G.seed, cx, cy, 17)); // caixas de ferramentas: RNG proprio (nao toca r nem nid)
     o.houses = hs.map((q, i) => {
       const hh = build(q), c = hh.doors[0], vw = q.side < 2;
       q.cx = c.x + c.w / 2 + (vw ? (q.side ? 0.6 : -0.6) : 0); q.cy = c.y + c.h / 2 + (vw ? 0 : (q.side === 3 ? 0.6 : -0.6)); // ponto fora da porta (guarda)
+      const j0 = hh.furn.findIndex(f => !f.scenery); // 1o conteiner: garantias de (0,0) e chave
       hh.furn.forEach((f, j) => {
-        f.loot = [mkItem(r, pick(r, FURN[f.kind]))].filter(it => it.id);
-        if (j === 0 && origin) f.loot = [mkItem(r, i === 0 ? 'gascan' : 'hose')];
-        if (j === 0 && i === keyAt) f.loot = [{ id: 'key', car: car.id, qty: 1 }];
+        if (!f.scenery) f.loot = [mkItem(r, pick(r, FURN[f.kind]))].filter(it => it.id);
+        if (j === j0 && origin) f.loot = [mkItem(r, i === 0 ? 'gascan' : 'hose')];
+        if (j === j0 && i === keyAt) f.loot = [{ id: 'key', car: car.id, qty: 1 }];
         delete f._b; o.crates.push(f);
       });
       if (r() < 0.5) for (let t = 0; t < 20; t++) { // guarda interno: ponto livre num comodo qualquer (todos alcancaveis)
         const m = hh.rooms[Math.floor(r() * hh.rooms.length)], zx = m.x0 + 0.7 + r() * (m.x1 - m.x0 - 1.4), zy = m.y0 + 0.7 + r() * (m.y1 - m.y0 - 1.4);
         if (!hitHouse(hh, hh.furn, zx, zy, 0.6)) { q.iz = [zx, zy]; break; }
       }
-      delete hh.rooms; delete hh.furn; delete hh.ok;
+      const rs = hh.rooms.filter(m => m.type === 'sala' || m.type === 'cozinha');
+      if (tb() < P_TB && rs.length) for (let t = 0; t < 12; t++) { // caixa de ferramentas (rara): sala/cozinha, rente a parede, alcancavel
+        const m = rs[Math.floor(tb() * rs.length)], [fw, fh] = FD.toolbox, bx = m.x0 + WT + tb() * (m.x1 - m.x0 - 2 * WT - fw), top = tb() < 0.5, by = top ? m.y0 + WT : m.y1 - WT - fh;
+        if (hh.furn.some(f => bx < f.x + f.w / 2 + 0.1 && bx + fw > f.x - f.w / 2 - 0.1 && by < f.y + f.h / 2 + 0.1 && by + fh > f.y - f.h / 2 - 0.1) || hh.gaps.some(g => dBox({ x: bx, y: by, w: fw, h: fh }, g.x, g.y) < 1.2) || (q.iz && dBox({ x: bx, y: by, w: fw, h: fh }, q.iz[0], q.iz[1]) < 0.8)) continue;
+        const box = { id: ch + ':tb:' + i, ch, x: bx + fw / 2, y: by + fh / 2, w: fw, h: fh, kind: 'toolbox', room: m.type, wall: top ? 0 : 1, opened: false, loot: [mkItem(tb, pick(tb, FURN.toolbox))].filter(it => it.id), tomb: false };
+        hh.furn.push(box);
+        if (reach(hh, [q.cx, q.cy])) { o.crates.push(box); break; }
+        hh.furn.pop();
+      }
+      delete hh.furn; delete hh.ok;
       return hh;
     });
+    const lr = mulberry32(hash(G.seed, cx, cy, 13)); // cadeados: RNG proprio (nao toca r nem nid); ~20 % das casas, nunca (0,0) casas 0/1 nem a casa da chave
+    o.houses.forEach((hh, i) => { if (lr() < 0.2 && !(origin && i < 2) && i !== keyAt) hh.doors[0].locked = true; });
     const mh2 = mk && market();
-    if (mh2) { mh2.furn.forEach(f => o.crates.push(f)); delete mh2.rooms; delete mh2.furn; o.houses.push(mh2); }
+    if (mh2) { mh2.furn.forEach(f => o.crates.push(f)); delete mh2.furn; o.houses.push(mh2); }
     // zumbis: 1 guarda a <=3 m do 1o bau + 1-3 vagantes (<=4)
-    const zOk = (x, y, m) => x > 1 && x < 39 && y > 1 && y < 39 && !inH(x, y, m) && !o.cars.some(c => { const b = carBox(c); return x > b.x - 1 && x < b.x + b.w + 1 && y > b.y - 1 && y < b.y + b.h + 1; }) && (!origin || Math.hypot(x - 23, y - 23) > 10);
+    const zOk = (x, y, m) => x > 1 && x < 39 && y > 1 && y < 39 && !inH(x, y, m) && !o.crates.some(c => c.kind === 'toolbox' && Math.abs(x - c.x) < c.w / 2 + 0.6 && Math.abs(y - c.y) < c.h / 2 + 0.6) && !o.cars.some(c => { const b = carBox(c); return x > b.x - 1 && x < b.x + b.w + 1 && y > b.y - 1 && y < b.y + b.h + 1; }) && (!origin || Math.hypot(x - 23, y - 23) > 10);
     const zs = [], addZ = (x, y) => {
-      const police = r() < 0.05, runner = !police && r() < 0.2;
+      const police = r() < 0.05 && !o.zombies.some(z => z.police), runner = !police && r() < 0.05; // corredor ~5 %
       const dropId = police ? (r() < 0.7 ? 'ammo' : 'pistol') : r() < 0.2 ? pick(r, COMMON) : null;
-      o.zombies.push({ id: nid(), ch, x, y, hp: 60, state: 'idle', alert: 0, atk: 0, runner, police, drop: dropId && mkItem(r, dropId) });
+      const zid = nid();
+      o.zombies.push({ id: zid, ch, x, y, hp: 60, state: 'idle', alert: 0, atk: 0, runner, police, drop: dropId && mkItem(r, dropId), ...zv(zid) });
       zs.push([x, y]);
     };
     if (hs.length && hs[0].iz && (!origin || Math.hypot(hs[0].iz[0] - 23, hs[0].iz[1] - 23) > 10)) addZ(hs[0].iz[0], hs[0].iz[1]);
@@ -819,13 +888,45 @@
       if (r() < 0.25) for (let i = 0; i < 10; i++) {
         const hz = r() < 0.5, len = 3 + r() * 2, x = bx + 1 + r() * (hz ? 12 - len : 12), y = by + 1 + r() * (hz ? 12 : 12 - len);
         const w = hz ? len : 0.2, h = hz ? 0.2 : len;
-        if (far(x, y, 1) && far(x + w, y + h, 1) && far(x + w / 2, y + h / 2, 1) && trees.every(t => Math.hypot(x + w / 2 - t.x, y + h / 2 - t.y) > len / 2 + 0.6)) { o.fences.push({ x, y, w, h }); break; }
+        if (far(x, y, 1) && far(x + w, y + h, 1) && far(x + w / 2, y + h / 2, 1) && zs.every(z => !(z[0] > x - 0.6 && z[0] < x + w + 0.6 && z[1] > y - 0.6 && z[1] < y + h + 0.6)) && trees.every(t => Math.hypot(x + w / 2 - t.x, y + h / 2 - t.y) > len / 2 + 0.6)) { o.fences.push({ x, y, w, h }); break; }
       }
     });
+    // props (sem loot): RNG proprio hash(seed,cx,cy,11) e ids ch:p:n proprios; nao tocam r nem nid. So dentro do quarteirao, longe de portas, calcadas de acesso e passagens entre casas
+    const pr = mulberry32(hash(G.seed, cx, cy, 11)), prr = (a, b) => a + pr() * (b - a);
+    let pn = 0;
+    o.props = [];
+    const strips = o.houses.slice(0, hs.length).map((hh, i) => { // calcada de acesso: da porta ate a borda do quarteirao, 1,2 m para cada lado; e o ponto central da porta
+      const q = hs[i], [bx, by] = BLK[q.b], d = hh.doors[0], dx = d.x + d.w / 2, dy = d.y + d.h / 2;
+      return { dx, dy, x: q.side === 0 ? bx : q.side === 1 ? q.x + q.w : dx - 1.2, y: q.side === 2 ? by : q.side === 3 ? q.y + q.h : dy - 1.2, w: q.side < 2 ? (q.side ? bx + 14 - q.x - q.w : q.x - bx) : 2.4, h: q.side < 2 ? 2.4 : (q.side === 3 ? by + 14 - q.y - q.h : q.y - by) };
+    });
+    if (mk) strips.push({ dx: -99, dy: -99, x: mk.x, y: mk.y + mk.h, w: mk.w, h: Math.max(0, BLK[mb][1] + 14 - mk.y - mk.h) }); // frente do mercado
+    const inb = v => (v > 6.2 && v < 19.8) || (v > 26.2 && v < 39.8); // dentro de um quarteirao
+    const okP = (x, y, cl) => {
+      if (!inb(x) || !inb(y) || inH(x, y, cl) || strips.some(t => x > t.x - 0.3 && x < t.x + t.w + 0.3 && y > t.y - 0.3 && y < t.y + t.h + 0.3 || Math.hypot(x - t.dx, y - t.dy) < 1.6)) return false;
+      if (hs.filter(h => x > h.x - 1 && x < h.x + h.w + 1 && y > h.y - 1 && y < h.y + h.h + 1).length > 1) return false; // passagem de 1 m entre casas
+      return trees.every(t => Math.hypot(x - t.x, y - t.y) > 0.9) && o.fences.every(f => !(x > f.x - 0.7 && x < f.x + f.w + 0.7 && y > f.y - 0.7 && y < f.y + f.h + 0.7)) && zs.every(z => Math.hypot(x - z[0], y - z[1]) > 1.2) && o.props.every(q => Math.hypot(x - q.x, y - q.y) > 0.8);
+    };
+    const addP = (kind, x, y, extra) => o.props.push(Object.assign({ id: ch + ':p:' + pn++, kind, x, y }, extra));
+    BLK.forEach(([bx, by], b) => {
+      for (let k = 1 + Math.floor(pr() * 2); k > 0; k--) for (let i = 0; i < 8; i++) { // arvores extras nos lotes
+        const x = bx + 1 + pr() * 12, y = by + 1 + pr() * 12;
+        if (okP(x, y, 1.2)) { trees.push({ x, y }); break; }
+      }
+      const ed = () => { const e = Math.floor(pr() * 4), t = prr(1.5, 12.5); return e < 2 ? [bx + t, e ? by + 13.6 : by + 0.4, e ? 1 : 3] : [e === 2 ? bx + 0.4 : bx + 13.6, by + t, e === 2 ? 0 : 2]; }; // ponto na borda da calcada
+      for (let k = 0; k < 2; k++) for (let i = 0; i < 6; i++) { const [x, y] = ed(); if (okP(x, y, 0.5)) { addP('pole', x, y, { r: 0.15 }); break; } } // poste ~ a cada 10 m
+      if (pr() < 0.6) for (let i = 0; i < 6; i++) { const [x, y] = ed(); if (okP(x, y, 0.5)) { addP('hydrant', x, y, { r: 0.2 }); break; } }
+      const yard = (kind, n, extra) => { for (let k = 0; k < n; k++) for (let i = 0; i < 6; i++) { const x = bx + 0.5 + pr() * 13, y = by + 0.5 + pr() * 13; if (okP(x, y, 1)) { addP(kind, x, y, extra && { a: Math.floor(pr() * 4) * Math.PI / 2 }); break; } } };
+      yard('trash', 1 + Math.floor(pr() * 2)); yard('bush', 2 + Math.floor(pr() * 2)); if (pr() < 0.5) yard('bench', 1, true);
+    });
+    strips.forEach((t, i) => { if (i < hs.length && pr() < 0.7) { // caixa de correio na calcada, ao lado do acesso
+      const q = hs[i], [bx, by] = BLK[q.b], sg = pr() < 0.5 ? -1 : 1, v = q.side < 2, x = v ? (q.side ? bx + 13.6 : bx + 0.4) : t.dx + sg * 1.9, y = v ? t.dy + sg * 1.9 : (q.side === 3 ? by + 13.6 : by + 0.4);
+      if (okP(x, y, 0.5)) addP('mailbox', x, y, { a: q.side * Math.PI / 2 });
+    } });
     o.trees = trees;
     // local -> mundo (roads ja nascem em mundo)
     const sh = e => { e.x += ox; e.y += oy; return e; };
-    [o.houses, o.crates, o.zombies, o.trees, o.fences].forEach(l => l.forEach(sh));
+    [o.houses, o.crates, o.zombies, o.trees, o.fences, o.props].forEach(l => l.forEach(sh));
+    o.houses.forEach(h => h.rooms.forEach(m => { m.x0 += ox; m.x1 += ox; m.y0 += oy; m.y1 += oy; }));
     o.houses.forEach(h => [h.parts, h.gaps, h.doors].forEach(l => l.forEach(sh)));
     // porta encostada na parede leste/sul: soma exata em float (x+w === h.x+h.w) para testes de borda
     o.houses.forEach(h => h.doors.forEach(d => { const pd = h.parts.find(q => q.door === d.id); for (const [p, l, T] of [['x', 'w', h.x + h.w], ['y', 'h', h.y + h.h]]) {
@@ -836,7 +937,7 @@
   }
 
   // ---- chunks: referencia com histerese, fila, load/unload com diff ----
-  const LISTS = ['houses', 'crates', 'zombies', 'cars', 'roads', 'trees', 'fences', 'drops'];
+  const LISTS = ['houses', 'crates', 'zombies', 'cars', 'roads', 'trees', 'fences', 'drops', 'props'];
   const parse = k => k.split(',').map(Number);
   const drivenIds = () => G.players.map(p => p.car).filter(Boolean); // so protege o unload; o diff grava o carro no chunk onde esta
   const strip = e => { const c = Object.assign({}, e); delete c.ch; delete c.way; delete c.side; delete c.rc; delete c.bang; delete c.last; delete c.pw; delete c.ck; delete c.fl; delete c.anim; for (const k of ['wu', 'zc', 'climb', 'fc', 'fct', '_hitBy']) delete c[k]; return c; };
@@ -871,14 +972,14 @@
     const has = (l, id) => l.some(e => e.id === id);
     if (d.visit !== undefined && Math.floor(G.t / 60) - d.visit >= 60) { // reposicao: bau aberto comum volta com 1 item; zumbis mortos renascem
       const r = mulberry32(hash(G.seed, cx, cy, d.visit));
-      for (const c of g.crates) if (dc[c.id] && !dc[c.id].loot.length && c.kind !== 'shelf' && c.kind !== 'box' && !c.loot.some(i => UNIQUE_SPAWN.has(i.id))) // nunca repõe quem nasceu com key/gascan/hose (regra do dono)
+      for (const c of g.crates) if (dc[c.id] && !dc[c.id].loot.length && c.kind !== 'shelf' && c.kind !== 'box' && c.kind !== 'toolbox' && !c.loot.some(i => UNIQUE_SPAWN.has(i.id))) // nunca repõe quem nasceu com key/gascan/hose (regra do dono)
         dc[c.id] = { opened: false, loot: [mkItem(r, pick(r, REPO))].filter(i => i.id) };
       for (const z of g.zombies) if (dz[z.id] === null) delete dz[z.id]; // shortcut: se o zumbi saiu para outro chunk, duplica; aceitavel
     }
     const tag = l => l.forEach(e => { e.ch = key; });
-    for (const k of ['roads', 'trees', 'fences']) { tag(g[k]); G[k].push(...g[k]); }
+    for (const k of ['roads', 'trees', 'fences', 'props']) { tag(g[k]); G[k].push(...g[k]); }
     g.fences.forEach((f, i) => { f.id = key + ':f:' + i; });
-    g.houses.forEach(h => h.doors.forEach(dr => { if (dr.id in dd0) dr.open = dd0[dr.id]; }));
+    g.houses.forEach(h => h.doors.forEach(dr => { const v = dd0[dr.id]; if (v === undefined) return; if (typeof v === 'object') { dr.open = !!v.open; dr.locked = !!v.locked; } else dr.open = v; })); // v:3 {open,locked}
     G.houses.push(...g.houses);
     g.crates.forEach(c => { if (dc[c.id]) Object.assign(c, dc[c.id]); G.crates.push(c); });
     for (const id in dc) if (dc[id] && !g.crates.some(c => c.id === id)) G.crates.push(Object.assign({ id, ch: key }, dc[id])); // tumbas
@@ -887,12 +988,13 @@
     for (const [dd, l, b, def] of [[dz, G.zombies, g.zombies, { state: 'idle', alert: 0, atk: 0 }], [dk, G.cars, g.cars, { speed: 0 }]]) // estrangeiras
       for (const id in dd) if (dd[id] && !b.some(e => e.id === id) && !has(l, id)) l.push(Object.assign({}, def, dd[id], { ch: key }));
     for (const id in (d.drops || {})) if (d.drops[id].expires > G.t) G.drops.push(Object.assign({ id, ch: key }, d.drops[id]));
+    G.zombies.forEach(z => { if (z.look === undefined) Object.assign(z, zv(z.id)); }); // saves antigos
     G.events.push({ type: 'chunkLoad', key });
   }
   // diff do chunk (sem descarregar); null se igual ao gen
   function diffOf(key) {
     const [cx, cy] = parse(key), g = G._gb.get(key) || gen(cx, cy), d = { crates: {}, cars: {}, zombies: {}, doors: {}, drops: {} };
-    G.houses.forEach(h => { if (h.ch === key) h.doors.forEach(dr => { if (dr.open !== g.houses.find(q => q.id === h.id).doors.find(q => q.id === dr.id).open) d.doors[dr.id] = dr.open; }); });
+    G.houses.forEach(h => { if (h.ch === key) h.doors.forEach(dr => { const b = g.houses.find(q => q.id === h.id).doors.find(q => q.id === dr.id); if (dr.open !== b.open || !!dr.locked !== !!b.locked) d.doors[dr.id] = { open: dr.open, locked: !!dr.locked }; }); });
     G.crates.forEach(c => {
       if (c.ch !== key) return;
       const b = g.crates.find(q => q.id === c.id);
@@ -948,7 +1050,7 @@
     const s0 = (st.players && st.players[0]) || {}, num = (v, d) => Number.isFinite(v) ? v : d;
     const p = G.player = { x: num(s0.x, 23), y: num(s0.y, 23), dir: num(s0.dir, 0), hp: num(s0.hp, 100), hunger: num(s0.hunger, 100),
       inv: s0.inv || [{ id: 'ammo', qty: 16 }], weapon: s0.weapon || 'pipe', equip: s0.equip || {}, car: s0.car || null,
-      input: { mx: 0, my: 0, attack: false, interact: false, run: false, crouch: false, hold: false }, near: null, open: null,
+      input: { mx: 0, my: 0, attack: false, interact: false, run: false, crouch: false, hold: false, target: null }, near: null, open: null,
       stamina: Math.max(0, Math.min(100, num(s0.stamina, 100))), crouch: !!s0.crouch, running: false, noise: 0, anim: { move: 'idle', act: null, t: 0 }, inside: null, action: null };
     const ok = i => i && !(i.dur <= 0); // peca quebrada nao volta; sem dur = cheia
     p.inv = p.inv.filter(ok); for (const k in p.equip) if (!ok(p.equip[k])) delete p.equip[k]; else if (p.equip[k].dur === undefined) p.equip[k].dur = DUR[p.equip[k].id];
@@ -973,7 +1075,7 @@
     g('trunk', 'Porta-malas', ['porta-malas', 'mala', 'carro', 'bagageiro', 'vasculhar'], [], ['Chegue atrás do carro e toque MALA.', 'Fique parado 1 s: o painel abre (10 espaços).', 'Toque um item para mover entre porta-malas e mochila.'], 'trunk'),
     g('molotov', 'Molotov', ['molotov', 'fogo', 'bomba', 'incendio', 'queimar', 'garrafa'], [{ item: 'bottle', onde: 'armários' }, { item: 'rag', onde: 'armários e gavetas' }, { item: 'gascan', onde: 'mercados e porta-malas (gasta 2 L)' }], ['Fabrique no MENU: garrafa + trapo + 2 L do galão (o galão fica).', 'Troque para MOLOTOV e toque ATACAR: mira sozinho em zumbi de 3,5 a 12 m.', 'Dano 35 e fogo por 3 s. Cuidado: o fogo queima você também.'], 'throw'),
     g('key', 'Chave do carro', ['chave', 'carro', 'dirigir', 'ligar'], [{ item: 'key', onde: 'móvel de casa no mesmo quarteirão' }], ['Procure nas casas próximas ao carro.', 'Com a chave, toque ENTRAR perto do carro.'], 'key'),
-    g('food', 'Comida', ['comida', 'fome', 'comer', 'curar', 'atadura', 'bandagem'], [{ item: 'food', onde: 'geladeiras, armários e zumbis' }, { item: 'bandage', onde: 'gavetas e prateleiras (raro)' }], ['Abra a mochila no MENU.', 'Toque na comida para comer (fome +30) ou na bandagem para curar (vida +25).'], 'food'),
+    g('food', 'Comida', ['comida', 'fome', 'comer', 'curar', 'atadura', 'bandagem'], [{ item: 'food', onde: 'geladeiras, armários, fogões e zumbis' }, { item: 'bandage', onde: 'armarinho de remédios, gavetas e prateleiras (raro)' }], ['Abra a mochila no MENU.', 'Toque na comida para comer (fome +30) ou na bandagem para curar (vida +25).'], 'food'),
     g('tomb', 'Tumba', ['tumba', 'morte', 'morrer', 'mochila'], [{ lugar: 'ponto de sua morte', onde: 'marcado em vermelho no Mapa' }], ['Ao morrer você volta ao início e deixa uma tumba com tudo.', 'Abra o Mapa e ache o ponto vermelho.', 'Vá até lá e toque PEGAR.'], 'search'),
     g('correr', 'Correr', ['correr', 'corrida', 'folego', 'rapido', 'joystick', 'shift', 'andar'], [], ['Empurre o joystick até a borda para correr.', 'No teclado, segure SHIFT.', 'Correr gasta fôlego: ande para recuperar.'], 'run'),
     g('agachar', 'Agachar', ['agachar', 'agachado', 'furtivo', 'silencio', 'esconder'], [], ['Toque o botão AGACHAR acima do joystick (no teclado: C).', 'Agachado: mais lento, passos quase mudos e menos visível.', 'Toque de novo para levantar.'], 'crouch'),
@@ -981,7 +1083,10 @@
     g('buscar', 'Buscar em móveis', ['buscar', 'vasculhar', 'movel', 'bau', 'geladeira', 'armario', 'gaveta', 'loot'], [], ['Chegue perto de um móvel e toque BUSCAR.', 'Fique parado 1 s: se mexer, cancela. O painel abre.', 'Toque um item para mover; o que não couber fica onde está.'], 'search'),
     g('container', 'Contêineres', ['container', 'conteiner', 'guardar', 'esconderijo', 'tumba', 'movel', 'mala', 'painel', 'pegar tudo'], [], ['BUSCAR abre o contêiner: ele à esquerda, sua mochila à direita.', 'Toque um item para mover a pilha; segure para mover 1.', 'Pegar tudo leva o que couber. Móvel 6, gôndola 8, porta-malas 10, tumba sem limite.', 'Você pode guardar qualquer item: vira esconderijo.'], 'search'),
     g('bag', 'Mochilas', ['mochila', 'mochilas', 'espacos', 'escolar', 'trilha', 'militar', 'costas', 'equipar'], [{ item: 'bag_school', onde: 'guarda-roupas (raro)' }, { item: 'bag_hiking', onde: 'guarda-roupas e porta-malas (muito raro)' }, { item: 'bag_military', onde: 'base militar' }], ['Equipe no MENU: escolar +4, trilha +8, militar +12 espaços.', 'Para tirar, esvazie os espaços extras antes.', 'Ao morrer, a mochila vai para a tumba.'], 'equip'),
-    g('porta', 'Portas', ['porta', 'abrir', 'fechar', 'casa', 'arrombar'], [], ['Perto da porta, toque AÇÃO para abrir ou fechar.', 'Só fecha sem ninguém a menos de 1 m.', 'Zumbis arrombam porta fechada em 4 s.'], 'search'),
+    g('porta', 'Portas', ['porta', 'abrir', 'fechar', 'casa', 'arrombar', 'batente'], [], ['Toda porta de casa começa fechada: perto dela, toque AÇÃO para abrir ou fechar.', 'Só fecha sem ninguém a menos de 1 m.', 'Zumbis arrombam porta fechada em 4 s.'], 'search'),
+    g('locked', 'Porta trancada', ['trancada', 'trancado', 'cadeado', 'porta', 'abrir', 'cortar'], [{ item: 'cutter', onde: 'caixas de ferramentas nas casas, depósitos de mercado e porta-malas (raro)' }], ['Algumas portas de casa têm cadeado: AÇÃO não abre.', 'Com o alicate na mochila, segure CORTAR por 1,5 s parado.', 'Zumbis também não passam por porta trancada.'], 'cutter'),
+    g('cutter', 'Alicate corta-cadeado', ['alicate', 'corta', 'cadeado', 'cortar', 'ferramenta', 'trancada'], [{ item: 'cutter', onde: 'caixas de ferramentas nas casas, depósitos de mercado e porta-malas (raro)' }], ['Fica na mochila e vira o botão CORTAR perto de porta trancada.', 'Segure 1,5 s sem mexer o joystick; o corte faz barulho.', 'Tem 4 usos e depois quebra.'], 'cutter'),
+    g('moveis', 'Cômodos e móveis', ['cozinha', 'quarto', 'banheiro', 'sala', 'fogao', 'pia', 'cama', 'sofa', 'estante', 'criado', 'remedio', 'movel', 'tocar'], [{ item: 'bandage', onde: 'armarinho de remédios do banheiro (raro)' }, { item: 'food', onde: 'geladeira, armários e fogão da cozinha' }, { item: 'rag', onde: 'guarda-roupa, criado-mudo e estante' }], ['Cada casa tem cozinha, quarto, banheiro e sala com móveis próprios.', 'Fogão, geladeira, armários, guarda-roupa, criado-mudo, armarinho, estante e gaveteiro guardam itens; cama, sofá, mesa, vaso e pia só atrapalham.', 'O móvel aceso é o alvo do BUSCAR; ou toque direto no móvel perto de você.'], 'search'),
     g('mochila', 'Mochila', ['mochila', 'inventario', 'slots', 'cheia', 'pilha', 'limite'], [], ['A mochila tem 8 slots; itens iguais empilham até o limite.', 'Armas, armaduras, chaves, galões e mangueira ocupam 1 slot cada.', 'Cheia: nada novo é coletado, só completa pilhas.'], 'food'),
     g('drop', 'Largar item', ['largar', 'soltar', 'chao', 'jogar', 'pegar', 'dropar'], [], ['Na mochila, escolha o item e toque LARGAR (1 unidade).', 'Para recolher, chegue perto e toque PEGAR.', 'Itens no chão somem em 5 minutos.'], 'food'),
     g('armor', 'Armadura', ['armadura', 'capacete', 'jaqueta', 'caneleira', 'equipar', 'proteger', 'durabilidade'], [{ item: 'helmet', onde: 'guarda-roupas (raro) e policiais' }, { item: 'jacket', onde: 'guarda-roupas (raro)' }, { item: 'shinguards', onde: 'guarda-roupas (muito raro)' }], ['Abra Equipar no MENU e toque na peça para vestir.', 'Cada peça reduz 20 % do dano (máx. 60 %).', 'Cada golpe absorvido gasta durabilidade; a peça quebra e some.'], 'equip'),
@@ -998,7 +1103,7 @@
 
   const G = window.G = {
     t: 0, map: { chunk: CH }, nextId: 0, ref: [0, 0], chunkGen: 0, _ls: new Set(), _pk: '',
-    chunks: {}, loaded: [], queue: [], fires: [], flights: [], _gb: new Map(), _gp: {}, explored: [], roads: [], cars: [], trees: [], fences: [], drops: [], recipes: RECIPES, guide: GUIDE, ITEM_IDS, HOLD_MS: 400, capOf, hurtPlayer, gen, loot: FURN, free,
+    chunks: {}, loaded: [], queue: [], fires: [], flights: [], _gb: new Map(), _gp: {}, explored: [], roads: [], cars: [], trees: [], fences: [], drops: [], props: [], _pc: [], recipes: RECIPES, guide: GUIDE, ITEM_IDS, HOLD_MS: 400, capOf, hurtPlayer, gen, loot: FURN, free,
     seed: 0, players: [], input: null, target: null, // compat 0.1: alias de players[0].input
     player: null, dying: [], zombies: [], crates: [], houses: [], events: [],
     dead: false, slot: 1, hints: {}, _as: 0, _dead: 0, cd: 0, _hunger: 0, _starve: 0, _spawn: 0,
@@ -1011,7 +1116,7 @@
         const chunks = Object.assign({}, G.chunks);
         for (const k of G.loaded) { const d = diffOf(k); if (d) chunks[k] = d; else delete chunks[k]; }
         const pl = G.players.map(({ x, y, dir, hp, hunger, inv, weapon, equip, car, stamina, crouch }) => ({ x, y, dir, hp, hunger, inv, weapon, equip, car, stamina, crouch }));
-        localStorage['zl1:s' + G.slot] = JSON.stringify({ v: 2, seed: G.seed, t: G.t, nextId: G.nextId, players: pl, hints: G.hints, explored: G.explored, chunks });
+        localStorage['zl1:s' + G.slot] = JSON.stringify({ v: 3, seed: G.seed, t: G.t, nextId: G.nextId, players: pl, hints: G.hints, explored: G.explored, chunks });
         return true;
       } catch (e) {
         if (typeof localStorage !== 'undefined') G.events.push({ type: 'hint', id: 'saveFull', text: 'Save cheio — não feche o jogo antes de pegar a tumba' }); // sem localStorage: silencio
@@ -1019,7 +1124,7 @@
       }
     },
     read(slot) {
-      try { const o = JSON.parse(localStorage['zl1:s' + slot]); return o && o.v === 2 && Number.isFinite(o.seed) ? o : null; } catch (e) { return null; }
+      try { const o = JSON.parse(localStorage['zl1:s' + slot]); return o && o.v === 3 && Number.isFinite(o.seed) ? o : null; } catch (e) { return null; }
     },
     load(slot) {
       const o = G.read(slot);

@@ -51,6 +51,8 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
 #fuel,#re{right:var(--mr)}#fuel{top:calc(var(--mt) + 56px);color:var(--municao)}#re{top:calc(var(--mt) + 100px);color:var(--vida)}
 #fuel svg{width:20px;height:20px}
 #joy.run .base{border-color:var(--folego)}
+#joy .zona{position:absolute;left:calc(var(--ml) - 30px);bottom:calc(var(--mb) - 30px);width:180px;height:180px;border-radius:50%;border:2px solid var(--folego);opacity:0;pointer-events:none;transition:opacity var(--fade),background var(--fade)}
+#joy.active .zona{opacity:.3}#joy.active.run .zona{opacity:.8;background:rgba(207,232,245,.18)}#joy.car .zona{display:none}
 #joy .marca{position:absolute;left:0;top:0;width:100%;height:100%;fill:none;stroke:var(--borda);stroke-width:1}
 #btn-crouch{left:calc(var(--ml) + 36px);bottom:calc(var(--mb) + 136px);width:48px;height:48px}
 #btn-crouch.on{opacity:1;border-color:var(--folego)}
@@ -153,18 +155,18 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
   // near.type -> [icone, rotulo <= 8 letras]
   const ACAO = {
     crate: ['search', 'BUSCAR'], tomb: ['hand', 'PEGAR'], enter: ['door', 'ENTRAR'], exit: ['exit', 'SAIR'],
-    trunk: ['trunk', 'MALA'], car: ['door', 'ENTRAR'], siphon: ['pump', 'SIFONAR'], pour: ['pump', 'DESPEJAR'], search: ['search', 'BUSCAR'], drop: ['hand', 'PEGAR'], fence: ['jump', 'PULAR']
+    trunk: ['trunk', 'MALA'], car: ['door', 'ENTRAR'], siphon: ['pump', 'SIFONAR'], pour: ['pump', 'DESPEJAR'], search: ['search', 'BUSCAR'], drop: ['hand', 'PEGAR'], fence: ['jump', 'PULAR'], cut: ['hand', 'CORTAR'], locked: ['door', 'TRANCADA']
   };
-  const acaoDe = (n) => n.act ? ACAO[n.act] : n.type === 'door' ? (n.open ? ['door', 'FECHAR'] : ['door', 'ABRIR']) : ACAO[n.type] || ['hand', 'AÇÃO'];
+  const acaoDe = (n) => n.type === 'door' && n.locked ? (n.cut ? ACAO.cut : ACAO.locked) : n.act ? ACAO[n.act] : n.type === 'door' ? (n.open ? ['door', 'FECHAR'] : ['door', 'ABRIR']) : ACAO[n.type] || ['hand', 'AÇÃO'];
   const NOME = { food: 'Comida', bandage: 'Bandagem', ammo: 'Munição', rag: 'Trapo', wire: 'Arame', bottle: 'Garrafa', hose: 'Mangueira', gascan: 'Galão', key: 'Chave', pipe: 'Cano', pipe_r: 'Cano reforçado', bat: 'Taco', pistol: 'Pistola', molotov: 'Molotov', helmet: 'Capacete', jacket: 'Jaqueta', shinguards: 'Caneleiras', bag_school: 'Mochila escolar', bag_hiking: 'Mochila de trilha', bag_military: 'Mochila militar' };
   const BAG = { bag_school: 4, bag_hiking: 8, bag_military: 12 };
   const CNOME = { fridge: 'Geladeira', cabinet: 'Armário', wardrobe: 'Guarda-roupa', drawer: 'Gaveta', shelf: 'Gôndola', box: 'Caixa', trunk: 'Porta-malas', tomb: 'Tumba' };
   const ARMA = { pipe: 'CANO', pipe_r: 'CANO+', bat: 'TACO', pistol: 'PISTOLA', molotov: 'MOLOTOV' };
-  const DUR = { helmet: 20, jacket: 20, shinguards: 10 };
+  const DUR = { helmet: 20, jacket: 20, shinguards: 10, cutter: 4 };
 
   const held = { atk: false, act: false }, keys = new Set(), last = {}, E = {};
   const joy = { id: null, cx: 0, cy: 0, mx: 0, my: 0, run: false };
-  let intT = 0, pend = false, hintGuia = '', crouchPend = false, root, armorUntil = 0, hintUntil = 0, hintNear = '', toastUntil = 0, flashUntil = 0, menuEl, startEl, confirmEl, deadEl, tourEl, tourStep = -1, tourPos, contEl, contSig = '', hp = null;
+  let tapT = null, intT = 0, pend = false, hintGuia = '', crouchPend = false, root, armorUntil = 0, hintUntil = 0, hintNear = '', toastUntil = 0, flashUntil = 0, menuEl, startEl, confirmEl, deadEl, tourEl, tourStep = -1, tourPos, contEl, contSig = '', hp = null;
 
   const put = (k, v, fn) => { if (last[k] !== v) { last[k] = v; fn(v); } };
   const el = (tag, id, parent, html, cls) => {
@@ -531,7 +533,7 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
     E.hint.lastChild.addEventListener('click', () => { if (hintGuia) { guideOpen = hintGuia; guideQ = ''; curTab = 'guide'; } toggleMenu(true); });
     E.toast = el('div', 'toast', hud, '', 'hidden');
     E.flash = el('div', 'flash', hud, '', 'hidden');
-    const joyEl = el('div', 'joy', hud, '<div class="base"><svg class="marca" viewBox="0 0 120 120"><circle cx="60" cy="60" r="54"/></svg><div class="nub"></div></div>');
+    const joyEl = el('div', 'joy', hud, '<div class="base"><svg class="marca" viewBox="0 0 120 120"><circle cx="60" cy="60" r="54"/></svg><div class="nub"></div></div><div class="zona"></div>');
     E.joy = joyEl; E.nub = joyEl.querySelector('.nub');
     E.crouch = btn('btn-crouch', hud, svg('crouch')); E.crouch.setAttribute('aria-label', 'Agachar');
     E.atk = btn('btn-attack', hud, svg('hit') + 'ATACAR');
@@ -569,10 +571,10 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
       let dx = e.clientX - joy.cx, dy = e.clientY - joy.cy;
       let d = Math.hypot(dx, dy);
       if (joyEl.classList.contains('car')) { dx = Math.max(-60, Math.min(60, dx)); dy = Math.max(-60, Math.min(60, dy)); d = Math.max(Math.abs(dx), Math.abs(dy)); }
-      else if (d > 60) { dx *= 60 / d; dy *= 60 / d; }
-      joy.mx = dx / 60; joy.my = dy / 60;
-      const m = Math.min(d, 60) / 60; // histerese: liga >= 90 %, desliga < 75 %
-      if (m >= .9) joy.run = true; else if (m < .75) joy.run = false;
+      else if (d > 90) { dx *= 90 / d; dy *= 90 / d; }
+      const k = d > 60 ? 60 / Math.min(d, 90) : 1; // dentro do raio: velocidade proporcional; alem: so a zona de corrida
+      joy.mx = dx * k / 60; joy.my = dy * k / 60;
+      if (!joyEl.classList.contains('car')) { if (d >= 81) joy.run = true; else if (d < 69) joy.run = false; } // zona externa: liga >= 1,35x o raio, desliga < 1,15x
       E.nub.style.transform = 'translate(' + dx + 'px,' + dy + 'px)';
     };
     const rel = (e) => {
@@ -597,6 +599,15 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
     });
     window.addEventListener('keyup', (e) => { keys.delete(e.code); if (e.code === 'KeyE') intT = 0; });
     window.addEventListener('blur', () => { keys.clear(); held.atk = held.act = false; intT = 0; });
+    // tocar para vasculhar: toque rapido no mundo (fora de #ui) => R.pick -> target + interact
+    const tp0 = {};
+    document.addEventListener('pointerdown', (e) => { tp0[e.pointerId] = { x: e.clientX, y: e.clientY, t: performance.now(), ok: !(e.target.closest && e.target.closest('#ui')) }; });
+    document.addEventListener('pointercancel', (e) => { delete tp0[e.pointerId]; });
+    document.addEventListener('pointerup', (e) => {
+      const d = tp0[e.pointerId]; delete tp0[e.pointerId];
+      if (!d || !d.ok || UI.paused || performance.now() - d.t > 300 || Math.hypot(e.clientX - d.x, e.clientY - d.y) > 10) return;
+      try { const a = window.R && R.pick && R.pick(e.clientX, e.clientY); if (a) tapT = { type: a.type, id: a.id }; } catch (er) {}
+    });
     buildStart(); buildDead(); buildTour(); buildCont(); openStart();
   }
 
@@ -614,11 +625,13 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
     if (crouchPend && !pz) inp.crouch = true; // pulso: o game alterna e zera
     crouchPend = false;
     inp.attack = !pz && !car && (held.atk || keys.has('Space'));
-    inp.hold = !pz && !car && held.act && !!(p.near && p.near.act);
+    const cutD = !!(p.near && p.near.type === 'door' && p.near.locked && (p.inv || []).some((i) => i.id === 'cutter'));
+    inp.hold = !pz && !car && (held.act || keys.has('KeyE')) && (cutD || !!(p.near && p.near.act));
     const fence = p.near && p.near.type === 'fence';
     if (fence && pend && !pz) inp.jump = true; // pulso: o game consome
-    inp.interact = !pz && !fence && !inp.hold && (pend || (intT > 0 && now - intT > 350)); // com act, segurar = hold, nao interact
-    pend = false;
+    if (tapT && !pz) inp.target = tapT; // tocar para vasculhar: pulso
+    inp.interact = !!(tapT && !pz) || !pz && !fence && !inp.hold && (pend || (intT > 0 && now - intT > 350)); // com act, segurar = hold, nao interact
+    pend = false; tapT = null;
 
     // eventos (G empurra; UI limpa por ultimo)
     for (const ev of G.events) {
@@ -661,14 +674,15 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
 
     contTick(G, p);
     const nr = p.open ? null : car ? { type: 'exit' } : p.near;
-    put('near', nr ? nr.type + (nr.open ? '1' : '0') + (nr.act || '') : '', (v) => {
+    const cutN = nr && nr.type === 'door' && nr.locked && (p.inv || []).some((i) => i.id === 'cutter');
+    put('near', nr ? nr.type + (nr.open ? '1' : '0') + (nr.act || '') + (nr.locked ? (cutN ? 'c' : 'l') : '') : '', (v) => {
       E.act.classList.toggle('hidden', !v);
       E.act.classList.toggle('near', !!v);
-      if (v) { const a = acaoDe(nr); E.act.innerHTML = svg(a[0]) + a[1]; E.act.appendChild(E.ring); }
+      if (v) { const a = acaoDe(cutN ? Object.assign({ cut: 1 }, nr) : nr); E.act.innerHTML = svg(a[0]) + a[1]; E.act.appendChild(E.ring); }
     });
     const gc = (p.inv || []).find((i) => i.id === 'gascan'), sf = p.action && p.action.type === 'siphon';
     const sa = sf ? Math.min(1, ((p.action.act === 'pour' ? (G.cars.find((c) => c.id === p.action.id) || {}).fuel : gc && gc.fuel) || 0) / 10)
-      : p.action && p.action.type === 'search' ? Math.min(1, Math.max(0, p.action.t || 0)) : -1;
+      : p.action && p.action.type === 'search' ? Math.min(1, Math.max(0, p.action.t || 0)) : p.action && p.action.type === 'cut' ? Math.min(1, Math.max(0, (p.action.t || 0) / 1.5)) : -1;
     put('ring', sa < 0 ? -1 : Math.round(sa * 100), (v) => {
       E.ring.classList.toggle('hidden', v < 0);
       if (v >= 0) E.ring.firstElementChild.setAttribute('stroke-dashoffset', String(1 - v / 100));

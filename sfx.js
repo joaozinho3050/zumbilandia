@@ -249,6 +249,23 @@
       osc(n, 'sine', 140, 60, t, 0.1, 0.3);
       noise(n, t, 0.05, 0.12, 'lowpass', 300, 0.7, 0.003);
     }),
+    cut: () => voice(0.12, (t, n) => { // estalo metálico seco
+      noise(n, t, 0.04, 0.5, 'highpass', 3000, 0.7, 0.002);
+      osc(n, 'square', 1800, 1200, t, 0.05, 0.12);
+    }),
+    toolBreak: () => voice(0.5, (t, n) => { // estalo + tilintar
+      noise(n, t, 0.05, 0.6, 'highpass', 2500, 0.7, 0.002);
+      osc(n, 'sine', 2400, 2400, t + 0.06, 0.4, 0.12);
+      osc(n, 'sine', 3100, 3100, t + 0.1, 0.35, 0.08);
+    }),
+    locked: () => voice(0.5, (t, n) => { // sacudida: 3 batidas de madeira + tilintar de cadeado
+      [0, 0.09, 0.18].forEach((d) => {
+        osc(n, 'sine', 160, 70, t + d, 0.07, 0.4);
+        noise(n, t + d, 0.04, 0.25, 'lowpass', 500, 0.7, 0.003);
+      });
+      osc(n, 'sine', 2300, 2300, t + 0.03, 0.3, 0.07);
+      osc(n, 'sine', 3000, 3000, t + 0.12, 0.25, 0.05);
+    }),
     closeBox: () => voice(0.12, (t, n) => osc(n, 'sine', 140, 90, t, 0.1, 0.3)), // batida suave ao fechar
   };
 
