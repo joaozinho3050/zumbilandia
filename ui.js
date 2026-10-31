@@ -70,7 +70,14 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
 #tab-map{text-align:center}
 #tab-map canvas{width:min(320px,60vh);height:min(320px,60vh);image-rendering:pixelated;border:2px solid var(--borda);border-radius:14px;background:var(--fundo)}
 #menu input{width:100%;height:48px;padding:0 var(--esp-3);border:2px solid var(--borda);border-radius:14px;background:var(--slot);color:var(--texto);font:16px 'Atkinson Hyperlegible',sans-serif;touch-action:manipulation;user-select:text;-webkit-user-select:text}
-#menu .ver{margin-top:var(--esp-4);font-size:13px;opacity:.6}
+#menu .ver{display:flex;align-items:center;min-height:48px;margin-top:var(--esp-4);font-size:13px;opacity:.6;user-select:none}
+#fuel .hpbar{display:block;width:44px;height:5px;margin-left:var(--esp-2);background:var(--fundo);border-radius:3px;overflow:hidden}
+#fuel .hpbar i{display:block;height:100%;background:var(--armadura)}
+#fuel .hpbar.hidden{display:none}
+#fuel .hpbar.zero i{background:var(--vida)}
+#fuel .hpbar.zero{outline:1px solid var(--vida)}
+#btn-action .ring.perigo circle{stroke:var(--vida)}
+.ip .dvh{margin:var(--esp-3) 0 var(--esp-2)}
 #menu .hit{display:block;width:100%;min-height:48px;margin-top:var(--esp-2);text-align:left;padding:0 var(--esp-3);border:2px solid var(--borda);border-radius:14px;background:var(--slot);font-size:14px}
 #menu ol{margin:var(--esp-1) 0;padding-left:var(--esp-5)}
 #menu canvas.demo{width:160px;height:120px;border:2px solid var(--borda);border-radius:14px;background:var(--fundo)}
@@ -224,7 +231,7 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
     if (id !== 'inv') spinOff();
     curTab = id;
     for (const k in panes) { panes[k].classList.toggle('on', k === id); tabBtns[k].classList.toggle('on', k === id); }
-    ({ inv: renderInv, equip: renderEquip, craft: renderCraft, map: renderMap, guide: renderGuide, settings: renderSettings })[id]();
+    ({ inv: renderInv, equip: renderEquip, craft: renderCraft, map: renderMap, guide: renderGuide, settings: () => (devOpen ? renderDev() : renderSettings()) })[id]();
   }
 
   // ---- componente único de painel de itens (duas colunas): slot, coluna, aviso ----
@@ -347,7 +354,7 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
   }
   function listGuide() {
     const G = window.G, all = G.guide, q = sem(guideQ);
-    const hits = all.filter((e) => !q || sem(e.titulo + ' ' + (e.palavras || []).join(' ') + ' ' + e.id).includes(q));
+    const hits = all.filter((e) => !q || sem(e.titulo + ' ' + (e.palavras || []).join(' ') + ' ' + e.id + (e.id === 'carDmg' ? ' gasolina no chao' : '')).includes(q));
     panes.guide.querySelector('.res').innerHTML = hits.map((e) => '<button class="hit" data-a="guide" data-v="' + e.id + '">' + e.titulo + '</button>').join('') || '<div class="dim">Nada encontrado</div>';
     if (hits.length && !hits.some((e) => e.id === guideOpen)) guideOpen = hits[0].id;
     const e = hits.find((x) => x.id === guideOpen), ent = panes.guide.querySelector('.ent');
@@ -358,7 +365,41 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
 
   function renderSettings() {
     const m = !!(window.SFX && SFX.muted && SFX.muted());
-    panes.settings.innerHTML = '<h3>Ajustes</h3><button class="btn" data-a="mute">Som: ' + (m ? 'mudo' : 'ligado') + '</button> <button class="btn" data-a="exit">Sair para o início</button> <button class="btn" data-a="delw">Apagar este mundo</button><p class="ver">Versão ' + ((document.querySelector('meta[name=versao]') || {}).content || 'dev') + '</p>';
+    panes.settings.innerHTML = '<h3>Ajustes</h3><button class="btn" data-a="mute">Som: ' + (m ? 'mudo' : 'ligado') + '</button> <button class="btn" data-a="exit">Sair para o início</button> <button class="btn" data-a="delw">Apagar este mundo</button><p class="ver" data-a="ver">Versão ' + ((document.querySelector('meta[name=versao]') || {}).content || 'dev') + '</p>' + (window.G.dev && window.G.dev.on ? '<button class="btn" data-a="dev">Modo dev</button>' : '');
+  }
+
+  // ---- PAINEL DEV (escondido: 7 toques na versão em Ajustes); mesmo estilo das telas de itens ----
+  let verN = 0, verT = 0, devOpen = false, devHeld = false;
+  const DVB = (v, t) => '<button class="btn" data-a="dv" data-v="' + v + '">' + t + '</button> ';
+  function renderDev() {
+    const G = window.G, d = G.dev, on = (b) => b ? ' ✓' : '';
+    let items = '';
+    for (const id of G.ITEM_IDS) items += slotH({ id }, { a: 'data-dvi="' + id + '"', hold: true, q: '' });
+    const car = [[10, '100 %'], [5, '50 %'], [0, '0 %']].map(([f, n]) => '<div>Tanque ' + n + ' ' + [100, 25, 0].map((h) => DVB('car:' + f + ':' + h, 'vida ' + h)).join('') + '</div>').join('');
+    panes.settings.innerHTML = '<div class="ip"><h3>Modo desenvolvedor</h3><button class="btn" data-a="dv" data-v="back">Voltar</button> <span class="dim" id="dvmsg"></span>' +
+      '<h3 class="dvh">Itens (toque +1, segure = pilha)</h3>' + grid(items) +
+      '<h3 class="dvh">Zumbis</h3>' + DVB('z:walker', 'Andador') + DVB('z:runner', 'Corredor') + DVB('z:police', 'Policial') + DVB('z:horde', 'Horda') +
+      '<h3 class="dvh">Carro</h3>' + car +
+      '<h3 class="dvh">Teleporte</h3>' + DVB('tp:market', 'Mercado') + DVB('tp:locked', 'Casa trancada') + DVB('tp:car', 'Carro') + DVB('tp:spawn', 'Início') + DVB('tp:far', '+10 chunks') +
+      '<h3 class="dvh">Chaves</h3>' + DVB('god', 'Imortal' + on(d.god)) + DVB('noclip', 'Atravessar paredes' + on(d.noclip)) + DVB('t:1', 'Tempo ×1' + on(d.speed === 1)) + DVB('t:4', '×4' + on(d.speed === 4)) + DVB('t:16', '×16' + on(d.speed === 16)) + DVB('fill', 'Encher status') + DVB('ov', 'Overlay' + on(d.ov)) + '</div>';
+  }
+  function devAct(v) {
+    const G = window.G, d = G.dev, [k, a, b] = v.split(':');
+    if (k === 'back') { devOpen = false; return; }
+    let r = true;
+    if (k === 'z') d.spawnZ(a);
+    else if (k === 'car') r = !!d.spawnCar({ fuel: +a, hp: +b });
+    else if (k === 'tp') r = d.tp(a);
+    else if (k === 'god' || k === 'noclip') d[k] = !d[k];
+    else if (k === 't') d.speed = +a;
+    else if (k === 'fill') d.fill();
+    else if (k === 'ov') { d.ov = !d.ov; try { window.R && R.devOverlay && R.devOverlay(d.ov); } catch (e) {} }
+    if (r === false) say('Não deu');
+  }
+  function devItem(id, n) {
+    const ok = window.G.dev.spawnItem(id, n);
+    say(ok ? '+' + (n > 1 ? 'pilha ' : '1 ') + nm(id) : 'Mochila cheia');
+    const m = document.getElementById('dvmsg'); if (m) m.textContent = ok ? 'ok' : 'Mochila cheia';
   }
 
   // ---- CONTÊINER (M4.5): esquerda = contêiner, direita = mochila ----
@@ -409,7 +450,15 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
     const b = e.target.closest('[data-a]');
     if (!b) return;
     const G = window.G, a = b.dataset.a, v = b.dataset.v;
-    if (a === 'tab') return showTab(v);
+    if (a === 'tab') { devOpen = false; return showTab(v); }
+    if (a === 'ver') {
+      const n = performance.now(); verN = n - verT < 2000 ? verN + 1 : 1; if (verN === 1) verT = n;
+      if (verN >= 7 && !G.dev.on) { G.dev.on = true; say('Modo desenvolvedor ligado'); }
+      return verN >= 7 ? showTab(curTab) : undefined;
+    }
+    if (a === 'dev') devOpen = true;
+    else if (a === 'dv') devAct(v);
+    else
     if (a === 'slot') {
       const i = +v, it = G.player.inv[i];
       if (i === selInv && it && (it.id === 'food' || it.id === 'bandage')) { G.useItem(i); if (!G.player.inv[i]) selInv = -1; } else selInv = i;
@@ -436,6 +485,19 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
     x.addEventListener('click', () => toggleMenu(false));
     for (const [, , id] of ABAS) panes[id] = el('div', 'tab-' + id, menuEl, '', 'pane' + (['inv', 'equip', 'craft'].includes(id) ? ' cols ip' : ''));
     menuEl.addEventListener('click', menuClick);
+    // dev: tocar = +1, segurar 400 ms = pilha cheia (mesmo gesto do baú)
+    let dvT = 0;
+    menuEl.addEventListener('pointerdown', (e) => {
+      const b = e.target.closest('[data-dvi]'); if (!b) return;
+      devHeld = false; b.classList.add('h'); clearTimeout(dvT);
+      dvT = setTimeout(() => { devHeld = true; b.classList.remove('h'); devItem(b.dataset.dvi, 99); }, window.G.HOLD_MS || 400);
+    });
+    const dvEnd = () => { clearTimeout(dvT); for (const b of menuEl.querySelectorAll('[data-dvi].h')) b.classList.remove('h'); };
+    menuEl.addEventListener('pointercancel', dvEnd);
+    menuEl.addEventListener('click', (e) => {
+      const b = e.target.closest('[data-dvi]'); if (!b) return;
+      dvEnd(); if (devHeld) { devHeld = false; return; } devItem(b.dataset.dvi, 1);
+    });
     document.addEventListener('pointerdown', (e) => { if (UI.paused && startEl.classList.contains('hidden') && !menuEl.contains(e.target) && !E.menuB.contains(e.target)) toggleMenu(false); });
     const vv = window.visualViewport;
     if (vv) vv.addEventListener('resize', () => { menuEl.style.height = Math.min(window.innerHeight * .86, vv.height - 8) + 'px'; });
@@ -540,7 +602,8 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
     E.joy = joyEl; E.nub = joyEl.querySelector('.nub');
     E.crouch = btn('btn-crouch', hud, svg('crouch')); E.crouch.setAttribute('aria-label', 'Agachar');
     E.atk = btn('btn-attack', hud, svg('hit') + 'ATACAR');
-    E.fuel = el('div', 'fuel', hud, svg('pump') + '<span>0</span>', 'pill hidden');
+    E.fuel = el('div', 'fuel', hud, svg('pump') + '<span>0</span><i class="hpbar hidden"><i></i></i>', 'pill hidden');
+    E.hpbar = E.fuel.querySelector('.hpbar');
     E.re = el('div', 're', hud, 'RÉ', 'pill hidden');
     E.act = btn('btn-action', hud, '', 'hidden');
     E.act.className = 'hidden';
@@ -685,14 +748,18 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
     });
     const gc = (p.inv || []).find((i) => i.id === 'gascan'), sf = p.action && p.action.type === 'siphon';
     const sa = sf ? Math.min(1, ((p.action.act === 'pour' ? (G.cars.find((c) => c.id === p.action.id) || {}).fuel : gc && gc.fuel) || 0) / 10)
+      : car && car.burn > 0 ? Math.min(1, Math.max(0, 1 - car.burn / 5)) // incendio: 5 s ate explodir
       : p.action && p.action.type === 'search' ? Math.min(1, Math.max(0, p.action.t || 0)) : p.action && p.action.type === 'cut' ? Math.min(1, Math.max(0, (p.action.t || 0) / 1.5)) : -1;
     put('ring', sa < 0 ? -1 : Math.round(sa * 100), (v) => {
       E.ring.classList.toggle('hidden', v < 0);
       if (v >= 0) E.ring.firstElementChild.setAttribute('stroke-dashoffset', String(1 - v / 100));
     });
+    put('ringp', !!(car && car.burn > 0), (v) => E.ring.classList.toggle('perigo', v));
 
     const fc = car || (p.near && (p.near.type === 'car' || p.near.type === 'trunk') ? p.near : null), fl = fc ? Math.round(fc.fuel * 10) / 10 : -1;
-    put('fuel', fl, (v) => { E.fuel.classList.toggle('hidden', v < 0); E.fuel.lastChild.textContent = v < 0 ? '' : v.toFixed(1) + ' L'; });
+    put('fuel', fl, (v) => { E.fuel.classList.toggle('hidden', v < 0); E.fuel.querySelector('span').textContent = v < 0 ? '' : v.toFixed(1) + ' L'; });
+    const hv = car ? Math.max(0, Math.min(100, Math.round(car.hp == null ? 100 : car.hp))) : -1; // barra de vida do carro: so dirigindo
+    put('chp', hv, (v) => { E.hpbar.classList.toggle('hidden', v < 0); E.hpbar.classList.toggle('zero', v === 0); if (v >= 0) E.hpbar.firstChild.style.width = v + '%'; });
     put('re', !!(car && car.speed < -.5), (v) => E.re.classList.toggle('hidden', !v));
     put('incar', !!car, (v) => {
       E.joy.classList.toggle('car', v); E.atk.classList.toggle('hidden', v); E.crouch.classList.toggle('hidden', v);

@@ -75,6 +75,11 @@ input[type=range]{flex:1;min-height:var(--toque)}
     ['Carro', 'Sem chave', 'Ao tentar usar um carro sem a chave.', 'Dois bipes graves: quadrada de 150 Hz.', { type: 'noKey' }],
     ['Ambiente e interface', 'Mochila cheia', 'Quando não cabe o item na mochila.', 'Duas quadradas curtas (220 e 175 Hz).', { type: 'full' }],
     ['Ambiente e interface', 'Dica', 'Quando aparece uma dica.', 'Seno puro de 880 Hz, curto.', { type: 'hint' }],
+    ['Dano de carro e fogo', 'Lata amassando', 'Quando o carro bate forte (até 1 vez a cada 0,15 s).', 'Ruído passa-alta (2,5 kHz) curto + seno agudo caindo de 1,4 a 0,9 kHz; volume pelo dano.', { type: 'carDmg', id: 'c1', d: 20, hp: 60 }],
+    ['Dano de carro e fogo', 'Carro pegando fogo', 'Quando o carro começa a queimar.', 'Ruído passa-baixa (900 Hz) de whoosh, mais longo (1 s) que o fogo do molotov.', { type: 'carFire', id: 'c1' }],
+    ['Dano de carro e fogo', 'Explosão', 'Quando o carro explode ou um molotov/explosão atinge a área.', 'Seno grave caindo de 120 a 35 Hz + ruído passa-baixa: boom.', { type: 'blast', x: 0, y: 0, r: 5 }],
+    ['Dano de carro e fogo', 'Gasolina vazando', 'Quando o tanque vaza e cai uma poça.', 'Dois pingos curtos: seno caindo de 900 a 400 Hz.', { type: 'spill', x: 0, y: 0 }],
+    ['Dano de carro e fogo', 'Motor engasgando', 'Quando o motor do carro morre de vez (vida zero).', 'Três trancos de serra (110 a 60 Hz) + ruído passa-faixa grave.', { type: 'carDead', id: 'c1' }],
   ];
   // [secao, nome, quando, como, estado ligado, estado desligado, extra]
   const reset = () => { P.stamina = 100; P.crouch = P.running = false; P.noise = 6; P.car = null; P._eng = false; P.action = null; P.x = P.y = 0; G.fires = []; G.zombies = []; };
@@ -123,7 +128,7 @@ input[type=range]{flex:1;min-height:var(--toque)}
     lista.appendChild(c);
     return c;
   }
-  const SECOES = ['Personagem', 'Combate', 'Zumbis', 'Casa e itens', 'Carro', 'Ambiente e interface'];
+  const SECOES = ['Personagem', 'Combate', 'Zumbis', 'Casa e itens', 'Carro', 'Ambiente e interface', 'Dano de carro e fogo'];
   const nomes = [];
   for (const s of SECOES) {
     for (const [sec, nome, q, c, ev, tipo] of UM.filter((r) => r[0] === s)) {

@@ -55,6 +55,7 @@
   }
   // move por eixo (desliza nas paredes)
   function move(o, dx, dy) {
+    if (o === G.player && G.dev.noclip && !o.car) { o.x += dx; o.y += dy; return; } // dev: atravessa tudo (so o jogador a pe)
     if (free(o.x + dx, o.y)) o.x += dx;
     if (free(o.x, o.y + dy)) o.y += dy;
   }
@@ -65,6 +66,12 @@
       if (free(p.x, p.y, 1) && !houseAt(p) && dist(p, G.player) > minFromPlayer) return p;
     }
     return { x: 1, y: 1 }; // shortcut: fallback de canto, improvavel
+  }
+  // ponto livre mais perto de (x,y): aneis de 0,5 a 6 m (12 angulos); senao um ponto livre qualquer
+  function nearFree(x, y) {
+    if (free(x, y)) return { x, y };
+    for (let r = 0.5; r <= 6; r += 0.5) for (let k = 0; k < 12; k++) { const q = { x: x + Math.cos(k * Math.PI / 6) * r, y: y + Math.sin(k * Math.PI / 6) * r }; if (free(q.x, q.y)) return q; }
+    return randFree(0);
   }
   function newZombie() {
     const p = randFree(25);
@@ -143,6 +150,8 @@
   function enterCar(p, id) {
     const car = G.cars.find(c => c.id === id);
     if (!car) return;
+    if (car.burnt) { hint('burnt', 'Carcaça queimada — não anda mais', 'carDmg'); return; }
+    if (car.hp <= 0) { hint('carDead', 'Motor destruído — este carro não anda mais', 'carDmg'); return; }
     if (!p.inv.some(i => i.id === 'key' && i.car === id)) { G.events.push({ type: 'noKey', id }); hint('nokey', 'Precisa da chave deste carro — procure nas casas próximas', 'key'); return; }
     setCrouch(p, false);
     Object.assign(p, { car: id, action: null, near: null, x: car.x, y: car.y, dir: car.dir, running: false });
@@ -151,22 +160,74 @@
     if (p._eng) G.events.push({ type: 'engine', on: true, id });
     hint('engine', p._eng ? 'Motor ligado — joystick para frente acelera, para trás freia e dá ré' : 'Sem gasolina o motor não liga — ache gasolina (sifão)', p._eng ? 'car' : 'siphon');
   }
-  function exitCar(p, car) {
-    const e = exitPoint(car);
+  function exitCar(p, car, force) { // force (incendio): sempre sai, no ponto livre mais perto
+    const e = exitPoint(car) || (force && Object.assign(nearFree(car.x, car.y), { d: car.dir }));
     if (!e) { hint('exitBlocked', 'Sem espaço para sair — manobre o carro', 'car'); return; }
     Object.assign(car, { dir: e.d, speed: 0 }); Object.assign(p, { x: e.x, y: e.y, car: null, dir: e.d });
     G.events.push({ type: 'exit', id: car.id });
     if (p._eng) { p._eng = false; G.events.push({ type: 'engine', on: false, id: car.id }); }
   }
+  // ---- dano de carro: bater acima de CAR_HIT m/s estraga; hp 0 + batida forte (dano >= 10) com gasolina => vazamento ou incendio (50/50) ----
+  const CAR_HIT = 5, CAR_BURN = 5;
+  const carAt = (x, y, m, skipId) => G.cars.find(c => c.id !== skipId && inBox(carBox(c), x, y, m));
+  function damageCar(car, d) {
+    if (car.burnt || !(d > 0)) return;
+    const was = car.hp; car.hp = Math.max(0, was - d);
+    G.events.push({ type: 'carDmg', id: car.id, d, hp: car.hp });
+    hint('carDmg', 'Bater rápido estraga o carro — acima de 18 km/h', 'carDmg');
+    if (car.hp > 0) return;
+    if (was > 0) { G.events.push({ type: 'carDead', id: car.id }); hint('carDead', 'Motor destruído — este carro não anda mais', 'carDmg'); }
+    else if (d >= 10 && car.fuel > 0 && !(car.burn > 0)) {
+      if (rng() < 0.5) { car.fuel = 0; addSpill(car.x, car.y); }
+      else { car.burn = CAR_BURN; G.events.push({ type: 'carFire', id: car.id }); hint('carFire', 'Saia do carro!', 'car'); }
+    }
+  }
+  function addSpill(x, y) {
+    const e = { x, y }; e.ch = chOf(e);
+    G.spills.push({ id: e.ch + ':s:' + G.nextId++, ch: e.ch, x, y, r: 2.5, expires: G.t + 300 });
+    const l = G.spills.filter(s => s.ch === e.ch); if (l.length > 4) G.spills.splice(G.spills.indexOf(l[0]), 1);
+    G.events.push({ type: 'spill', x, y });
+    hint('spill', 'Gasolina vazando — fogo aqui acende a poça', 'carDmg');
+  }
+  // dano em area. boom: explosao (cai com a distancia, empurra 2 m, ruido 40 m, fere o jogador); senao fogo (dano chapado so em zumbis). Ambos acendem pocas no raio
+  function blast(x, y, r, dmg, boom) {
+    const p = G.player, o = { x, y };
+    for (const z of G.zombies) {
+      const d = dist(z, o);
+      if (boom && z.hp <= 0) continue;
+      if (d <= r && !(boom && blocked(x, y, z.x, z.y))) { hurt(z, boom ? dmg * (1 - d / r) : dmg); if (boom && d > 0.01) move(z, (z.x - x) / d * 2, (z.y - y) / d * 2); }
+      if (boom && d <= 40 && z.hp > 0) { z.alert = 6; z.state = 'chase'; }
+    }
+    if (boom) {
+      const d = dist(p, o);
+      if (d <= r && !blocked(x, y, p.x, p.y)) { hurtPlayer(dmg * (1 - d / r)); if (d > 0.01) move(p, (p.x - x) / d * 2, (p.y - y) / d * 2); }
+      G.events.push({ type: 'blast', x, y, r });
+    }
+    for (const s of G.spills.filter(s => dist(s, o) <= r + s.r)) {
+      G.spills.splice(G.spills.indexOf(s), 1);
+      G.fires.push({ x: s.x, y: s.y, t0: G.t, n: 0, r: 2.5, max: 6 }); if (G.fires.length > 4) G.fires.shift();
+      G.events.push({ type: 'fire', x: s.x, y: s.y });
+    }
+  }
+  // incendio de carro: CAR_BURN s e explode (dano 60 ate 5 m), vira carcaca; pocas expiram
+  function tickCars(dt) {
+    for (const c of G.cars) {
+      if (!(c.burn > 0) || (c.burn -= dt) > 0) continue;
+      const p = G.player; if (p.car === c.id) exitCar(p, c, true);
+      c.burn = 0; c.burnt = true; c.fuel = 0; c.trunk = [];
+      blast(c.x, c.y, 5, 60, true);
+    }
+    G.spills = G.spills.filter(s => s.expires > G.t);
+  }
   const approach = (v, t, s) => v > t ? Math.max(t, v - s) : Math.min(t, v + s);
   // mx = volante, my = acelerador (+ acelera, - freia/re); um passo dt <= 0,05
   function driveCar(p, car, mx, my, dt) {
     let v = car.speed || 0;
-    const on = car.fuel > 0;
+    const on = car.fuel > 0 && car.hp > 0 && !car.burnt, vm = 11 * (0.4 + 0.6 * Math.max(0, car.hp) / 100); // vida baixa = mais lento; hp 0 = motor morto
     if (!on && p._eng) { p._eng = false; G.events.push({ type: 'engine', on: false, id: car.id }); } // tanque zerado por fora (sifao)
     p._stop = Math.abs(v) < 0.1 ? (p._stop || 0) + dt : 0;
     if (!on) v = approach(v, 0, 8 * dt);
-    else if (my > 0.05) v = v >= 0 ? Math.min(11, v + 4 * my * dt) : Math.min(0, v + 8 * dt);
+    else if (my > 0.05) v = v >= 0 ? Math.min(vm, v + 4 * my * dt) : Math.min(0, v + 8 * dt);
     else if (my < -0.05) v = v > 0.05 ? Math.max(0, v - 8 * dt) : v < -0.05 || p._stop >= 0.4 ? Math.max(-3, v + 4 * my * dt) : 0;
     else v = approach(v, 0, 1.5 * dt);
     const br = on && my < -0.05 && v > 3;
@@ -183,6 +244,7 @@
       const c = Math.cos(car.dir), s = Math.sin(car.dir), nx = car.x + c * v * h, ny = car.y + s * v * h;
       if (free(nx, ny, 1.2, car.id) && free(nx + c * 2 * f, ny + s * 2 * f, 0.1, car.id)) { car.x = nx; car.y = ny; continue; }
       if (Math.abs(v) > 2) G.events.push({ type: 'crash', v });
+      if (Math.abs(v) > CAR_HIT) { const d = (Math.abs(v) - CAR_HIT) * 7, o = carAt(nx + c * 2 * f, ny + s * 2 * f, 0.1, car.id) || carAt(nx, ny, 1.2, car.id); damageCar(car, d); if (o) damageCar(o, d); } // carro parado atingido leva o mesmo
       v = -v * 0.2; break;
     }
     car.speed = v;
@@ -190,7 +252,9 @@
       const d = dist(z, car);
       if (d > 2.5) z._hitBy = false;
       else if (d < 1.4 && Math.abs(car.speed) > 2 && !z._hitBy && z.hp > 0) {
-        hurt(z, Math.abs(car.speed) * 4); z._hitBy = true; car.speed *= 0.6;
+        hurt(z, Math.abs(car.speed) * 4); z._hitBy = true;
+        if (Math.abs(car.speed) > CAR_HIT) damageCar(car, 2 + (Math.abs(car.speed) - CAR_HIT) * 1.5);
+        car.speed *= 0.6;
         G.events.push({ type: 'run_over', id: z.id });
       }
     }
@@ -281,7 +345,7 @@
     for (const f of G.flights) {
       if ((f.t += dt) < f.T - 1e-6) continue;
       f.done = true;
-      for (const z of G.zombies) if (dist(z, f) <= 2.5) hurt(z, 35);
+      blast(f.x, f.y, 2.5, 35); // fogo: dano chapado em zumbis + acende pocas
       G.fires.push({ x: f.x, y: f.y, t0: G.t, n: 0 }); if (G.fires.length > 4) G.fires.shift();
       G.events.push({ type: 'fire', x: f.x, y: f.y });
     }
@@ -289,13 +353,14 @@
     for (const f of G.fires) { // 3 ticks (idades 1, 2, 3 s); o jogador perde dur so no 1o golpe. Zumbis so queimam nos ticks 2 e 3 (10 cada): shortcut p/ casar com os asserts T1 (35 exato aos 2 s, >= 20 no total)
       if (G.t - f.t0 < (f.n || 0) + 1 - 1e-6) continue;
       f.n = (f.n || 0) + 1;
-      if (f.n > 1) for (const z of G.zombies) if (dist(z, f) <= 2 && !blocked(f.x, f.y, z.x, z.y)) { hurt(z, 10); G.events.push({ type: 'burn', id: z.id }); }
-      if (dist(p, f) <= 2 && !blocked(f.x, f.y, p.x, p.y)) { hurtPlayer(8, f.hit); f.hit = true; G.events.push({ type: 'burn', id: 'player' }); }
+      if (f.n > 1) for (const z of G.zombies) if (dist(z, f) <= (f.r || 2) && !blocked(f.x, f.y, z.x, z.y)) { hurt(z, 10); G.events.push({ type: 'burn', id: z.id }); }
+      if (dist(p, f) <= (f.r || 2) && !blocked(f.x, f.y, p.x, p.y)) { hurtPlayer(8, f.hit); f.hit = true; G.events.push({ type: 'burn', id: 'player' }); }
     }
-    G.fires = G.fires.filter(f => (f.n || 0) < 3);
+    G.fires = G.fires.filter(f => (f.n || 0) < (f.max || 3));
   }
   // todo dano ao jogador: -20 % por peca (max 60 %); cada golpe absorvido gasta 1 de dur nas pecas
   function hurtPlayer(d, nodur) {
+    if (G.dev.god) return;
     const p = G.player, eq = p.equip || {}, parts = Object.keys(eq).filter(k => eq[k] && k !== 'back'); // mochila nao e armadura
     p.hp -= d * (1 - Math.min(0.6, 0.2 * parts.length));
     if (!nodur) for (const k of parts) if (--eq[k].dur <= 0) { G.events.push({ type: 'armorBreak', part: k }); delete eq[k]; hint('armorBreak', 'Sua armadura quebrou', 'armor'); }
@@ -376,7 +441,7 @@
     const za = z.anim || (z.anim = { move: 'idle', act: null, t: 0 }); za.t += dt;
     const h = d < 12 ? G.houses.find(h => blocked(z.x, z.y, p.x, p.y, [h])) : null; // casa no caminho (parede/porta fechada)
     if (d <= 1.1 && !h) z.state = 'attack';
-    else if (d < (h && h.parts ? 3 : p.crouch ? 4 : 6) || d <= (p.noise || 0) || z.alert > 0 || (z.state === 'chase' && d < 10)) z.state = 'chase'; // abafado: 3 m
+    else if (d < (h && h.parts ? 3 : p.crouch ? 4 : 6) || d <= (p.noise || 0) || z.alert > 0 || (z.state === 'chase' && d < 10)) z.state = 'chase'; // abafado: 3 m; visao 6 (agachado 4), perde a 10 m (dono: viam de longe demais)
     else z.state = 'idle';
     if (z.police && d < 10) hint('police', 'Policial zumbi: pode soltar munição ou pistola', 'police');
     z.zc = Math.max(0, (z.zc || 0) - dt);
@@ -454,6 +519,7 @@
     const len = Math.hypot(mx, my);
     if (len > 1) { mx /= len; my /= len; }
     const car = p.car && G.cars.find(c => c.id === p.car);
+    if (G.dev.noclip) G._nc = 1; else if (G._nc) { G._nc = 0; Object.assign(p, nearFree(p.x, p.y)); } // desligou: sai da parede
     if (p.car && !car) p.car = null; // shortcut: carro sumiu (save antigo); cai a pe
     const jp = p.action && p.action.type === 'jump';
     const wantRun = !car && !jp && !!inp.run && len > 0.01 && (G._rw ? p.stamina > 0 : p.stamina >= 5);
@@ -557,7 +623,7 @@
     if (inp.interact) {
       inp.interact = false; // borda: um toque, uma acao
       const n = p.near;
-      if (car) exitCar(p, car);
+      if (car) exitCar(p, car, car.burn > 0);
       else if (n && !p.action) {
         if (n.type === 'fence') { /* PULAR trata a cerca */ }
         else if (n.type === 'door') {
@@ -590,7 +656,7 @@
     updateCut(p, car, len, dt);
     if (!p.action) p._tg = null;
     if (inp.attack && G.cd <= 0 && !car) playerAttack(p);
-    updateFire(dt);
+    updateFire(dt); tickCars(dt);
     updateSiphon(p, car, len, dt);
 
     G.zombies.forEach(z => { if (G._ls.has(z.ch)) updateZombie(z, p, dt); }); // so simula chunk carregado
@@ -822,7 +888,7 @@
     let car = null;
     if (wantCar) {
       const vert = r() < 0.5, lane = (r() < 0.5 ? 3 : 23) + (r() - 0.5), seg = r() < 0.5 ? 6 : 26, along = seg + 2.6 + r() * 8.8;
-      car = { id: nid(), ch, x: vert ? lane : along, y: vert ? along : lane, dir: vert ? Math.PI / 2 : 0, speed: 0, fuel: Math.round((2 + r() * 8) * 10) / 10, trunk: [] };
+      car = { id: nid(), ch, x: vert ? lane : along, y: vert ? along : lane, dir: vert ? Math.PI / 2 : 0, speed: 0, fuel: Math.round((2 + r() * 8) * 10) / 10, trunk: [], hp: 50 + Math.floor(mulberry32(hash(G.seed, cx, cy, 19))() * 51) }; // hp: rng proprio (tag 19), nao toca em r
       const tr = mulberry32(hash(G.seed, cx, cy, 7)); car.trunk = [mkItem(tr, pick(tr, TRUNK))].filter(i => i.id); // nao toca em r
       o.cars.push(car);
     }
@@ -938,12 +1004,12 @@
   }
 
   // ---- chunks: referencia com histerese, fila, load/unload com diff ----
-  const LISTS = ['houses', 'crates', 'zombies', 'cars', 'roads', 'trees', 'fences', 'drops', 'props'];
+  const LISTS = ['houses', 'crates', 'zombies', 'cars', 'roads', 'trees', 'fences', 'drops', 'props', 'spills'];
   const parse = k => k.split(',').map(Number);
   const drivenIds = () => G.players.map(p => p.car).filter(Boolean); // so protege o unload; o diff grava o carro no chunk onde esta
-  const strip = e => { const c = Object.assign({}, e); delete c.ch; delete c.way; delete c.side; delete c.rc; delete c.bang; delete c.last; delete c.pw; delete c.ck; delete c.fl; delete c.anim; for (const k of ['wu', 'zc', 'climb', 'fc', 'fct', '_hitBy']) delete c[k]; return c; };
+  const strip = e => { const c = Object.assign({}, e); delete c.ch; delete c.way; delete c.side; delete c.rc; delete c.bang; delete c.last; delete c.pw; delete c.ck; delete c.fl; delete c.anim; for (const k of ['wu', 'zc', 'climb', 'fc', 'fct', '_hitBy', 'burn']) delete c[k]; return c; };
   const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
-  function syncCh() { for (const l of [G.zombies, G.cars]) for (const e of l) e.ch = chOf(e); }
+  function syncCh() { for (const l of [G.zombies, G.cars]) for (const e of l) e.ch = chOf(e); for (const c of G.cars) if (c.hp === undefined) c.hp = 100; } // carro de save antigo: vida cheia
   function want(rx, ry) { const w = []; for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) w.push((rx + dx) + ',' + (ry + dy)); return w; }
   // referencia so muda com o jogador >= 6 m dentro do novo chunk (por eixo). Dirigindo, enfileira tambem os chunks a ~20/40/60 m a frente
   function checkRef(p, car) {
@@ -989,12 +1055,13 @@
     for (const [dd, l, b, def] of [[dz, G.zombies, g.zombies, { state: 'idle', alert: 0, atk: 0 }], [dk, G.cars, g.cars, { speed: 0 }]]) // estrangeiras
       for (const id in dd) if (dd[id] && !b.some(e => e.id === id) && !has(l, id)) l.push(Object.assign({}, def, dd[id], { ch: key }));
     for (const id in (d.drops || {})) if (d.drops[id].expires > G.t) G.drops.push(Object.assign({ id, ch: key }, d.drops[id]));
+    for (const id in (d.spills || {})) if (d.spills[id].expires > G.t) G.spills.push(Object.assign({ id, ch: key, r: 2.5 }, d.spills[id]));
     G.zombies.forEach(z => { if (z.look === undefined) Object.assign(z, zv(z.id)); }); // saves antigos
     G.events.push({ type: 'chunkLoad', key });
   }
   // diff do chunk (sem descarregar); null se igual ao gen
   function diffOf(key) {
-    const [cx, cy] = parse(key), g = G._gb.get(key) || gen(cx, cy), d = { crates: {}, cars: {}, zombies: {}, doors: {}, drops: {} };
+    const [cx, cy] = parse(key), g = G._gb.get(key) || gen(cx, cy), d = { crates: {}, cars: {}, zombies: {}, doors: {}, drops: {}, spills: {} };
     G.houses.forEach(h => { if (h.ch === key) h.doors.forEach(dr => { const b = g.houses.find(q => q.id === h.id).doors.find(q => q.id === dr.id); if (dr.open !== b.open || !!dr.locked !== !!b.locked) d.doors[dr.id] = { open: dr.open, locked: !!dr.locked }; }); });
     G.crates.forEach(c => {
       if (c.ch !== key) return;
@@ -1003,16 +1070,18 @@
       else if (!same(c.loot, b.loot)) d.crates[c.id] = { opened: c.opened, loot: c.loot };
     });
     G.drops.forEach(e => { if (e.ch === key) d.drops[e.id] = { x: e.x, y: e.y, item: e.item, expires: e.expires }; });
-    for (const [l, b, o, f] of [[G.zombies, g.zombies, d.zombies, ['x', 'y', 'hp']], [G.cars, g.cars, d.cars, ['x', 'y', 'dir', 'fuel', 'trunk']]]) {
+    G.spills.forEach(e => { if (e.ch === key) d.spills[e.id] = { x: e.x, y: e.y, expires: e.expires }; });
+    for (const [l, b, o, f] of [[G.zombies, g.zombies, d.zombies, ['x', 'y', 'hp']], [G.cars, g.cars, d.cars, ['x', 'y', 'dir', 'fuel', 'trunk', 'hp', 'burnt']]]) {
       l.forEach(e => {
         if (e.ch !== key) return;
+        if (e.burn > 0) e = Object.assign({}, e, { burnt: true, fuel: 0, trunk: [] }); // descarregou/salvou em chamas: vira carcaca, sem explosao
         const q = b.find(z => z.id === e.id);
         if (!q) o[e.id] = strip(e);
         else if (f.some(k => !same(e[k], q[k]))) o[e.id] = Object.fromEntries(f.map(k => [k, e[k]]));
       });
       b.forEach(q => { if (!l.some(e => e.id === q.id && e.ch === key)) o[q.id] = null; }); // morto ou saiu
     }
-    for (const k of ['crates', 'cars', 'zombies', 'doors', 'drops']) if (!Object.keys(d[k]).length) delete d[k];
+    for (const k of ['crates', 'cars', 'zombies', 'doors', 'drops', 'spills']) if (!Object.keys(d[k]).length) delete d[k];
     if (!Object.keys(d).length) return null;
     d.visit = Math.floor(G.t / 60);
     return d;
@@ -1047,7 +1116,7 @@
     G._hunger = G._starve = G._spawn = G._as = 0;
     G.dying = []; G._hp = 100; G._rw = false;
     G.hints = st.hints || {}; G.chunks = st.chunks || {};
-    G.events = []; G.queue = []; G.loaded = []; G._ls = new Set(); G.chunkGen = 0; G._gb = new Map(); G._gp = {}; G._ws = null; G.fires = []; G.flights = [];
+    G.events = []; G.queue = []; G.loaded = []; G._ls = new Set(); G.chunkGen = 0; G._gb = new Map(); G._gp = {}; G._ws = null; G.fires = []; G.flights = []; G.spills = [];
     const s0 = (st.players && st.players[0]) || {}, num = (v, d) => Number.isFinite(v) ? v : d;
     const p = G.player = { x: num(s0.x, 23), y: num(s0.y, 23), dir: num(s0.dir, 0), hp: num(s0.hp, 100), hunger: num(s0.hunger, 100),
       inv: s0.inv || [{ id: 'ammo', qty: 16 }], weapon: s0.weapon || 'pipe', equip: s0.equip || {}, car: s0.car || null,
@@ -1065,7 +1134,7 @@
     want(rx, ry).forEach(k => { G.loaded.push(k); G._ls.add(k); load(k); });
     const dc = p.car && G.cars.find(c => c.id === p.car);
     if (p.car && !dc) p.car = null; else if (dc) { dc.speed = 0; p._eng = dc.fuel > 0; p.x = dc.x; p.y = dc.y; }
-    if (st.players && !free(p.x, p.y, undefined, p.car)) { const q = randFree(0); p.x = q.x; p.y = q.y; } // save dentro de cerca/obstaculo
+    if (st.players && !free(p.x, p.y, undefined, p.car)) { const q = nearFree(p.x, p.y); p.x = q.x; p.y = q.y; } // save dentro de cerca/obstaculo
     G.events = [];
   }
 
@@ -1073,6 +1142,7 @@
   const GUIDE = [
     g('siphon', 'Gasolina e sifão', ['gasolina', 'sifao', 'combustivel', 'galao', 'mangueira', 'carro'], [{ item: 'hose', onde: 'mercados e porta-malas' }, { item: 'gascan', onde: 'mercados e porta-malas' }], ['Chegue perto de um carro com gasolina.', 'Segure SIFONAR até encher o galão (2 L/s, máx. 10 L).', 'Com a chave do carro, segure DESPEJAR para abastecer.', 'Gasolina é finita: só existe em mercados e porta-malas.'], 'siphon'),
     g('car', 'Dirigir', ['carro', 'dirigir', 'volante', 'acelerar', 'freio', 'motor', 'atropelar', 'sair'], [{ item: 'key', onde: 'móvel de casa no mesmo quarteirão' }, { item: 'gascan', onde: 'móveis, mercados e porta-malas' }], ['Com a chave, toque ENTRAR perto do carro.', 'Joystick: frente acelera, trás freia e dá ré; os lados viram.', 'Gasta combustível, faz barulho e atropela zumbis. Toque SAIR em lugar livre.'], 'car'),
+    g('carDmg', 'Dano do carro', ['dano', 'bater', 'batida', 'vida', 'fumaca', 'poça', 'poca', 'explosao', 'incendio', 'vazamento', 'carro'], [], ['Bater acima de 18 km/h estraga o carro (barra de vida ao dirigir).', 'Vida baixa = mais lento; em 0 o motor morre.', 'Com 0 de vida, outra batida forte pode vazar gasolina (poça acende com fogo) ou pegar fogo: saia, vai explodir em 5 s.'], 'car'),
     g('trunk', 'Porta-malas', ['porta-malas', 'mala', 'carro', 'bagageiro', 'vasculhar'], [], ['Chegue atrás do carro e toque MALA.', 'Fique parado 1 s: o painel abre (10 espaços).', 'Toque um item para mover entre porta-malas e mochila.'], 'trunk'),
     g('molotov', 'Molotov', ['molotov', 'fogo', 'bomba', 'incendio', 'queimar', 'garrafa'], [{ item: 'bottle', onde: 'armários' }, { item: 'rag', onde: 'armários e gavetas' }, { item: 'gascan', onde: 'mercados e porta-malas (gasta 2 L)' }], ['Fabrique no MENU: garrafa + trapo + 2 L do galão (o galão fica).', 'Troque para MOLOTOV e toque ATACAR: mira sozinho em zumbi de 3,5 a 12 m.', 'Dano 35 e fogo por 3 s. Cuidado: o fogo queima você também.'], 'throw'),
     g('key', 'Chave do carro', ['chave', 'carro', 'dirigir', 'ligar'], [{ item: 'key', onde: 'móvel de casa no mesmo quarteirão' }], ['Procure nas casas próximas ao carro.', 'Com a chave, toque ENTRAR perto do carro.'], 'key'),
@@ -1104,7 +1174,41 @@
 
   const G = window.G = {
     t: 0, map: { chunk: CH }, nextId: 0, ref: [0, 0], chunkGen: 0, _ls: new Set(), _pk: '',
-    chunks: {}, loaded: [], queue: [], fires: [], flights: [], _gb: new Map(), _gp: {}, explored: [], roads: [], cars: [], trees: [], fences: [], drops: [], props: [], _pc: [], recipes: RECIPES, guide: GUIDE, ITEM_IDS, HOLD_MS: 400, capOf, hurtPlayer, gen, loot: FURN, free,
+    chunks: {}, loaded: [], queue: [], fires: [], spills: [], flights: [], _gb: new Map(), _gp: {}, explored: [], roads: [], cars: [], trees: [], fences: [], drops: [], props: [], _pc: [], recipes: RECIPES, guide: GUIDE, ITEM_IDS, HOLD_MS: 400, capOf, hurtPlayer, gen, loot: FURN, free,
+    // dev (fora do save): so existe na memoria; UI liga com 7 toques na versao
+    dev: {
+      on: false, god: false, noclip: false, speed: 1,
+      spawnItem(id, n) { if (G.dead) return false; const it = mkItem(rng, id); if (n > 1 && STACK[id]) it.qty = Math.min(n, STACK[id]); if (id === 'gascan') it.fuel = 10; return addItem(it); }, // respeita mochila cheia; n so em pilhas (max da pilha)
+      spawnZ(kind, n) { // 'walker' | 'runner' | 'police' | 'horde' (8 andadores em perseguicao), 6-10 m a frente
+        const p = G.player; n = n || (kind === 'horde' ? 8 : 1);
+        for (let i = 0; i < n; i++) for (let t = 0; t < 30; t++) {
+          const a = p.dir + (rng() - 0.5), d = 6 + rng() * 4, x = p.x + Math.cos(a) * d, y = p.y + Math.sin(a) * d;
+          if (!free(x, y, 1) || houseAt({ x, y })) continue;
+          const zid = 'p:' + G.nextId++, h = kind === 'horde';
+          G.zombies.push({ id: zid, ch: chOf({ x, y }), x, y, hp: 60, state: h ? 'chase' : 'idle', alert: h ? 6 : 0, atk: 0, runner: kind === 'runner', police: kind === 'police', ...zv(zid) }); break;
+        }
+      },
+      spawnCar(o) { // {fuel litros 0-10, hp 0-100}: carro a 5-14 m a frente + chave na mochila; null se nao coube
+        o = o || {}; const p = G.player;
+        for (let d = 5; d <= 14; d++) {
+          const x = p.x + Math.cos(p.dir) * d, y = p.y + Math.sin(p.dir) * d;
+          if (!free(x, y, 2.2)) continue;
+          const id = 'p:' + G.nextId++, car = { id, ch: chOf({ x, y }), x, y, dir: Math.round(p.dir / (Math.PI / 2)) * Math.PI / 2, speed: 0, fuel: o.fuel ?? 10, trunk: [], hp: o.hp ?? 100 };
+          G.cars.push(car); addItem({ id: 'key', car: id, qty: 1 }); return car;
+        }
+        return null;
+      },
+      tp(w) { // 'spawn' | 'far' (+10 chunks) | 'car' | 'market' | 'locked' (mais perto, so entre os carregados); false se nao ha / dirigindo
+        const p = G.player, near = (l, f) => l.map(f).filter(Boolean).sort((a, b) => dist(a, p) - dist(b, p))[0];
+        if (G.dead || p.car) return false;
+        const t = w === 'spawn' ? { x: 23, y: 23 } : w === 'far' ? { x: p.x + 10 * CH, y: p.y }
+          : w === 'car' ? near(G.cars, c => c) : w === 'market' ? near(G.houses, h => h.kind === 'market' && { x: h.x + h.w / 2, y: h.y + h.h + 2 })
+          : w === 'locked' ? near(G.houses.flatMap(h => h.doors), d => d.locked && { x: d.x + d.w / 2, y: d.y + d.h / 2 }) : null;
+        if (!t) return false;
+        Object.assign(p, nearFree(t.x, t.y), { near: null, action: null }); return true;
+      },
+      fill() { const p = G.player; p.hp = p.hunger = p.stamina = 100; },
+    },
     seed: 0, players: [], input: null, target: null, // compat 0.1: alias de players[0].input
     player: null, dying: [], zombies: [], crates: [], houses: [], events: [],
     dead: false, slot: 1, hints: {}, _as: 0, _dead: 0, cd: 0, _hunger: 0, _starve: 0, _spawn: 0,
@@ -1142,6 +1246,7 @@
       if (G.player && G.player.open) { if (G._pe) G._pe = false; else G.events = []; return; }
       G.events = []; // compat 0.1: contrato manda UI limpar, mas ui.js atual nao limpa
       dt = Math.min(dt, 0.25);
+      if (G.dev.speed > 1 && !G.queue.length) dt *= G.dev.speed; // dev: tempo acelerado (passos continuam <= 0,05); pausa com chunks na fila
       syncCh();
       if (G.dead) G.player.anim.t += dt;
       if (G.dead && (G._dead -= dt) <= 0) { G.dead = false; G.player.anim.act = null; }

@@ -144,6 +144,7 @@
     return (k) => out.gain.setTargetAtTime(0.7 * k, ctx.currentTime, 0.1);
   }
 
+  let dmgAt = -1e9; // carDmg: no máximo 1 lata a cada 150 ms
   const SND = {
     shot: () => voice(0.14, (t, n) => {
       noise(n, t, 0.06, 0.6, 'highpass', 1800, 0.7);
@@ -267,6 +268,26 @@
       osc(n, 'sine', 3000, 3000, t + 0.12, 0.25, 0.05);
     }),
     closeBox: () => voice(0.12, (t, n) => osc(n, 'sine', 140, 90, t, 0.1, 0.3)), // batida suave ao fechar
+    carDmg: (ev) => { // lata: ruído agudo curto + tom metálico; volume pelo dano (ev.d)
+      const now = performance.now();
+      if (now - dmgAt < 150) return;
+      dmgAt = now;
+      const v = Math.max(0.05, Math.min(0.5, (ev.d || 0) * 0.01));
+      voice(0.2, (t, n) => { noise(n, t, 0.1, v, 'highpass', 2500, 0.7, 0.002); osc(n, 'sine', 1400, 900, t, 0.15, v * 0.5); });
+    },
+    carFire: () => voice(1.0, (t, n) => noise(n, t, 0.9, 0.35, 'lowpass', 900, 0.5, 0.1)), // fogo do carro: o whoosh do fire, mais longo
+    blast: () => voice(0.8, (t, n) => { // explosão: boom grave + ruído
+      osc(n, 'sine', 120, 35, t, 0.6, 0.7);
+      noise(n, t, 0.6, 0.5, 'lowpass', 500, 0.7, 0.003);
+    }),
+    spill: () => voice(0.15, (t, n) => { // gotejar: dois pingos curtos caindo
+      osc(n, 'sine', 900, 500, t, 0.05, 0.12);
+      osc(n, 'sine', 700, 400, t + 0.07, 0.05, 0.1);
+    }),
+    carDead: () => voice(0.5, (t, n) => { // motor engasgando: três trancos curtos
+      [0, 0.1, 0.2].forEach((d) => osc(n, 'sawtooth', 110, 60, t + d, 0.08, 0.12));
+      noise(n, t, 0.4, 0.1, 'bandpass', 300, 0.8, 0.02);
+    }),
   };
 
   // Evento -> som. door: abrir/fechar pelo ev.open. search: só o início (p:0 com action ativa; cancelamento tem action null).
@@ -283,7 +304,7 @@
     }
     if (ev.type === 'search') { const a = G.player && G.player.action; if (ev.p === 0 && a && a.id === ev.id) SND.search(); return; }
     if (ev.type === 'engine') return (ev.on ? SND.engineOn : SND.engineOff)();
-    if (SND[ev.type]) SND[ev.type](); // siphon/pour não têm one-shot: o loop do sifão cuida
+    if (SND[ev.type]) SND[ev.type](ev); // siphon/pour não têm one-shot: o loop do sifão cuida
 
   }
 
