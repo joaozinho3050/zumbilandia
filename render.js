@@ -63,10 +63,10 @@ const SMOKE = new THREE.MeshBasicMaterial({ color: 0xbfc4cc }), BOOM = new THREE
 const hsh = s => { let h = 0; for (const ch of String(s)) h = (h * 31 + ch.charCodeAt(0)) | 0; return h; }; // ids podem ser texto
 const puff = (x, y, z, vx, vz, vy = 0.7, sc = 1, mat = SMOKE) => { const m = sPool.find(s => !s.visible); if (!m) return; m.material = mat; m.position.set(x, y, z); m.userData = { t: 0, vx, vz, vy, sc }; m.scale.setScalar(0.08); m.visible = true; };
 
-const EL = 0.96; let VIEW_R = 10; // 100 % = raio 10 m (dono); R.zoom(%) ajusta
+const EL = 0.96; let VIEW_R = 7; // 100 % = raio 7 m (dono); R.zoom(%) ajusta
 function camDist() { // menor d tal que (±R,0) e (0,±R) do chao projetam em |ndc|<=1 (camera olhando de EL)
   const c = camera, v = new THREE.Vector3();
-  for (let d = 6; d < 120; d += 0.5) {
+  for (let d = 3; d < 120; d += 0.5) {
     c.position.set(0, 0.5 + d * Math.sin(EL), d * Math.cos(EL)); c.lookAt(0, 0.5, 0); c.updateMatrixWorld(true);
     if ([[VIEW_R, 0], [-VIEW_R, 0], [0, VIEW_R], [0, -VIEW_R]].every(([x, z]) => { v.set(x, 0, z).project(c); return Math.abs(v.x) <= 1 && Math.abs(v.y) <= 1; })) return d;
   }
@@ -80,6 +80,11 @@ function size() {
   camera.userData.d = camDist(); // raio minimo de VIEW_R m no chao em qualquer direcao da tela (dono)
   scene.fog.near = camera.userData.d + 14; scene.fog.far = camera.userData.d + 34;
   camera.far = camera.userData.d + 70; camera.updateProjectionMatrix();
+  { // G.viewR = raio visivel no chao (eixo maior): zumbi so fica sabendo do jogador se estiver na tela
+    const c = camera, v = new THREE.Vector3(), d = c.userData.d; c.position.set(0, 0.5 + d * Math.sin(EL), d * Math.cos(EL)); c.lookAt(0, 0.5, 0); c.updateMatrixWorld(true);
+    let m = 0; for (const [nx, ny] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { v.set(nx, ny, 0.5).unproject(c).sub(c.position).normalize(); if (v.y < -1e-3) { const t = -c.position.y / v.y; m = Math.max(m, Math.hypot(c.position.x + v.x * t, c.position.z + v.z * t)); } }
+    if (m > 0 && window.G) window.G.viewR = m;
+  }
 }
 
 // ---------- cenario ----------
@@ -505,25 +510,40 @@ function draw(G) {
 
   // zumbis: 3 InstancedMesh (body, legL, legR) + contorno; so <=20 m recalcula a pose, os outros so a posicao
   let n = 0; const dt = dtm / 1000, seen = new Set(), cn = [0, 0];
-  const poseZ = (id, x, y, anim, ang, sc, pol, run, look, fh = 0) => {
+  const poseZ = (id, x, y, anim, ang, sc, pol, run, look, fh = 0, fx) => { // fx {crawl, limp, lg (idade do tiro na perna, s)}: poses so por matriz, sem mesh nova
     const k = +id || [...String(id)].reduce((h, c) => (h * 31 + c.charCodeAt(0)) % 9973, 7); // id 'p:12' (zumbi de spawn) em id*1.7 dava NaN: matriz do corpo NaN, so as pernas apareciam
     const S = pol ? zPs : zIMs, n = cn[pol ? 1 : 0]++;
-    let d = zData.get(id); if (!d) zData.set(id, d = { a: ang, ph: k * 1.7, sw: 0, ro: 0, ln: 0, fw: 0, f });
+    const cw = !!(fx && fx.crawl), lm = !!(fx && fx.limp), lgA = fx && fx.lg !== undefined ? fx.lg : 9;
+    let d = zData.get(id); if (!d) zData.set(id, d = { a: ang, ph: k * 1.7, sw: 0, ro: 0, ln: cw ? 1.35 : 0, fw: 0, l1: cw ? 1.2 : 0, l2: cw ? 1.2 : 0, f });
     d.f = frame; if (look !== undefined) d.lk = look; else if (d.lk === undefined) d.lk = k % 8; sc *= 0.9 + 0.2 * (((k * 37) % 11) / 10); // look 0..7 (game) ou hash do id: cor da roupa + escala 0,9-1,1
     const dd = (x - p.x) ** 2 + (y - p.y) ** 2, act = anim && anim.act, t = anim ? anim.t : 0;
+    let ly = cw ? -0.22 : 0; // rastejante: quadril rente ao chao
     if (dd <= 400) {
       const w = anim && anim.move === 'walk';
-      if (w) d.ph += dt * 3.2 * (run ? 1.6 : 1);
+      if (w) d.ph += dt * (cw ? 2.4 : lm ? 2 : 3.2) * (run ? 1.6 : 1);
       d.sw = w ? 0.45 * Math.sin(d.ph) * RM : 0; d.ro = (w ? 0.105 * Math.sin(d.ph * 0.5) : 0.02 * Math.sin(now / 700 + k)) * RM; d.ln = 0.15; d.fw = 0;
       if (act === 'windup') { const e = Math.min(1, t / 1.0); if (e < 0.7) { const r = sm(e / 0.7); d.ln = 0.15 - 0.3 * r; d.fw = -0.12 * r; } else { const r = sm((e - 0.7) / 0.3); d.ln = -0.15 + 0.65 * r; d.fw = -0.12 + 0.37 * r; } }
       else if (act === 'climb') { d.ln = 0.15 + 0.52 * 0.77; d.sw = 0.8 * Math.sin(t * 10); }
       else if (act === 'hit') { d.ln = 0.5; d.fw = 0.25 + 0.1 * Math.sin(t * 22); }
+      d.l1 = d.sw; d.l2 = -d.sw;
+      if (cw) { // rastejante: corpo deitado (~77 graus), avanca em impulsos com balanco lateral, pernas arrastando alternadas; windup 1,2 s (ergue e bota)
+        const a = w ? Math.sin(d.ph) : 0;
+        d.ln = 1.35 + 0.1 * a * a * RM; d.fw = 0.1 * Math.max(0, a) * RM; d.ro = (w ? 0.16 * a : 0.03 * Math.sin(now / 700 + k)) * RM; d.l1 = 1.2 + 0.2 * a * RM; d.l2 = 1.2 - 0.2 * a * RM;
+        if (act === 'windup') { const e = Math.min(1, t / 1.2); d.ln = 1.35 - 0.5 * sm(Math.min(1, e / 0.75)) + (e > 0.75 ? 0.6 * sm((e - 0.75) / 0.25) : 0); d.fw = e > 0.75 ? 0.3 * sm((e - 0.75) / 0.25) : 0; }
+        else if (act === 'hit') { d.ln = 1.1; d.fw = 0.2; }
+      } else if (lm && w && act !== 'windup') { // manco: passo assimetrico (uma perna curta), inclinado para o lado, afundando no passo ruim
+        const a = Math.sin(d.ph);
+        d.l1 = 0.15 * a * RM; d.l2 = -0.5 * a * RM; d.ln = 0.3 + 0.08 * a * RM; d.ro = (0.14 + 0.08 * a) * RM; ly = -0.07 * Math.max(0, Math.sin(d.ph + 1)) * RM;
+      }
     }
-    const e = act === 'dead' ? sm(Math.min(1, t / 0.5)) : 0;
-    dummy.position.set(x, fh + 0.25 * e + (act === 'climb' ? 0.35 + 0.08 * Math.sin(t * 8) : 0), y); dummy.rotation.set(0, d.a, -Math.PI / 2 * e); dummy.scale.setScalar(sc); dummy.updateMatrix();
+    const lk = RM === 1 && lgA < 0.3 ? Math.sin(Math.PI * lgA / 0.3) : 0, hs = act === 'dead' && anim.hs; // lk: dobra de joelho 0,3 s ao levar tiro na perna; hs: queda para tras
+    const e = act === 'dead' ? sm(Math.min(1, t / (hs ? 0.3 : 0.5))) : 0;
+    dummy.position.set(x, fh + ly - 0.25 * lk + 0.25 * e + (act === 'climb' ? 0.35 + 0.08 * Math.sin(t * 8) : 0), y);
+    if (hs) { dummy.rotation.order = 'YXZ'; dummy.rotation.set(-Math.PI / 2 * e, d.a, 0); } else dummy.rotation.set(0, d.a, (cw ? -0.5 : -Math.PI / 2) * e);
+    dummy.scale.setScalar(sc); dummy.updateMatrix(); dummy.rotation.order = 'XYZ';
     zR.copy(dummy.matrix);
-    zQ.setFromEuler(zE.set(d.ln, 0, d.ro)); zM.compose(zV.set(0, 0.55, d.fw), zQ, zS); S[0][0].setMatrixAt(n, zB.multiplyMatrices(zR, zM)); if (!pol) S[0][0].setColorAt(n, lookC[d.lk]);
-    for (let i = 1; i < 3; i++) { zQ.setFromEuler(zE.set(i === 1 ? d.sw : -d.sw, 0, 0)); zM.compose(zV.set(i === 1 ? -0.15 : 0.15, 0.55, 0), zQ, zS); S[i][0].setMatrixAt(n, zB.multiplyMatrices(zR, zM)); }
+    zQ.setFromEuler(zE.set(d.ln + 0.35 * lk, 0, d.ro)); zM.compose(zV.set(0, 0.55, d.fw), zQ, zS); S[0][0].setMatrixAt(n, zB.multiplyMatrices(zR, zM)); if (!pol) S[0][0].setColorAt(n, lookC[d.lk]);
+    for (let i = 1; i < 3; i++) { zQ.setFromEuler(zE.set((i === 1 ? d.l1 : d.l2) + (lk && (i === 1) === ((k & 1) === 0) ? 0.9 * lk : 0), 0, 0)); zM.compose(zV.set(i === 1 ? -0.15 : 0.15, 0.55, 0), zQ, zS); S[i][0].setMatrixAt(n, zB.multiplyMatrices(zR, zM)); }
   };
   const upH = p.floor ? G.houses.find(h => h.id === p.inside) : null;
   for (const z of G.zombies) {
@@ -535,10 +555,10 @@ function draw(G) {
       if (dx * dx + dy * dy > 1e-5) d.a = Math.atan2(dx, dy); else d.a = ang0;
       d.x = z.x; d.y = z.y;
     }
-    poseZ(z.id, z.x, z.y, z.anim, ang0, z.state === 'attack' ? 1 + 0.12 * Math.abs(Math.sin(now / 45)) : 1, z.police, z.runner, Number.isInteger(z.look) ? z.look : z.look === 'jaleco' ? 8 : z.look === 'macacao' ? 9 : undefined, FLH * (z.floor || 0));
+    poseZ(z.id, z.x, z.y, z.anim, ang0, z.state === 'attack' ? 1 + 0.12 * Math.abs(Math.sin(now / 45)) : 1, z.police, z.runner, Number.isInteger(z.look) ? z.look : z.look === 'jaleco' ? 8 : z.look === 'macacao' ? 9 : undefined, FLH * (z.floor || 0), z.crawl || z.limp || z.lg !== undefined ? { crawl: z.crawl, limp: z.limp, lg: z.lg !== undefined ? G.t - z.lg : undefined } : undefined);
     const q = zData.get(z.id); q.x = z.x; q.y = z.y; seen.add(z.id);
   }
-  for (const y of G.dying) if (cn[0] + cn[1] < 96 && !seen.has(y.id)) poseZ(y.id, y.x, y.y, y.anim, 0, 1);
+  for (const y of G.dying) if (cn[0] + cn[1] < 96 && !seen.has(y.id)) poseZ(y.id, y.x, y.y, y.anim, 0, 1, false, false, undefined, 0, y.crawl ? { crawl: true } : undefined);
   if (zData.size > cn[0] + cn[1] + 32) for (const [k, d] of zData) if (d.f !== frame) zData.delete(k);
   [zIMs, zPs].forEach((S, j) => { for (const [im, ik] of S) { im.count = ik.count = cn[j]; im.instanceMatrix.needsUpdate = true; ik.instanceMatrix = im.instanceMatrix; } });
   if (zIMs[0][0].instanceColor) zIMs[0][0].instanceColor.needsUpdate = true;
@@ -633,7 +653,7 @@ function draw(G) {
   hl.visible = on;
   // anel sob o zumbi preparando o bote
   const T = G.target && typeof G.target === 'object' ? G.target : G.zombies.find(z => z.id === G.target);
-  const A = G.aim; aimRing.visible = !!A; if (A) { aimRing.position.set(A.x, 0.04, A.y); aimRing.scale.setScalar(1 + (RM === 1 ? 0.08 * Math.sin(now / 150) : 0)); }
+  const A = G.aim; aimRing.visible = !!A; if (A) { aimRing.position.set(A.x, 0.04, A.y); aimRing.scale.setScalar((A.hs ? 1.25 : 1) + (RM === 1 ? 0.08 * Math.sin(now / 150) : 0)); aimRing.material.opacity = A.hs ? 1 : 0.7; aimRing.material.color.setHex(A.hs ? 0xff8c69 : 0xf2d16b); } // hs: parado e perto => chance de cabeca maior: anel mais grosso e laranja
   ring.visible = !!T; if (T) { ring.position.set(T.x, 0.03, T.y); ring.scale.setScalar(1 + (RM === 1 ? 0.1 * Math.sin(now / 120) : 0)); }
 
   // efeitos (reaproveitados)
@@ -645,6 +665,7 @@ function draw(G) {
     } else if (ev.type === 'armorBreak') {
       const c = { head: 0xff5c57, torso: 0x9b6a3c, legs: 0x9aa3b5 }[ev.part] || 0x9aa3b5;
       for (let i = 0; i < 5; i++) { const m = brk.find(s => !s.visible) || brk[i]; m.material = cmat(c); m.position.set(p.x, 1, p.y); m.userData = { end: now + 300, vx: (Math.random() - 0.5) * 4, vy: 2 + Math.random() * 2, vz: (Math.random() - 0.5) * 4 }; m.visible = true; }
+    } else if (ev.type === 'miss') { for (let i = 0; i < 3; i++) puff(ev.x + (Math.random() - 0.5) * 0.4, 0.1, ev.y + (Math.random() - 0.5) * 0.4, (Math.random() - 0.5) * 1.2, (Math.random() - 0.5) * 1.2, 0.5, 0.7); // poeira onde a bala bateu
     } else if (ev.type === 'doorHit') doorSh.set(ev.id, now + 300);
     else if (ev.type === 'cut') {
       const t = doorT.get(ev.id), g = padFall.find(q => !q.visible) || padFall[0];
@@ -698,7 +719,7 @@ function devOverlay(on) {
   devEl = document.createElement('div'); devEl.style.cssText = 'position:fixed;left:6px;top:6px;z-index:50;font:12px monospace;color:#fff;background:#0008;padding:2px 6px;border-radius:4px;pointer-events:none'; document.body.appendChild(devEl);
 }
 // ---------- itens 3D (icone e giro) no MESMO renderer ----------
-let iRig, iS, iC, iRT, iPivot, iR = 1, spinT = 0, spinRaf = 0, spinCv = null, spinId = null;
+let iRig, iS, iC, iRT, iPivot, iR = 1, spinT = 0, spinRaf = 0, spinCv = null, spinId = null, demoFn = null, zdR = null;
 const icons = new Map();
 function itemSetup() {
   if (iS) return;
@@ -744,14 +765,14 @@ function spinTick(t) {
   if (!spinCv) return;
   spinRaf = requestAnimationFrame(spinTick);
   if (t - spinT < 100) return; spinT = t;
-  if (demoRig) demoPose(t); else iPivot.rotation.y = t / 1000 * 0.8;
+  if (demoFn) demoFn(t / 1000); else if (demoRig) demoPose(t); else iPivot.rotation.y = t / 1000 * 0.8;
   const cv = spinCv.getContext('2d'); cv.imageSmoothingEnabled = false;
   const tmp = spinTick.c || (spinTick.c = document.createElement('canvas')); tmp.width = tmp.height = 160;
   tmp.getContext('2d').putImageData(itemShot(160), 0, 0);
   cv.clearRect(0, 0, spinCv.width, spinCv.height); cv.drawImage(tmp, 0, 0, spinCv.width, spinCv.height);
 }
 function spin(canvas, id) {
-  spinStop(); demoRig = null;
+  spinStop(); demoRig = null; demoFn = null;
   if (!canvas || !renderer || !itemLoad(id)) return;
   spinCv = canvas; spinId = id; spinRaf = requestAnimationFrame(spinTick);
 }
@@ -765,7 +786,47 @@ function demoPose(t) {
   pose(rig, mv, act, c, 1); pPh = ph;
   if (act === 'jump') rig.g.position.x = -0.6 + 1.2 * Math.min(1, c / 0.6);
 }
+// mini-cenas de zumbi do guia (rastejante, tiro na cabeca/perna, horda): 3 pecas por zumbi, mesmas formulas de pose do jogo (so matriz, sem mesh nova)
+const ZDEMO = ['crawl', 'shot', 'horde'];
+function zRig() { const zp = makeZombieParts(), P = {}; for (const n of ['body', 'legL', 'legR']) { P[n] = new THREE.Group(); P[n].add(...pair(bake(zp[n]))); } const g = new THREE.Group(); g.add(P.body, P.legL, P.legR); return { g, P }; }
+function zRigPose(r, o) { // o: x, z, yaw, ph, w (andando), crawl, limp, lk (dobra de joelho 0-1, perna esq.), fall (queda para tras 0-1)
+  const a = o.w ? Math.sin(o.ph) : 0, cw = !!o.crawl, lm = !!o.limp && !cw;
+  let ln = 0.15, ro = 0.02 * Math.sin(o.ph * 0.5) * RM, l1 = 0.45 * a * RM, l2 = -l1, fw = 0, ly = 0;
+  if (o.w && !cw) ro = 0.105 * Math.sin(o.ph * 0.5) * RM;
+  if (cw) { ln = 1.35 + 0.1 * a * a * RM; fw = 0.1 * Math.max(0, a) * RM; ro = (o.w ? 0.16 * a : 0) * RM; l1 = 1.2 + 0.2 * a * RM; l2 = 1.2 - 0.2 * a * RM; ly = -0.22; }
+  else if (lm && o.w) { l1 = 0.15 * a * RM; l2 = -0.5 * a * RM; ln = 0.3 + 0.08 * a * RM; ro = (0.14 + 0.08 * a) * RM; ly = -0.07 * Math.max(0, Math.sin(o.ph + 1)) * RM; }
+  const lk = o.lk || 0; ln += 0.35 * lk; l1 += 0.9 * lk; ly -= 0.25 * lk;
+  r.P.body.position.set(0, 0.55, fw); r.P.body.rotation.set(ln, 0, ro); r.P.legL.position.set(-0.15, 0.55, 0); r.P.legR.position.set(0.15, 0.55, 0); r.P.legL.rotation.set(l1, 0, 0); r.P.legR.rotation.set(l2, 0, 0);
+  r.g.rotation.order = 'YXZ'; r.g.rotation.set(-Math.PI / 2 * (o.fall || 0), o.yaw, 0); r.g.position.set(o.x, ly + 0.25 * (o.fall || 0), o.z);
+}
+function demoZ(canvas, id) {
+  spinStop(); itemSetup(); demoRig = null;
+  if (!zdR) zdR = [0, 1, 2, 3].map(zRig);
+  if (!iRig) iRig = mkRig({ head: 1, torso: 1, legs: 1 });
+  iPivot.clear(); iPivot.rotation.y = 0;
+  const n = id === 'horde' ? 4 : id === 'shot' ? 2 : 1; for (let i = 0; i < n; i++) iPivot.add(zdR[i].g);
+  if (id === 'shot') iPivot.add(iRig.g);
+  iC.position.set(0.55, 0.5, 1).normalize().multiplyScalar(id === 'horde' ? 8.5 : 6.2); iC.lookAt(0, 0.6, 0); iC.updateMatrixWorld();
+  const R90 = Math.PI / 2;
+  demoFn = (s) => {
+    if (id === 'crawl') zRigPose(zdR[0], { x: -1.4 + 0.8 * (s % 3.5), z: 0, yaw: R90, ph: s * 2.4, w: true, crawl: true });
+    else if (id === 'horde') {
+      for (let i = 0; i < 3; i++) zRigPose(zdR[i], { x: -2.4 + ((s * 0.6 + i * 0.5) % 5), z: (i - 1) * 0.9, yaw: R90, ph: s * 3.2 + i * 1.7, w: true });
+      zRigPose(zdR[3], { x: -3.4 + ((s * 0.6) % 5), z: 0.1, yaw: R90, ph: s * 2.4, w: true, crawl: true });
+    } else { // boneco atira: volta par = cabeca (cai para tras), volta impar = perna (dobra e passa a mancar)
+      const L = 5, u = s % L, v = Math.floor(s / L) % 2, T = 1.6, t = u - T, z0 = zdR[0];
+      iRig.g.position.set(-1.7, 0, 0); iRig.g.rotation.set(0, R90, 0); pose(iRig, 'idle', t >= 0 && t < 0.5 ? 'shot' : null, Math.max(0, t), 1);
+      iRig.g.position.set(-1.7, 0, 0); iRig.g.rotation.set(0, R90, 0);
+      const x = u < T ? 1.7 - 0.8 * (u / T) : v ? 0.9 - 0.25 * Math.max(0, u - T - 0.3) : 0.9;
+      if (v === 0) zRigPose(z0, { x, z: 0, yaw: -R90, ph: s * 3.2, w: u < T, fall: t > 0 ? sm(Math.min(1, t / 0.3)) : 0 });
+      else zRigPose(z0, { x, z: 0, yaw: -R90, ph: s * 2, w: u < T || t > 0.3, limp: t > 0, lk: t > 0 && t < 0.3 ? Math.sin(Math.PI * t / 0.3) * RM : 0 });
+    }
+  };
+  spinCv = canvas; spinId = id; spinRaf = requestAnimationFrame(spinTick);
+}
 function demo(canvas, id) {
+  if (ZDEMO.includes(id)) return demoZ(canvas, id);
+  demoFn = null;
   if (!DEMO[id]) return spin(canvas, id);
   spinStop(); itemSetup();
   if (!iRig) iRig = mkRig({ head: 1, torso: 1, legs: 1 });
@@ -806,5 +867,5 @@ function badMatrices() {
   });
   return bad;
 }
-window.R = { seenN: () => (seenIM && seenIM.visible ? seenIM.count : 0), aimOn: () => !!aimRing && aimRing.visible, zoom(pct) { VIEW_R = 10 * Math.max(50, Math.min(170, +pct || 100)) / 100; if (camera) size(); }, init, draw, pick, icon, spin, demo, info: () => ({ calls: renderer.info.render.calls, verts: lastBake.verts, ms: lastBake.ms, up: lastBake.up }), mem: () => renderer.info.memory.geometries, chunks: () => chunks.size, badMatrices, devOverlay,
+window.R = { toScreen(x, y, z) { if (!camera || !renderer) return null; const v = new THREE.Vector3(x, y, z).project(camera); if (v.z > 1) return null; const b = renderer.domElement.getBoundingClientRect(); return { x: b.left + (v.x + 1) / 2 * b.width, y: b.top + (1 - v.y) / 2 * b.height }; }, seenN: () => (seenIM && seenIM.visible ? seenIM.count : 0), aimOn: () => !!aimRing && aimRing.visible, zoom(pct) { VIEW_R = 7 * Math.max(50, Math.min(170, +pct || 100)) / 100; if (camera) size(); }, init, draw, pick, icon, spin, demo, info: () => ({ calls: renderer.info.render.calls, verts: lastBake.verts, ms: lastBake.ms, up: lastBake.up }), mem: () => renderer.info.memory.geometries, chunks: () => chunks.size, badMatrices, devOverlay,
   view() { const c = camera, v = new THREE.Vector3(), d = c.userData.d; c.position.set(0, 0.5 + d * Math.sin(EL), d * Math.cos(EL)); c.lookAt(0, 0.5, 0); c.updateMatrixWorld(true); return [[VIEW_R, 0], [-VIEW_R, 0], [0, VIEW_R], [0, -VIEW_R]].map(([x, z]) => { v.set(x, 0, z).project(c); return Math.max(Math.abs(v.x), Math.abs(v.y)); }); } };

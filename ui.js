@@ -26,8 +26,12 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
 #hint span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 #hint button{display:none;min-width:48px;min-height:48px;border:0;background:none;color:var(--municao);font:inherit;font-size:14px;text-decoration:underline}
 #hint.g button{display:block}
+#hud .pop{position:absolute;left:0;top:0;width:80px;text-align:center;font:12px 'Pixelify Sans',monospace;color:var(--texto);text-shadow:var(--sombra-texto),0 0 3px #15121a;pointer-events:none;opacity:0}
 #toast{right:var(--mr);bottom:calc(var(--mb) + 184px);max-width:230px;padding:6px var(--esp-3);background:var(--superficie);border:2px solid var(--borda);border-radius:14px;box-shadow:var(--sombra);font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 #flash{position:absolute;inset:0;pointer-events:none;box-shadow:inset 0 0 60px 12px var(--vida);transition:opacity var(--fade)}
+#flashw{position:absolute;inset:0;pointer-events:none;box-shadow:inset 0 0 70px 18px var(--texto)}
+#horda{position:absolute;left:0;top:0;width:32px;height:32px;margin:-16px 0 0 -16px;pointer-events:none;color:var(--vida);filter:drop-shadow(0 1px 0 #15121a)}
+#horda svg{width:100%;height:100%;fill:currentColor;stroke:#15121a;stroke-width:1.5;stroke-linejoin:round}
 #hud button{pointer-events:auto;touch-action:none;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:0;padding:0;color:var(--texto);background:var(--superficie);border:2px solid var(--borda);border-radius:50%;box-shadow:var(--sombra);font:12px 'Pixelify Sans',monospace;text-shadow:var(--sombra-texto);opacity:.65}
 #hud button.active{opacity:1;transform:scale(.96)}
 #hud button.hidden{opacity:0}
@@ -177,7 +181,7 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
 
   const held = { atk: false, act: false }, keys = new Set(), last = {}, E = {};
   const joy = { id: null, cx: 0, cy: 0, mx: 0, my: 0, run: false };
-  let tapT = null, intT = 0, pend = false, hintGuia = '', crouchPend = false, root, armorUntil = 0, hintUntil = 0, hintNear = '', toastUntil = 0, flashUntil = 0, menuEl, startEl, confirmEl, deadEl, tourEl, tourStep = -1, tourPos, contEl, contSig = '', hp = null;
+  let tapT = null, intT = 0, pend = false, hintGuia = '', crouchPend = false, root, armorUntil = 0, hintUntil = 0, hintNear = '', hintAt = 0, hintQ = [], flashWUntil = 0, toastUntil = 0, flashUntil = 0, menuEl, startEl, confirmEl, deadEl, tourEl, tourStep = -1, tourPos, contEl, contSig = '', hp = null;
 
   const put = (k, v, fn) => { if (last[k] !== v) { last[k] = v; fn(v); } };
   const el = (tag, id, parent, html, cls) => {
@@ -319,7 +323,7 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
   const MN = 7, MC = 48, MS = MC / 40; // px por metro
   const MK = { market: '#ffb347', posto: '#ff5c57', igreja: '#fff3d6', delegacia: '#5b7bd5', hospital: '#e6f7ff', saude: '#e6f7ff', farmacia: '#e6f7ff' };
   function renderMap() {
-    if (!panes.map.firstChild) { const c = el('canvas', null, panes.map); c.width = c.height = MN * MC; el('div', null, panes.map, '▬ estrada · ' + [['mercado', '#ffb347'], ['posto', '#ff5c57'], ['igreja', '#fff3d6'], ['delegacia', '#5b7bd5'], ['saúde', '#e6f7ff']].map(([n, c]) => '<span style="color:' + c + '">■</span> ' + n).join(' · ') + ' · ● você · <span style="color:#ff5c57">■</span> tumba', 'dim'); }
+    if (!panes.map.firstChild) { const c = el('canvas', null, panes.map); c.width = c.height = MN * MC; el('div', null, panes.map, '▬ estrada · ' + [['mercado', '#ffb347'], ['posto', '#ff5c57'], ['igreja', '#fff3d6'], ['delegacia', '#5b7bd5'], ['saúde', '#e6f7ff']].map(([n, c]) => '<span style="color:' + c + '">■</span> ' + n).join(' · ') + ' · ● você · <span style="color:#ff5c57">■</span> tumba · tom vermelho = área infestada', 'dim'); }
     if (!mapRaf) mapRaf = requestAnimationFrame(mapLoop);
   }
   function mapChunk(k, cx, cy) {
@@ -348,6 +352,7 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
       if (!ex.has(k)) continue;
       if (!mapCache.has(k)) { if (budget <= 0) continue; budget--; }
       x.drawImage(mapChunk(k, cx, cy), i * MC, j * MC);
+      if (G.infestAt(cx * 40 + 20, cy * 40 + 20) >= 2) { x.fillStyle = 'rgba(255,92,87,.18)'; x.fillRect(i * MC, j * MC, MC, MC); } // area infestada explorada
     }
     const w2p = (wx, wy) => [(wx - (pcx - h) * 40) * MS, (wy - (pcy - h) * 40) * MS];
     for (let j = 0; j < MN; j++) for (let i = 0; i < MN; i++) { const c = mapCache.get((pcx - h + i) + ',' + (pcy - h + j)); if (c && ex.has((pcx - h + i) + ',' + (pcy - h + j))) for (const m of c.lm || []) { const [a, b] = w2p(m.x, m.y); const col = MK[m.kind]; if (!col) continue; x.fillStyle = col; x.strokeStyle = '#15121a'; x.lineWidth = 1.5; x.fillRect(a - 4, b - 4, 8, 8); x.strokeRect(a - 4, b - 4, 8, 8); } } // 1 marcador por tipo (paleta); escola, oficina, galpao e cemiterio ficam so no guia
@@ -390,6 +395,12 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
     bindZoom();
   }
 
+  const pops = [], RMq = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  function pop(text, x, y, now) { // pool de 4 textos sobre o mundo, pointer-events none
+    let q = pops.find((e) => now - e.t0 > 900);
+    if (!q) { if (pops.length >= 4) q = pops.reduce((a, b) => (a.t0 < b.t0 ? a : b)); else { q = { el: el('div', null, root.querySelector('#hud'), '', 'pop') }; pops.push(q); } }
+    q.el.textContent = text; q.t0 = now; q.x = x; q.y = y;
+  }
   function zoomPct() { try { return +localStorage['zl1.zoom'] || 100; } catch (e) { return 100; } } // preferencia do aparelho (nao do mundo); 100 % = raio 10 m
   function bindZoom() {
     const i = panes.settings.querySelector('.zoom input'); if (!i) return;
@@ -406,10 +417,10 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
     const car = [[10, '100 %'], [5, '50 %'], [0, '0 %']].map(([f, n]) => '<div>Tanque ' + n + ' ' + [100, 25, 0].map((h) => DVB('car:' + f + ':' + h, 'vida ' + h)).join('') + '</div>').join('');
     panes.settings.innerHTML = '<div class="ip"><h3>Modo desenvolvedor</h3><button class="btn" data-a="dv" data-v="back">Voltar</button> <span class="dim" id="dvmsg"></span>' +
       '<h3 class="dvh">Itens (toque +1, segure = pilha)</h3>' + grid(items) +
-      '<h3 class="dvh">Zumbis</h3>' + DVB('z:walker', 'Andador') + DVB('z:runner', 'Corredor') + DVB('z:police', 'Policial') + DVB('z:jaleco', 'Jaleco') + DVB('z:macacao', 'Macacão') + DVB('z:horde', 'Horda') +
+      '<h3 class="dvh">Zumbis</h3>' + DVB('z:walker', 'Andador') + DVB('z:runner', 'Corredor') + DVB('z:police', 'Policial') + DVB('z:jaleco', 'Jaleco') + DVB('z:macacao', 'Macacão') + DVB('z:crawl', 'Rastejante') + DVB('z:limp', 'Manco') + DVB('z:horde', 'Horda') +
       '<h3 class="dvh">Carro</h3>' + car +
       '<h3 class="dvh">Teleporte</h3>' + DVB('tp:market', 'Mercado') + DVB('tp:posto', 'Posto') + DVB('tp:delegacia', 'Delegacia') + DVB('tp:igreja', 'Igreja') + DVB('tp:hospital', 'Hospital') + DVB('tp:saude', 'Posto de saúde') + DVB('tp:farmacia', 'Farmácia') + DVB('tp:escola', 'Escola') + DVB('tp:oficina', 'Oficina') + DVB('tp:galpao', 'Galpão') + DVB('tp:cemiterio', 'Cemitério') + DVB('tp:locked', 'Casa trancada') + DVB('tp:sobrado', 'Sobrado') + DVB('tp:garagem', 'Garagem') + DVB('tp:car', 'Carro') + DVB('tp:spawn', 'Início') + DVB('tp:far', '+10 chunks') +
-      '<h3 class="dvh">Chaves</h3>' + DVB('god', 'Imortal' + on(d.god)) + DVB('noclip', 'Atravessar paredes' + on(d.noclip)) + DVB('t:1', 'Tempo ×1' + on(d.speed === 1)) + DVB('t:4', '×4' + on(d.speed === 4)) + DVB('t:16', '×16' + on(d.speed === 16)) + DVB('fill', 'Encher status') + DVB('ov', 'Overlay' + on(d.ov)) + '</div>';
+      '<h3 class="dvh">Chaves</h3>' + DVB('god', 'Imortal' + on(d.god)) + DVB('nomiss', 'Tiro certeiro' + on(d.noMiss)) + DVB('noclip', 'Atravessar paredes' + on(d.noclip)) + DVB('t:1', 'Tempo ×1' + on(d.speed === 1)) + DVB('t:4', '×4' + on(d.speed === 4)) + DVB('t:16', '×16' + on(d.speed === 16)) + DVB('fill', 'Encher status') + DVB('ov', 'Overlay' + on(d.ov)) + '</div>';
   }
   function devAct(v) {
     const G = window.G, d = G.dev, [k, a, b] = v.split(':');
@@ -419,6 +430,7 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
     else if (k === 'car') r = !!d.spawnCar({ fuel: +a, hp: +b });
     else if (k === 'tp') r = d.tp(a);
     else if (k === 'god' || k === 'noclip') d[k] = !d[k];
+    else if (k === 'nomiss') d.noMiss = !d.noMiss;
     else if (k === 't') d.speed = +a;
     else if (k === 'fill') d.fill();
     else if (k === 'ov') { d.ov = !d.ov; try { window.R && R.devOverlay && R.devOverlay(d.ov); } catch (e) {} }
@@ -637,6 +649,8 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
     E.hint.lastChild.addEventListener('click', () => { if (hintGuia) { guideOpen = hintGuia; guideQ = ''; curTab = 'guide'; } toggleMenu(true); });
     E.toast = el('div', 'toast', hud, '', 'hidden');
     E.flash = el('div', 'flash', hud, '', 'hidden');
+    E.flashw = el('div', 'flashw', hud, '', 'hidden');
+    E.horda = el('div', 'horda', hud, '<svg viewBox="0 0 24 24"><path d="M4 4l17 8-17 8 4-8z"/></svg>', 'hidden');
     const joyEl = el('div', 'joy', hud, '<div class="base"><svg class="marca" viewBox="0 0 120 120"><circle cx="60" cy="60" r="54"/></svg><div class="nub"></div></div><div class="zona"></div>');
     E.joy = joyEl; E.nub = joyEl.querySelector('.nub');
     E.crouch = btn('btn-crouch', hud, svg('crouch')); E.crouch.setAttribute('aria-label', 'Agachar');
@@ -746,9 +760,11 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
       } else if (ev.type === 'equip') armorUntil = now + 3000;
       else if (ev.type === 'crateOpen') { E.toast.textContent = ev.item ? 'Encontrou: ' + (NOME[ev.item] || ev.item) : 'Vazio'; toastUntil = now + 2000; }
       else if (ev.type === 'full') { E.toast.textContent = 'Mochila cheia'; toastUntil = now + 2000; }
-      else if (ev.type === 'hint') {
-        E.hint.firstChild.textContent = ev.text; E.hint.classList.toggle('g', !!ev.guia); hintGuia = ev.guia || '';
-        hintUntil = now + 4000; hintNear = p.near ? p.near.type + p.near.id : '';
+      else if (ev.type === 'hint') { if (hintQ.length < 3) hintQ.push(ev); } // fila FIFO (max 3): duas dicas no mesmo quadro nao se perdem
+      else if (ev.type === 'miss') pop('Errou', ev.x, ev.y, now);
+      else if (ev.type === 'headshot' || ev.type === 'legshot') { // retorno do tiro: texto pequeno sobre o zumbi atingido (dono: em cima dele, sem atrapalhar)
+        const z = G.zombies.find((q) => q.id === ev.id) || (G.dying || []).find((q) => q.id === ev.id);
+        if (z) pop(ev.type === 'headshot' ? 'CABEÇA!' : ev.crawl ? 'Rastejando!' : 'Manco!', z.x, z.y, now);
       }
     }
     if (tourStep >= 0 && tourStep < PASSOS.length) tourTick(G, p);
@@ -756,10 +772,20 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
     G.events.length = 0;
 
     const nk = p.near ? p.near.type + p.near.id : '';
-    if (hintUntil && (now > hintUntil || nk !== hintNear)) hintUntil = 0;
+    if (hintUntil && (now > hintUntil || (nk !== hintNear && now - hintAt >= 1500))) hintUntil = 0; // troca de alvo so fecha dica ja mostrada >= 1,5 s
+    if (!hintUntil && hintQ.length) { const h = hintQ.shift(); E.hint.firstChild.textContent = h.text; E.hint.classList.toggle('g', !!h.guia); hintGuia = h.guia || ''; hintAt = now; hintUntil = now + 4000; hintNear = nk; }
     put('hint', hintUntil > 0, (v) => E.hint.classList.toggle('hidden', !v));
     put('toast', now < toastUntil, (v) => E.toast.classList.toggle('hidden', !v));
     put('flash', now < flashUntil, (v) => E.flash.classList.toggle('hidden', !v));
+    for (const q of pops) { // texto flutuante: sobe 18 px e some em 0,9 s; segue o ponto no mundo
+      const k = (now - q.t0) / 900, s = k < 1 && window.R && R.toScreen && R.toScreen(q.x, 2.1, q.y);
+      if (!s) { q.el.style.opacity = 0; continue; }
+      q.el.style.left = (s.x - 40) + 'px'; q.el.style.top = (s.y - 18 * (RMq ? 0 : k)) + 'px'; q.el.style.opacity = k < 0.7 ? 1 : (1 - k) / 0.3;
+    }
+    put('flashw', now < flashWUntil, (v) => E.flashw.classList.toggle('hidden', !v));
+    { const hn = G.hordeNear, show = !!hn && hn.d > (G.viewR || 7) && !p.open; // seta na borda: horda a 25 m, fora da tela
+      put('horda', show ? 1 : 0, (v) => E.horda.classList.toggle('hidden', !v));
+      if (show) { const W = innerWidth, H = innerHeight, c = Math.cos(hn.a), s2 = Math.sin(hn.a), t = Math.min((W / 2 - 36) / (Math.abs(c) || 1e-6), (H / 2 - 36) / (Math.abs(s2) || 1e-6)); E.horda.style.transform = 'translate(' + Math.round(W / 2 + c * t) + 'px,' + Math.round(H / 2 + s2 * t) + 'px) rotate(' + hn.a + 'rad)'; } }
 
     const hp = Math.round(p.hp || 0), hu = Math.round(p.hunger || 0);
     put('hp', hp, (v) => { fill(E.hp, v / 100); E.hp.classList.toggle('pulse', v < 30); });

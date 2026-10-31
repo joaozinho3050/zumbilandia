@@ -60,10 +60,12 @@
   // move por eixo (desliza nas paredes)
   function move(o, dx, dy) {
     if (o === G.player && G.dev.noclip && !o.car) { o.x += dx; o.y += dy; return; } // dev: atravessa tudo (so o jogador a pe)
-    const fl = o.floor || 0;
-    if (free(o.x + dx, o.y, undefined, undefined, fl)) o.x += dx;
-    if (free(o.x, o.y + dy, undefined, undefined, fl)) o.y += dy;
+    const fl = o.floor || 0, zl = o !== G.player; // zumbi empurrado nao entra em chunk fora de _ls (J5.1)
+    if (free(o.x + dx, o.y, undefined, undefined, fl) && !(zl && !lsAt(o.x + dx, o.y))) o.x += dx;
+    if (free(o.x, o.y + dy, undefined, undefined, fl) && !(zl && !lsAt(o.x, o.y + dy))) o.y += dy;
   }
+  const lsAt = (x, y) => G._ls.has(Math.floor(x / CH) + ',' + Math.floor(y / CH)); // ponto em chunk carregado?
+  const hz = z => typeof z.id === 'string' && z.id.charCodeAt(0) === 104 && z.id.charCodeAt(1) === 58; // id 'h:' = membro de horda (nunca vai ao diff)
   const houseAt = e => { const h = G.houses.find(h => e.x >= h.x && e.x <= h.x + h.w && e.y >= h.y && e.y <= h.y + h.h); return h ? h.id : null; };
   function randFree(minFromPlayer) {
     for (let i = 0; i < 500; i++) {
@@ -80,8 +82,10 @@
   }
   function newZombie() {
     const p = randFree(25);
-    const zid = 'p:' + G.nextId++;
-    return { id: zid, ch: chOf(p), x: p.x, y: p.y, hp: 60, state: 'idle', alert: 0, atk: 0, runner: rng() < 0.05, police: false, ...zv(zid) };
+    if (!lsAt(p.x, p.y)) return null; // J5.1: so nasce em chunk carregado (senao congelava e sumia do save)
+    const zid = 'p:' + G.nextId++, runner = rng() < 0.05, z = { id: zid, ch: chOf(p), x: p.x, y: p.y, hp: 60, state: 'idle', alert: 0, atk: 0, runner, police: false, ...zv(zid) };
+    if (!runner && rng() < 0.1) z.crawl = true; // rastejante ~10 %
+    return z;
   }
 
   const STACK = { food: 5, bandage: 5, rag: 10, wire: 10, ammo: 24, bottle: 3 };
@@ -202,7 +206,7 @@
       const d = dist(z, o);
       if (boom && z.hp <= 0) continue;
       if (d <= r && !(boom && blocked(x, y, z.x, z.y))) { hurt(z, boom ? dmg * (1 - d / r) : dmg); if (boom && d > 0.01) move(z, (z.x - x) / d * 2, (z.y - y) / d * 2); }
-      if (boom && d <= 40 && z.hp > 0) { z.alert = 6; z.state = 'chase'; }
+      if (boom && d <= 40 && dist(z, p) <= G.viewR && z.hp > 0) { z.alert = 6; z.state = 'chase'; }
     }
     if (boom) {
       const d = dist(p, o);
@@ -333,6 +337,29 @@
     if (kill) { hurt(z, z.hp); G.events.push({ type: 'stealthKill', id: z.id }); } else { hurt(z, dmg * 2); z.alert = Math.max(z.alert, 6); }
     hint('furtivo2', 'Golpe pelas costas: dano dobrado e chance de derrubar na hora', 'furtivo');
   }
+  // tiro que acertou: 1 rng() => cabeca (10 %, +10 % se <= 4 m e parado) mata; senao dano 50 e perna (25 %): 1o ⇒ manco, 2o (ou ja manco) ⇒ rastejante
+  // erro do tiro (dono): base 20 %, +15 % andando, +30 % correndo, +2 %/m alem de 4 m, -10 % agachado ou parado; 5-70 %. 1 rng(): v < miss erra; senao v renormalizado decide cabeca/perna
+  const missOf = (p, d) => { const mv = hypot2(p.input.mx, p.input.my) > 0.01; return Math.max(0.05, Math.min(0.7, 0.2 + (p.running ? 0.3 : mv ? 0.15 : 0) + 0.02 * Math.max(0, d - 4) - (p.crouch || !mv ? 0.1 : 0))); };
+  function shotFx(z, p) {
+    const hs = 0.1 + (dist(z, p) <= 4 && hypot2(p.input.mx, p.input.my) <= 0.01 ? 0.1 : 0), ms = G.dev.noMiss ? 0 : missOf(p, dist(z, p)), r = rng();
+    if (r < ms) { // errou: a bala passa e levanta poeira atras do alvo
+      const a = Math.atan2(z.y - p.y, z.x - p.x), d = dist(z, p) + 2;
+      G.events.push({ type: 'miss', x: p.x + Math.cos(a) * d, y: p.y + Math.sin(a) * d });
+      hint('errou', 'Tiro de longe ou andando erra mais — pare e agache para mirar melhor', 'tiro');
+      return;
+    }
+    const v = ms ? (r - ms) / (1 - ms) : r;
+    if (v < hs) {
+      hurt(z, z.hp); z.anim.hs = 1; G.events.push({ type: 'headshot', id: z.id });
+      hint('headshot', 'Tiro na cabeça mata na hora — fique parado e perto para acertar mais', 'tiro');
+      return;
+    }
+    strike(z, 50, p);
+    if (z.hp <= 0 || v >= hs + 0.25) return;
+    if (z.limp || z.crawl) { z.crawl = true; delete z.limp; } else z.limp = true;
+    z.lg = G.t; G.events.push({ type: 'legshot', id: z.id, limp: !!z.limp, crawl: !!z.crawl });
+    hint('limp', 'Manco: mais lento, mas ainda morde', 'tiro');
+  }
   function playerAttack(p) {
     if (p.weapon === 'molotov') return G.throw();
     if (p.weapon !== 'pistol') {
@@ -350,8 +377,8 @@
       G.cd = 0.4; setAct(p, 'shot');
       const best = aimOf(p); if (best) p.dir = Math.atan2(best.y - p.y, best.x - p.x);
       G.events.push({ type: 'shot', x: p.x, y: p.y, dir: p.dir });
-      if (best) strike(best, 50, p);
-      G.zombies.forEach(z => { if (z.hp > 0 && dist(z, p) <= 5) { z.alert = 6; z.state = 'chase'; } }); // dono: o tiro alerta so a 5 m
+      if (best) shotFx(best, p);
+      G.zombies.forEach(z => { if (z.hp > 0 && dist(z, p) <= Math.min(5, G.viewR)) { z.alert = 6; z.state = 'chase'; } }); // dono: o tiro alerta so a 5 m, e so quem esta na tela
     }
   }
   // molotov: alvo = zumbi mais perto entre 3,5 e 12 m no cone de 60 graus sem parede; senao 6 m a frente. Voo 0,5 s, depois dano 35 (2,5 m) e fogo
@@ -394,7 +421,7 @@
   function hurt(z, dmg) {
     z.hp -= dmg;
     G.events.push({ type: 'hit', x: z.x, y: z.y });
-    if (z.hp <= 0 && !(z.anim && z.anim.act === 'dead')) { z.anim = { move: 'idle', act: 'dead', t: 0 }; G.dying.push({ id: z.id, x: z.x, y: z.y, anim: z.anim }); } // corpo some em 1,5 s
+    if (z.hp <= 0 && !(z.anim && z.anim.act === 'dead')) { z.anim = { move: 'idle', act: 'dead', t: 0 }; G.dying.push({ id: z.id, x: z.x, y: z.y, anim: z.anim, crawl: !!z.crawl }); } // corpo some em 1,5 s
   }
 
   const zf = z => z.face !== undefined ? z.face : (z.face = zv(String(z.id)).face);
@@ -470,32 +497,54 @@
     const za = z.anim || (z.anim = { move: 'idle', act: null, t: 0 }); za.t += dt;
     const hS = fd ? G.houses.find(q => q.stairs && inBox(q, fl ? z.x : p.x, fl ? z.y : p.y, 0.3)) : null, S = hS && hS.stairs;
     const tg = S && inBox(hS, z.x, z.y, 0.3) ? { x: fl ? S.lx1 : S.lx0, y: fl ? S.ly1 : S.ly0 } : p; // alvo: o jogador, ou o pe da escada quando ele esta em outro andar
-    const h = d < 12 && !fd ? G.houses.find(h => blocked(z.x, z.y, p.x, p.y, [h], fl)) : null; // casa no caminho (parede/porta fechada)
-    if (d <= 1.1 && !h && !fd) z.state = 'attack';
-    else if ((!h && !fd && front(z, p) && d < (p.crouch ? 0.5 : p.running ? 5 : 2)) || d <= (p.noise || 0) || z.alert > 0 || (z.state === 'chase' && d < 5)) z.state = 'chase'; // dono: so de frente (120 graus), sem parede: 5 m correndo, 2 andando/parado, 0,5 agachado; perde a 5 m
+    let h = null; // casa no caminho (parede/porta fechada), em cache 0,25 s por zumbi
+    if (d < 12 && !fd) { if (!(G.t < z.ht)) { z.ht = G.t + 0.25 + idPhase(z.id) * 0.1; z.hc = G.houses.find(h => blocked(z.x, z.y, p.x, p.y, [h], fl)) || null; } h = z.hc; }
+    const cw = !!z.crawl, rA = cw ? 0.8 : 1.1, rW = cw ? 0.9 : 1.2, rC = cw ? 1.0 : 1.2; // alcances por tipo: rastejante e baixo, so pega perto
+    if (d <= rA && !h && !fd) z.state = 'attack';
+    else if ((!h && !fd && front(z, p) && d < (p.crouch ? 0.5 : p.running ? 5 : 2)) || (d <= (p.noise || 0) && d <= G.viewR) || z.alert > 0 || (z.state === 'chase' && d < 5)) z.state = 'chase'; // dono: so de frente (120 graus), sem parede: 5 m correndo, 2 andando/parado, 0,5 agachado; perde a 5 m
     else z.state = 'idle';
+    if (cw && fd) z.state = 'idle'; // rastejante nao usa escada
+    z.sc = Math.max(0, (z.sc || 0) - dt);
+    if (z.state === 'chase' && d < 5 && z.sc <= 0 && !G._sc) { // grito (J1.1): puxa ate 4 zumbis parados a <= 5 m dele; 1 grito por update, cooldown 3 s
+      G._sc = 1; z.sc = 3 + idPhase(z.id) * 4; let n = 0;
+      G.events.push({ type: 'scream', id: z.id });
+      for (const o of G.zombies) {
+        if (n >= 4) break;
+        if (o === z || o.hp <= 0 || o.state !== 'idle' || o.alert > 0 || (o.floor || 0) !== fl) continue;
+        const dx = o.x - z.x, dy = o.y - z.y;
+        if (dx * dx + dy * dy <= 25 && dist(o, p) <= G.viewR && !blocked(z.x, z.y, o.x, o.y, undefined, fl)) { o.alert = 4; n++; }
+      }
+    }
     if (z.police && d < 10) hint('police', 'Policial zumbi: pode soltar munição ou pistola', 'police');
     z.zc = Math.max(0, (z.zc || 0) - dt);
-    if (z.wu > 0 && (d > 1.2 || fd)) z.wu = 0; // saiu do alcance (ou do andar): cancela, sem dano
+    if (z.wu > 0 && (d > rC || fd)) z.wu = 0; // saiu do alcance (ou do andar): cancela, sem dano
     if (z.wu > 0) { // windup parado; ao fim fere se ainda no alcance
       if ((z.wu -= dt) <= 1e-9) { z.wu = 0; z.zc = 1.8; const dm = p.car ? 8 : 15; hurtPlayer(dm); G.events.push({ type: 'hurt', id: z.id, d: dm }); }
-    } else if (d <= 1.2 && !h && !fd && z.zc <= 0) { z.wu = 1.0; G.events.push({ type: 'windup', id: z.id }); }
-    const mv = z.state === 'chase' ? 'walk' : 'idle', ac = z.wu > 0 ? 'windup' : z.zc > 1.5 ? 'hit' : null;
+    } else if (d <= rW && !h && !fd && z.zc <= 0) { z.wu = cw ? 1.2 : 1.0; G.events.push({ type: 'windup', id: z.id }); }
+    let mv = z.state === 'chase' ? 'walk' : 'idle';
+    if (z.state === 'idle' && z.hg && z.ho && !fd) { // membro de horda parado: anda ate a posicao do grupo + deslocamento (sem pathTo; preso = espera)
+      const P = hordePos(z.hg, G.t), tx = P.x + z.ho[0], ty = P.y + z.ho[1], dd = hypot2(tx - z.x, ty - z.y);
+      if (dd > 0.5 && dd < 40) {
+        const a = Math.atan2(ty - z.y, tx - z.x), s = Math.min(dd, (dd > 3 ? 1.2 : 0.8) * (z.crawl ? 0.5 : 1) * dt), nx = z.x + Math.cos(a) * s, ny = z.y + Math.sin(a) * s;
+        if (free(nx, ny, undefined, undefined, fl) && lsAt(nx, ny)) { z.x = nx; z.y = ny; z.face = a; mv = 'walk'; }
+      }
+    }
+    const ac = z.wu > 0 ? 'windup' : z.zc > 1.5 ? 'hit' : null;
     za.move = mv; if (za.act !== ac && za.act !== 'climb') { za.act = ac; za.t = 0; }
     if (z.state === 'attack') return;
     if (z.state === 'chase') {
-      const a = Math.atan2(tg.y - z.y, tg.x - z.x), s = (z.runner ? 4 : 2.2) * dt; z.face = a;
+      const a = Math.atan2(tg.y - z.y, tg.x - z.x), s = (z.crawl ? 0.8 : (z.runner ? 4 : 2.2) * (z.limp ? 0.6 : 1)) * dt; z.face = a;
       z.side = z.side || (rng() < 0.5 ? 1 : -1);
-      const tryDir = ang => { const nx = z.x + Math.cos(ang) * s, ny = z.y + Math.sin(ang) * s; if (!free(nx, ny, undefined, undefined, z.floor || 0)) return false; z.x = nx; z.y = ny; return true; };
+      const tryDir = ang => { const nx = z.x + Math.cos(ang) * s, ny = z.y + Math.sin(ang) * s; if (!free(nx, ny, undefined, undefined, z.floor || 0) || !lsAt(nx, ny)) return false; z.x = nx; z.y = ny; return true; };
       const slide = ang => { const c = Math.cos(ang) * s, n = Math.sin(ang) * s; // so um eixo (encosta e desliza)
-        for (const [ax, ay] of Math.abs(c) > Math.abs(n) ? [[c, 0], [0, n]] : [[0, n], [c, 0]]) if (Math.abs(ax + ay) > s * 0.3 && free(z.x + ax, z.y + ay, undefined, undefined, z.floor || 0)) { z.x += ax; z.y += ay; return true; }
+        for (const [ax, ay] of Math.abs(c) > Math.abs(n) ? [[c, 0], [0, n]] : [[0, n], [c, 0]]) if (Math.abs(ax + ay) > s * 0.3 && free(z.x + ax, z.y + ay, undefined, undefined, z.floor || 0) && lsAt(z.x + ax, z.y + ay)) { z.x += ax; z.y += ay; return true; }
         return false; };
-      if (d <= 6 && G.fences.length && !fl && !fd) { // cerca na reta (cache 0,25 s): encostado nela, sobe e atravessa
+      if (d <= 6 && G.fences.length && !fl && !fd && !cw) { // cerca na reta (cache 0,25 s): encostado nela, sobe e atravessa
         if (!(G.t < z.fct)) { z.fct = G.t + 0.25 + idPhase(z.id) * 0.1; z.fc = G.fences.find(f => segHit(z.x, z.y, p.x, p.y, f)) || null; }
         if (z.fc && dBox(z.fc, z.x, z.y) < 0.7) {
           if ((z.climb = (z.climb || 0) + dt) > (z.runner ? 1.2 : 2)) {
             z.climb = 0; za.act = null;
-            for (const k of [1.2, 1.5, 1.8, 2.1]) { const nx = z.x + Math.cos(a) * k, ny = z.y + Math.sin(a) * k; if (free(nx, ny, undefined, undefined, z.floor || 0)) { z.x = nx; z.y = ny; z.fc = null; z.fct = G.t + 0.5; G.events.push({ type: 'climb', id: z.id }); break; } }
+            for (const k of [1.2, 1.5, 1.8, 2.1]) { const nx = z.x + Math.cos(a) * k, ny = z.y + Math.sin(a) * k; if (free(nx, ny, undefined, undefined, z.floor || 0) && lsAt(nx, ny)) { z.x = nx; z.y = ny; z.fc = null; z.fct = G.t + 0.5; G.events.push({ type: 'climb', id: z.id }); break; } }
           } else { if (za.act !== 'climb') { za.act = 'climb'; za.t = 0; } }
           return;
         }
@@ -548,7 +597,7 @@
 
   function step(dt) {
     const p = G.player, inp = p.input;
-    G.t += dt; G._pn = 0; // orcamento de BFS de perseguicao por quadro
+    G.t += dt; G._pn = 0; G._sc = 0; // orcamento de BFS de perseguicao por quadro
     G.cd = Math.max(0, G.cd - dt);
 
     let mx = inp.mx, my = inp.my;
@@ -719,12 +768,13 @@
 
     updateCut(p, car, len, dt);
     if (!p.action) p._tg = null;
-    G.aim = null; { const a = aimOf(p); if (a) { G.aim = { id: a.id, x: a.x, y: a.y }; hint('mira', 'Anel amarelo = alvo: ATACAR vira você para ele', 'atacar'); } }
+    G.aim = null; { const a = aimOf(p); if (a) { G.aim = { id: a.id, x: a.x, y: a.y, hs: p.weapon === 'pistol' && dist(a, p) <= 4 && len <= 0.01 }; hint('mira', 'Anel amarelo = alvo: ATACAR vira você para ele', 'atacar'); } }
     if (inp.attack && G.cd <= 0 && !car) playerAttack(p);
     updateFire(dt); tickCars(dt);
     updateSiphon(p, car, len, dt);
 
     G.zombies.forEach(z => { if (G._ls.has(z.ch)) updateZombie(z, p, dt); }); // so simula chunk carregado
+    for (const z of G.zombies) if (z.hp <= 0 && z.hg && hz(z)) { const e = G.hordes[z.hg] || (G.hordes[z.hg] = { k: 0, m: 0 }); e.k++; e.m = Math.floor(G.t / 60); } // morte de membro: o grupo nao volta inteiro antes de 60 min
     for (const z of G.zombies) if (z.hp <= 0 && z.police) { // tabela do policial: 1 rng()
       const v = rng() * 100, it = v < 60 ? { id: 'ammo', qty: 3 + Math.floor(v / 15) } : { id: v < 85 ? 'pistol' : v < 95 ? 'bandage' : 'helmet', qty: 1 };
       G.drops.push({ id: z.ch + ':d:' + G.nextId++, ch: z.ch, x: z.x, y: z.y, item: it, expires: G.t + 300 });
@@ -737,9 +787,9 @@
     if (!car && G.zombies.some(z => z.state === 'idle' && z.hp > 0 && dist(z, p) < 4 && !front(z, p))) hint('furtivo', 'Zumbi de costas: ataque por trás — dano dobrado e chance de matar na hora', 'furtivo');
 
     G._spawn += dt;
-    if (G._spawn >= (G.t > 1200 ? 15 : 30)) {
+    if (G._spawn >= 7.5 && G._spawn >= (G.t > 1200 ? 15 : 30) / infestAt(p.x, p.y)) { // 7,5 s = menor intervalo possivel (evita o hash a cada passo) // area infestada: spawn ate 2x mais rapido
       G._spawn = 0;
-      if (G.zombies.length < Math.min(70, Math.max(45, 45 + G.t / 90))) { const z = newZombie(); G.zombies.push(z); }
+      if (G.zombies.length < 88 && G.zombies.reduce((n, z) => n + (hz(z) ? 0 : 1), 0) < Math.min(70, Math.max(45, 45 + G.t / 90))) { const z = newZombie(); if (z) G.zombies.push(z); }
     }
 
     const an = p.anim; an.t += dt;
@@ -775,8 +825,10 @@
     for (let j = -1; j <= 1; j++) for (let i = -1; i <= 1; i++) { const c = center(mx + i, my + j); if (c && hypot2(x - c.C[0], y - c.C[1]) < c.R) return c; }
     return null;
   };
-  const ZN = {}; for (const z of ['centro', 'resid', 'perif', 'rural']) ZN[z] = Object.freeze({ zona: z, infest: 0 }); // infest: Combate vivo
+  const ZN = {}; for (const z of ['centro', 'resid', 'perif', 'rural']) ZN[z] = Object.freeze({ zona: z });
   const zone = (x, y) => { const c = cityAt(x, y); if (!c) return ZN.rural; const q = hypot2(x - c.C[0], y - c.C[1]) / c.R; return q < 0.2 ? ZN.centro : q < 0.55 ? ZN.resid : ZN.perif; };
+  // densidade por regiao de 4x4 chunks (J4.3): calma 0,5x (25 %), normal 1x (50 %), infestada 2x (25 %); centro da cidade tende a infestada. Puro de G.seed
+  const infestAt = (x, y) => { const u = hash(G.seed, Math.floor(x / (4 * CH)), Math.floor(y / (4 * CH)), 9003) / 4294967296 + (zone(x, y).zona === 'centro' ? 0.2 : 0); return u < 0.25 ? 0.5 : u < 0.75 ? 1 : 2; };
   const urbanCh = (cx, cy) => zone(cx * CH + 20, cy * CH + 20).zona !== 'rural'; // chunk urbano = centro dentro do raio (grade BLK); senao rural
   // estrada entre portais de cidades vizinhas (dir 0 leste, 1 sul): curva sin2 (0 e derivada 0 nas pontas), polilinha de 48 pts memoizada
   const edgeAt = (mx, my, dir) => fifo(MEMO.edge, G.seed + ':' + mx + ',' + my + ',' + dir, () => {
@@ -1504,9 +1556,10 @@
       if (zOk(x, y, 0.6)) { addZ(x, y); break; }
     }
     hs.forEach(q => { if (q.up && o.zombies.length < 6) addZ(q.up[0], q.up[1], 1); }); // sobrado: 1 no andar de cima
+    const wn = []; // vagantes (para densidade/rastejantes do bloco final)
     for (let k = Math.min(rural ? Math.floor(r() * 2) : 1 + Math.floor(r() * 3), (mk ? 1 : 4) - o.zombies.length); k > 0; k--) for (let i = 0; i < 20; i++) {
       const x = 1 + r() * 38, y = 1 + r() * 38;
-      if (zOk(x, y, 1)) { addZ(x, y); break; }
+      if (zOk(x, y, 1)) { const n0 = o.zombies.length; addZ(x, y); wn.push(o.zombies[n0]); break; }
     }
     lz.forEach(q => { if (o.zombies.length < 8 && !o.cars.some(c => inBox(carBox(c), q.x, q.y, 0.7))) { const zid = nid(); o.zombies.push(Object.assign({ id: zid, ch, x: q.x, y: q.y, hp: 60, state: 'idle', alert: 0, atk: 0, runner: false, police: q.police }, zv(zid), q.look ? { look: q.look } : {}, q.floor ? { floor: q.floor } : {})); zs.push([q.x, q.y]); } }); // landmark consome o teto do chunk (8)
     // decoracao: arvores (1-2 por quarteirao) e cercas baixas
@@ -1573,6 +1626,18 @@
       if (far(x, y, 1) && !onRoadIn([], L.ways, ox + x, oy + y, 2.5) && trees.every(t => hypot2(x - t.x, y - t.y) > 1.5)) { trees.push({ x, y }); break; }
     }
     o.trees = trees;
+    if (G.gv) { // bloco FINAL (so mundo novo, gv:1): densidade por regiao e rastejantes; RNG proprio, ids ':x:' fora do nid => nao toca r() nem nid
+      const xr = mulberry32(hash(G.seed, cx, cy, 9001)), u = infestAt(ox + 20, oy + 20), ex = [];
+      if (u < 1) for (let k = Math.ceil(wn.length / 2); k > 0; k--) o.zombies.splice(o.zombies.indexOf(wn.pop()), 1); // calma: metade dos vagantes (nunca guarda nem landmark)
+      const okX = (x, y) => zOk(x, y, 1) && trees.every(t => hypot2(x - t.x, y - t.y) > 1) && !o.fences.some(f => inBox(f, x, y, 1)) && !o.props.some(p => p.r && hypot2(x - p.x, y - p.y) < p.r + 1);
+      if (u > 1) for (let k = wn.length; k > 0 && o.zombies.length < 8; k--) for (let i = 0; i < 12; i++) { // infestada: tantos vagantes quanto ja ha, de preferencia 2-4 m atras de um zumbi
+        const b = i < 6 && o.zombies.length ? o.zombies[Math.floor(xr() * o.zombies.length)] : null, a = b ? (b.face !== undefined ? b.face : zv(b.id).face) + Math.PI + (xr() - 0.5) * 0.8 : 0, d = 2 + xr() * 2;
+        const x = b ? b.x + Math.cos(a) * d : 1 + xr() * 38, y = b ? b.y + Math.sin(a) * d : 1 + xr() * 38;
+        if (okX(x, y)) { const zid = ch + ':x:' + ex.length, z = { id: zid, ch, x, y, hp: 60, state: 'idle', alert: 0, atk: 0, runner: false, police: false, ...zv(zid) }; ex.push(z); o.zombies.push(z); break; }
+      }
+      const cand = ex.concat(o.zombies.filter(z => !ex.includes(z) && !z.police && !z.runner)); // 10 % de todos viram rastejantes (extras primeiro)
+      for (let k = Math.min(cand.length, Math.floor(o.zombies.length * 0.1 + xr())) - 1; k >= 0; k--) cand[k].crawl = true;
+    }
     // local -> mundo (roads ja nascem em mundo)
     const sh = e => { e.x += ox; e.y += oy; return e; };
     [o.houses, o.crates, o.zombies, o.trees, o.fences, o.props, o.tanks].forEach(l => l.forEach(sh));
@@ -1592,7 +1657,7 @@
   const LISTS = ['houses', 'crates', 'zombies', 'cars', 'roads', 'ways', 'trees', 'fences', 'drops', 'props', 'spills', 'tanks'];
   const parse = k => k.split(',').map(Number);
   const drivenIds = () => G.players.map(p => p.car).filter(Boolean); // so protege o unload; o diff grava o carro no chunk onde esta
-  const strip = e => { const c = Object.assign({}, e); delete c.ch; delete c.way; delete c.side; delete c.rc; delete c.bang; delete c.last; delete c.pw; delete c.ck; delete c.fl; delete c.anim; for (const k of ['wu', 'zc', 'climb', 'fc', 'fct', '_hitBy', 'burn']) delete c[k]; return c; };
+  const strip = e => { const c = Object.assign({}, e); delete c.ch; delete c.way; delete c.side; delete c.rc; delete c.bang; delete c.last; delete c.pw; delete c.ck; delete c.fl; delete c.anim; for (const k of ['wu', 'zc', 'climb', 'fc', 'fct', '_hitBy', 'burn', 'hc', 'ht', 'sc', 'lg']) delete c[k]; return c; };
   const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
   function syncCh() { for (const l of [G.zombies, G.cars]) for (const e of l) e.ch = chOf(e); for (const c of G.cars) if (c.hp === undefined) c.hp = 100; } // carro de save antigo: vida cheia
   function want(rx, ry) { const w = []; for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) w.push((rx + dx) + ',' + (ry + dy)); return w; }
@@ -1639,7 +1704,7 @@
     g.zombies.forEach(z => { if (dz[z.id] === null || has(G.zombies, z.id)) return; G.zombies.push(Object.assign(z, dz[z.id])); });
     g.cars.forEach(c => { if (dk[c.id] === null || has(G.cars, c.id)) return; G.cars.push(Object.assign(c, dk[c.id])); });
     for (const [dd, l, b, def] of [[dz, G.zombies, g.zombies, { state: 'idle', alert: 0, atk: 0 }], [dk, G.cars, g.cars, { speed: 0 }]]) // estrangeiras
-      for (const id in dd) if (dd[id] && !b.some(e => e.id === id) && !has(l, id)) l.push(Object.assign({}, def, dd[id], { ch: key }));
+      for (const id in dd) if (dd[id] && !(l === G.zombies && id.startsWith('h:')) && !b.some(e => e.id === id) && !has(l, id)) l.push(Object.assign({}, def, dd[id], { ch: key }));
     for (const id in (d.drops || {})) if (d.drops[id].expires > G.t) G.drops.push(Object.assign({ id, ch: key }, d.drops[id]));
     for (const id in (d.spills || {})) if (d.spills[id].expires > G.t) G.spills.push(Object.assign({ id, ch: key, r: 2.5 }, d.spills[id]));
     G.zombies.forEach(z => { if (z.look === undefined) Object.assign(z, zv(z.id)); }); // saves antigos
@@ -1658,9 +1723,9 @@
     });
     G.drops.forEach(e => { if (e.ch === key) d.drops[e.id] = { x: e.x, y: e.y, item: e.item, expires: e.expires }; });
     G.spills.forEach(e => { if (e.ch === key) d.spills[e.id] = { x: e.x, y: e.y, expires: e.expires }; });
-    for (const [l, b, o, f] of [[G.zombies, g.zombies, d.zombies, ['x', 'y', 'hp', 'floor']], [G.cars, g.cars, d.cars, ['x', 'y', 'dir', 'fuel', 'trunk', 'hp', 'burnt']]]) {
+    for (const [l, b, o, f] of [[G.zombies, g.zombies, d.zombies, ['x', 'y', 'hp', 'floor', 'limp', 'crawl']], [G.cars, g.cars, d.cars, ['x', 'y', 'dir', 'fuel', 'trunk', 'hp', 'burnt']]]) {
       l.forEach(e => {
-        if (e.ch !== key) return;
+        if (e.ch !== key || (l === G.zombies && hz(e))) return; // membros de horda (h:) nunca vao ao diff
         if (e.burn > 0) e = Object.assign({}, e, { burnt: true, fuel: 0, trunk: [] }); // descarregou/salvou em chamas: vira carcaca, sem explosao
         const q = b.find(z => z.id === e.id);
         if (!q) o[e.id] = strip(e);
@@ -1694,8 +1759,58 @@
     }
   }
 
+  // ---- hordas (J4): 1 por celula de 6x6 chunks (240 m); posicao PURA por formula (sem simulacao fora da area): segmento de 300 s entre pontos P_k e P_k+1 a 120 m do centro da celula ----
+  const HC = 6 * CH, HSEG = 300, HMEMO = new Map();
+  const hordeN = gid => { const [hx, hy] = gid.split(',').map(Number); return 8 + hash(G.seed, hx, hy, 9000) % 8; };
+  const hordePt = (gid, k) => fifo(HMEMO, G.seed + ':' + gid + ':' + k, () => { const [hx, hy] = gid.split(',').map(Number), a = hash(G.seed, hx, hy, 9002 + k) / 4294967296 * 2 * Math.PI; return [hx * HC + HC / 2 + 120 * Math.cos(a), hy * HC + HC / 2 + 120 * Math.sin(a)]; }, 400);
+  function hordePos(gid, t) {
+    const k = Math.floor(t / HSEG), f = (t - k * HSEG) / HSEG, a = hordePt(gid, k), b = hordePt(gid, k + 1);
+    return { x: a[0] + (b[0] - a[0]) * f, y: a[1] + (b[1] - a[1]) * f, dx: b[0] - a[0], dy: b[1] - a[1] };
+  }
+  // 1x/s: reposicao dos mortos (60 min), fila de materializacao dos grupos das 3x3 celulas em volta, G.hordeNear e gemido
+  function hordeSync() {
+    const p = G.player, hx0 = Math.floor(p.x / HC), hy0 = Math.floor(p.y / HC), mn = Math.floor(G.t / 60);
+    for (const id in G.hordes) if (mn - G.hordes[id].m >= 60) delete G.hordes[id];
+    const by = {}; for (const z of G.zombies) if (z.hg) (by[z.hg] = by[z.hg] || []).push(z);
+    let near = null;
+    for (let j = -1; j <= 1; j++) for (let i = -1; i <= 1; i++) {
+      const gid = (hx0 + i) + ',' + (hy0 + j), n = hordeN(gid), left = n - ((G.hordes[gid] || {}).k || 0), al = by[gid];
+      if (al) G._hseen[gid] = G.t;
+      if (left <= 0 && !al) continue;
+      let P = al ? { x: al.reduce((s, z) => s + z.x, 0) / al.length, y: al.reduce((s, z) => s + z.y, 0) / al.length } : hordePos(gid, G.t);
+      const d = dist(P, p);
+      if (d <= 25 && (!near || d < near.d)) near = { a: Math.atan2(P.y - p.y, P.x - p.x), d };
+      if (al || G.t - (G._hseen[gid] === undefined ? -1e9 : G._hseen[gid]) < 60 || G._hq.some(q => q.gid === gid) || d < 20 || !lsAt(P.x, P.y)) continue;
+      for (let m = 0; m < left; m++) G._hq.push({ gid, i: m });
+    }
+    G.hordeNear = near;
+    if (near) {
+      hint('horda', 'Horda por perto — entre numa casa e feche a porta, ou agache e saia de lado', 'horda');
+      if (G.t >= G._hmn) { G._hmn = G.t + 4 + (hash(G.seed, Math.floor(G.t), 0, 9005) % 2001) / 1000; G.events.push({ type: 'hordeMoan', d: near.d }); }
+    }
+    if (infestAt(p.x, p.y) >= 2) hint('infest', 'Área infestada: mais zumbis por aqui', 'infestada');
+    if (G.zombies.some(z => z.crawl && z.hp > 0 && dist(z, p) < 10)) hint('crawl', 'Rastejante: lento e baixo — cuidado ao passar perto', 'rastejante');
+  }
+  // ate 3 membros por update (fila G._hq), nunca no update em que o pump carregou/descarregou chunk; so com G.zombies < 88
+  function hordeSpawn() {
+    const p = G.player;
+    for (let c = 0; c < 3 && G._hq.length; c++) {
+      if (G.zombies.length >= 88) { G._hq.length = 0; return; } // o resto fica na contagem (nao nasce)
+      const q = G._hq.shift(), [hx, hy] = q.gid.split(',').map(Number), P = hordePos(q.gid, G.t), id = 'h:' + q.gid + ':' + q.i;
+      if (G.zombies.some(z => z.id === id)) continue;
+      const a = hash(G.seed, hx * 64 + q.i, hy, 9006) / 4294967296 * 2 * Math.PI, rad = 3 * Math.sqrt(hash(G.seed, hx * 64 + q.i, hy, 9007) / 4294967296), crawl = hash(G.seed, hx * 64 + q.i, hy, 9008) % 10 === 0, hl = hypot2(P.dx, P.dy) || 1;
+      const ox = Math.cos(a) * rad - (crawl ? P.dx / hl * (3 + rad) : 0), oy = Math.sin(a) * rad - (crawl ? P.dy / hl * (3 + rad) : 0), f = nearFree(P.x + ox, P.y + oy);
+      if (!lsAt(f.x, f.y) || dist(f, p) < 12 || houseAt(f)) continue;
+      const z = { id, ch: chOf(f), x: f.x, y: f.y, hp: 60, state: 'idle', alert: 0, atk: 0, runner: false, police: false, hg: q.gid, ho: [ox, oy], ...zv(id) };
+      if (crawl) z.crawl = true;
+      G.zombies.push(z);
+    }
+  }
+
   // novo mundo (st undefined) ou estado salvo
   function start(seed, slot, st) {
+    G.gv = st ? (st.gv || 0) : 1; // gv:1 = gen com densidade/rastejantes; mundo salvo sem gv fica com o gen antigo (v:4 intocado)
+    HMEMO.clear();
     st = st || {};
     MEMO.cen.clear(); MEMO.edge.clear(); MEMO.sq.clear(); MEMO.lm.clear();
     G.seed = seed; G.slot = slot; G._pe = false; // evento pendente de painel não vaza para o mundo novo
@@ -1703,7 +1818,7 @@
     G.t = st.t > 0 ? st.t : 0; G.dead = false; G.cd = 0; G.nextId = st.nextId > 0 ? st.nextId : 0;
     G._hunger = G._starve = G._spawn = G._as = 0; G._bad = 0;
     G.dying = []; G._hp = 100; G._rw = false;
-    G.hints = st.hints || {}; G.chunks = st.chunks || {};
+    G.hints = st.hints || {}; G.chunks = st.chunks || {}; G.hordes = st.hordes || {}; G._hq = []; G._hseen = {}; G.hordeNear = null; G._hmn = 0; G._hnext = 0;
     G.events = []; G.queue = []; G.loaded = []; G._ls = new Set(); G.chunkGen = 0; G._gb = new Map(); G._gp = {}; G._ws = null; G.fires = []; G.flights = []; G.spills = [];
     const s0 = (st.players && st.players[0]) || {}, num = (v, d) => Number.isFinite(v) ? v : d;
     const p = G.player = { x: num(s0.x, 23), y: num(s0.y, 23), dir: num(s0.dir, 0), hp: num(s0.hp, 100), hunger: num(s0.hunger, 100),
@@ -1768,6 +1883,10 @@
     g('craft', 'Fabricar', ['fabricar', 'receita', 'craft', 'criar', 'combinar'], [{ item: 'wire', onde: 'gavetas, caixas e armários' }, { item: 'pipe', onde: 'você já começa com um' }], ['Abra Fabricar no MENU: veja os ingredientes, mesmo sem tê-los.', 'Com tudo na mochila, toque FABRICAR.'], 'craft'),
     g('pipe_r', 'Cano reforçado', ['cano reforcado', 'arame', 'cano', 'taco', 'melhorar'], [{ item: 'pipe', onde: 'você já começa com um' }, { item: 'wire', onde: 'gavetas, caixas e armários' }], ['Junte cano + arame em Fabricar.', 'Dano 35 (cano comum: 25), mesmo ritmo.', 'Troque de arma com o botão de arma.'], 'craft'),
     g('zombie', 'Zumbis', ['zumbi', 'inimigo', 'corredor', 'horda', 'perigo', 'fugir'], [], ['Zumbis ouvem você de longe; agache para passar quieto.', 'Corredores são mais rápidos: só a corrida escapa.', 'Ao morder, param um instante: bata ou saia do alcance.'], 'pipe'),
+    g('rastejante', 'Rastejante', ['rastejante', 'rastejar', 'arrastar', 'chao', 'lento', 'baixo', 'manco'], [], ['Zumbi que se arrasta no chão: cerca de 1 em 10 — lento (0,8 m/s) e baixo.', 'Só alcança de perto (0,8 m) e leva 1,2 s para o bote; o dano é o mesmo (15).', 'Costuma vir atrás de um grupo, e não pula cerca nem sobe escada.', 'Zumbi baleado na perna também passa a rastejar.'], 'crawl'),
+    g('tiro', 'Tiro: cabeça e perna', ['tiro', 'cabeca', 'headshot', 'perna', 'manco', 'pistola', 'mirar', 'rastejar'], [{ item: 'pistol', onde: 'gavetas (rara) e policiais' }, { item: 'ammo', onde: 'gavetas e policiais' }], ['Cada tiro que acerta pode pegar a cabeça: 10 % de chance (20 % parado e a até 4 m) — mata na hora, e o anel de mira fica laranja.', 'Ou a perna (25 %): o zumbi fica manco (mais lento, ×0,6) e, no segundo tiro na perna, passa a rastejar.', 'Manco ainda morde. Sem tiro de cabeça, o dano é 50.', 'A pistola também erra: base 20 %, +15 % andando, +30 % correndo, +2 % por metro além de 4 m, −10 % agachado ou parado (5 a 70 %). Parado e perto, erra bem menos.'], 'shot'),
+    g('horda', 'Horda', ['horda', 'grupo', 'bando', 'perseguicao', 'fugir', 'gemido', 'seta', 'grito'], [], ['Hordas de 8 a 15 zumbis vagam pelo mapa; uma seta vermelha na borda da tela mostra de onde vem (a menos de 25 m).', 'Zumbi que persegue a menos de 5 m grita e chama até 4 vizinhos parados: se você não fugir, vira horda.', 'Entre numa casa e feche a porta, ou agache e saia de lado. Barulho (tiro, motor) chama mais.', 'Os mortos da horda não voltam antes de 60 minutos de jogo.'], 'horde'),
+    g('infestada', 'Áreas infestadas', ['infestada', 'calma', 'densidade', 'vermelho', 'regiao', 'mapa', 'zumbis', 'centro'], [], ['O mundo tem regiões calmas (metade dos zumbis), normais e infestadas (o dobro, e novos zumbis nascem mais rápido).', 'O centro das cidades costuma ser pior.', 'No Mapa, as regiões infestadas já exploradas ficam num tom vermelho.'], 'horde'),
     g('police', 'Policial zumbi', ['policial', 'policia', 'quepe', 'azul'], [{ item: 'ammo', onde: 'policiais mortos' }, { item: 'pistol', onde: 'policiais mortos (raro)' }, { item: 'helmet', onde: 'policiais mortos (muito raro)' }], ['Zumbi de camisa azul e quepe.', 'Ao morrer pode soltar munição, pistola, bandagem ou capacete.'], 'ammo'),
     g('hunger', 'Fome', ['fome', 'comer', 'estomago', 'faminto'], [{ item: 'food', onde: 'geladeiras, armários e zumbis' }], ['A fome cai com o tempo.', 'Com fome zerada você perde vida e fôlego.', 'Coma pela mochila.'], 'food'),
     g('fence', 'Cercas', ['cerca', 'pular', 'pulo', 'obstaculo', 'muro'], [], ['Cercas bloqueiam o caminho.', 'Perto de uma cerca, toque PULAR (gasta fôlego).', 'Zumbis levam alguns segundos para atravessar.'], 'jump'),
@@ -1791,18 +1910,19 @@
 
   const G = window.G = {
     t: 0, map: { chunk: CH }, nextId: 0, ref: [0, 0], chunkGen: 0, _ls: new Set(), _pk: '',
-    chunks: {}, loaded: [], queue: [], fires: [], spills: [], flights: [], _gb: new Map(), _gp: {}, explored: [], roads: [], cars: [], trees: [], fences: [], drops: [], props: [], tanks: [], _pc: [], recipes: RECIPES, guide: GUIDE, ITEM_IDS, ITEM_DESC, HOLD_MS: 400, capOf, hurtPlayer, gen, loot: FURN, free, ways: [], onRoad: (x, y, m) => onRoadIn(G.roads, G.ways, x, y, m), zone, layout: layoutOf, center, cityAt, cityLM, _plans: { PLANS, lpRot }, _memo: MEMO,
+    chunks: {}, loaded: [], queue: [], fires: [], spills: [], flights: [], _gb: new Map(), _gp: {}, explored: [], roads: [], cars: [], trees: [], fences: [], drops: [], props: [], tanks: [], _pc: [], recipes: RECIPES, guide: GUIDE, ITEM_IDS, ITEM_DESC, HOLD_MS: 400, capOf, hurtPlayer, gen, infestAt, hordePos, loot: FURN, free, ways: [], onRoad: (x, y, m) => onRoadIn(G.roads, G.ways, x, y, m), zone, layout: layoutOf, center, cityAt, cityLM, _plans: { PLANS, lpRot }, _memo: MEMO,
     // dev (fora do save): so existe na memoria; UI liga com 7 toques na versao
     dev: {
-      on: false, god: false, noclip: false, speed: 1,
+      on: false, god: false, noclip: false, noMiss: false, speed: 1,
       spawnItem(id, n) { if (G.dead) return false; const it = mkItem(rng, id); if (n > 1 && STACK[id]) it.qty = Math.min(n, STACK[id]); if (id === 'gascan') it.fuel = 10; return addItem(it); }, // respeita mochila cheia; n so em pilhas (max da pilha)
-      spawnZ(kind, n) { // 'walker' | 'runner' | 'police' | 'horde' (8 andadores em perseguicao), 6-10 m a frente
-        const p = G.player; n = n || (kind === 'horde' ? 8 : 1);
+      spawnZ(kind, n) { // 'walker' | 'runner' | 'police' | 'crawl' | 'limp' | 'horde' (10 'h:dev:' em perseguicao, nunca salvos), 6-10 m a frente
+        const p = G.player; n = n || (kind === 'horde' ? 10 : 1);
         for (let i = 0; i < n; i++) for (let t = 0; t < 30; t++) {
           const a = p.dir + (rng() - 0.5), d = 6 + rng() * 4, x = p.x + Math.cos(a) * d, y = p.y + Math.sin(a) * d;
           if (!free(x, y, 1) || houseAt({ x, y })) continue;
-          const zid = 'p:' + G.nextId++, h = kind === 'horde';
-          G.zombies.push({ id: zid, ch: chOf({ x, y }), x, y, hp: 60, state: h ? 'chase' : 'idle', alert: h ? 6 : 0, atk: 0, runner: kind === 'runner', police: kind === 'police', ...zv(zid), ...(kind === 'jaleco' || kind === 'macacao' ? { look: kind } : {}) }); break;
+          if (!lsAt(x, y)) continue;
+          const h = kind === 'horde', zid = (h ? 'h:dev:' : 'p:') + G.nextId++;
+          G.zombies.push({ id: zid, ch: chOf({ x, y }), x, y, hp: 60, state: h ? 'chase' : 'idle', alert: h ? 6 : 0, atk: 0, runner: kind === 'runner', police: kind === 'police', ...zv(zid), ...(kind === 'jaleco' || kind === 'macacao' ? { look: kind } : {}), ...(kind === 'crawl' ? { crawl: true } : {}), ...(kind === 'limp' ? { limp: true } : {}) }); break;
         }
       },
       spawnCar(o) { // {fuel litros 0-10, hp 0-100}: carro a 5-14 m a frente + chave na mochila; null se nao coube
@@ -1834,7 +1954,7 @@
       },
       fill() { const p = G.player; p.hp = p.hunger = p.stamina = 100; },
     },
-    seed: 0, players: [], input: null, target: null, // compat 0.1: alias de players[0].input
+    seed: 0, gv: 1, viewR: 7, hordes: {}, hordeNear: null, players: [], input: null, target: null, // compat 0.1: alias de players[0].input
     player: null, dying: [], zombies: [], crates: [], houses: [], events: [],
     dead: false, slot: 1, hints: {}, _as: 0, _dead: 0, cd: 0, _hunger: 0, _starve: 0, _spawn: 0,
 
@@ -1846,7 +1966,7 @@
         const chunks = Object.assign({}, G.chunks);
         for (const k of G.loaded) { const d = diffOf(k); if (d) chunks[k] = d; else delete chunks[k]; }
         const pl = G.players.map(({ x, y, dir, hp, hunger, inv, weapon, equip, car, stamina, crouch, floor }) => ({ x, y, dir, hp, hunger, inv, weapon, equip, car, stamina, crouch, floor: floor || 0 }));
-        localStorage['zl1:s' + G.slot] = JSON.stringify({ v: 4, seed: G.seed, t: G.t, nextId: G.nextId, players: pl, hints: G.hints, explored: G.explored, chunks });
+        localStorage['zl1:s' + G.slot] = JSON.stringify({ v: 4, seed: G.seed, t: G.t, nextId: G.nextId, players: pl, hints: G.hints, explored: G.explored, chunks, gv: G.gv, hordes: G.hordes });
         return true;
       } catch (e) {
         if (typeof localStorage !== 'undefined') G.events.push({ type: 'hint', id: 'saveFull', text: 'Save cheio — não feche o jogo antes de pegar a tumba' }); // sem localStorage: silencio
@@ -1877,7 +1997,8 @@
       if (G.dead) G.player.anim.t += dt;
       if (G.dead && (G._dead -= dt) <= 0) { G.dead = false; G.player.anim.act = null; }
       while (dt > 1e-9 && !G.dead && !G.player.open) { const h = Math.min(dt, 0.05); step(h); dt -= h; }
-      pump();
+      const cg = G.chunkGen; pump();
+      if (!G.dead) { if (G.t >= G._hnext) { G._hnext = G.t + 1; hordeSync(); } if (cg === G.chunkGen) hordeSpawn(); }
     },
 
     useItem(slot) {

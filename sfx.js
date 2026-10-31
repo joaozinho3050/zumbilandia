@@ -144,6 +144,7 @@
     return (k) => out.gain.setTargetAtTime(0.7 * k, ctx.currentTime, 0.1);
   }
 
+  let moanAt = -1e9, dragAt = -1e9; // hordeMoan: 1 voz por vez; drag: >= 1,5 s entre arrastos
   let dmgAt = -1e9; // carDmg: no máximo 1 lata a cada 150 ms
   const SND = {
     shot: () => voice(0.14, (t, n) => {
@@ -297,6 +298,31 @@
       osc(n, 'sine', 900, 500, t, 0.05, 0.12);
       osc(n, 'sine', 700, 400, t + 0.07, 0.05, 0.1);
     }),
+    headshot: () => voice(0.2, (t, n) => { // estalo seco + queda grave (cabeca)
+      noise(n, t, 0.04, 0.7, 'highpass', 2200, 0.7, 0.002);
+      osc(n, 'square', 900, 300, t, 0.08, 0.2); osc(n, 'sine', 120, 45, t + 0.04, 0.15, 0.5);
+    }),
+    legshot: () => voice(0.4, (t, n) => { // baque na perna + gemido curto
+      osc(n, 'sine', 140, 50, t, 0.12, 0.55); noise(n, t, 0.05, 0.25, 'lowpass', 350, 0.7, 0.003);
+      osc(n, 'sawtooth', 210, 120, t + 0.08, 0.28, 0.12);
+    }),
+    miss: () => voice(0.25, (t, n) => { noise(n, t, 0.2, 0.22, 'bandpass', 3200, 2.5, 0.03); osc(n, 'sine', 2600, 1400, t, 0.18, 0.06); }), // bala passando: zunido agudo caindo
+    scream: () => voice(0.4, (t, n) => { // grunhido curto que chama os vizinhos
+      osc(n, 'sawtooth', 240, 130, t, 0.35, 0.16); osc(n, 'square', 120, 90, t, 0.35, 0.06);
+      noise(n, t, 0.3, 0.12, 'bandpass', 700, 1.2, 0.04);
+    }),
+    hordeMoan: (ev) => { // gemido de horda: 1 voz, ganho pela distancia (<= 25 m)
+      const now = performance.now(), v = Math.max(0, 1 - (ev.d || 25) / 25) * 0.3;
+      if (now - moanAt < 1500 || v < 0.01) return;
+      moanAt = now;
+      voice(1.5, (t, n) => { [110, 82, 65].forEach((f, i) => osc(n, 'sawtooth', f * 1.1, f * 0.8, t + i * 0.12, 1.3 - i * 0.12, v * 0.4)); noise(n, t, 1.3, v * 0.3, 'lowpass', 300, 0.6, 0.2); });
+    },
+    drag: (vol) => { // rastejante arrastando o corpo: raspado baixo e fosco, 1 voz, >= 1,5 s entre sons
+      const now = performance.now();
+      if (now - dragAt < 1500) return;
+      dragAt = now;
+      voice(0.5, (t, n) => { noise(n, t, 0.45, 0.2 * (vol || 1), 'bandpass', 380, 1.5, 0.12); noise(n, t + 0.1, 0.3, 0.1 * (vol || 1), 'lowpass', 220, 0.8, 0.1); });
+    },
     carDead: () => voice(0.5, (t, n) => { // motor engasgando: três trancos curtos
       [0, 0.1, 0.2].forEach((d) => osc(n, 'sawtooth', 110, 60, t + d, 0.08, 0.12));
       noise(n, t, 0.4, 0.1, 'bandpass', 300, 0.8, 0.02);
@@ -349,6 +375,12 @@
               if (z.state === 'chase' && Math.hypot(z.x - p.x, z.y - p.y) < 10) {
                 groanAt = now; SND.groan(); break;
               }
+            }
+          }
+          if (G.zombies) { // arrasto: rastejante perseguindo a < 12 m (volume pela distancia)
+            for (const z of G.zombies) {
+              const d = z.crawl && z.state === 'chase' && Math.hypot(z.x - p.x, z.y - p.y);
+              if (d && d < 12) { SND.drag(1 - d / 12); break; }
             }
           }
           if (now - climbAt >= 0.5 && G.zombies) { // raspar enquanto algum zumbi sobe cerca perto (1 som a cada 0,5 s)

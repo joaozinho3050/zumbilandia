@@ -83,6 +83,11 @@ input[type=range]{flex:1;min-height:var(--toque)}
     ['Dano de carro e fogo', 'Gasolina vazando', 'Quando o tanque vaza e cai uma poça.', 'Dois pingos curtos: seno caindo de 900 a 400 Hz.', { type: 'spill', x: 0, y: 0 }],
     ['Dano de carro e fogo', 'Motor engasgando', 'Quando o motor do carro morre de vez (vida zero).', 'Três trancos de serra (110 a 60 Hz) + ruído passa-faixa grave.', { type: 'carDead', id: 'c1' }],
     ['Combate', 'Golpe nas costas', 'Qualquer acerto em um zumbi que não está de frente para você (dano x2).', 'Estalo de ruído agudo + serra caindo de 320 a 90 Hz.', { type: 'backstab', id: 'z1', kill: false }],
+    ['Combate', 'Tiro na cabeça', 'Quando o tiro de pistola acerta a cabeça (10 %, 20 % parado a 4 m): morte na hora.', 'Estalo de ruído passa-alta + quadrada caindo de 900 a 300 Hz + seno grave de queda.', { type: 'headshot', id: 'z1' }],
+    ['Combate', 'Tiro errado', 'Quando o tiro de pistola erra o zumbi (base 20 %; mais andando, correndo ou de longe).', 'Ruído passa-faixa agudo (3,2 kHz) + seno caindo de 2,6 a 1,4 kHz: zunido de bala passando.', { type: 'miss', x: 0, y: 0 }],
+    ['Combate', 'Tiro na perna', 'Quando o tiro acerta a perna (25 %): zumbi manco, e rastejante no segundo acerto.', 'Baque (seno 140 a 50 Hz + ruído passa-baixa) e gemido curto de serra.', { type: 'legshot', id: 'z1', limp: true, crawl: false }],
+    ['Zumbis', 'Grito do zumbi', 'Quando um zumbi que persegue a menos de 5 m de você grita (a cada 3 s) e chama os vizinhos.', 'Serra caindo de 240 a 130 Hz + quadrada grave + ruído passa-faixa.', { type: 'scream', id: 'z1' }],
+    ['Zumbis', 'Gemido de horda', 'A cada 4 a 6 s com uma horda a menos de 25 m; mais alto quanto mais perto.', 'Três serras graves (110, 82, 65 Hz) caindo + ruído passa-baixa; 1 voz, volume pela distância.', { type: 'hordeMoan', d: 8 }],
     ['Combate', 'Golpe furtivo', 'Quando você mata um zumbi pelas costas sem ele perceber.', 'Seno grave 90 a 40 Hz + ruído abafado curto.', { type: 'stealthKill', id: 'z1' }],
   ];
   // [secao, nome, quando, como, estado ligado, estado desligado, extra]
@@ -93,6 +98,7 @@ input[type=range]{flex:1;min-height:var(--toque)}
     ['Personagem', 'Passos agachado', 'Enquanto o jogador anda agachado, a cada 0,7 s, quase mudo.', 'Mesmo ruído passa-baixa, volume mínimo (raio de ruído 3 m).', 'crouch'],
     ['Personagem', 'Respiração ofegante', 'Quando o fôlego fica abaixo de 15, a cada 1,2 s.', 'Ruído passa-baixa (700 Hz) longo e suave.', 'pant'],
     ['Zumbis', 'Gemido de zumbi', 'Quando um zumbi persegue a menos de 10 m, a cada 3 s.', 'Seno grave (110 a 80 Hz) com vibrato de 6 Hz.', 'groan'],
+    ['Zumbis', 'Arrasto do rastejante', 'Enquanto um rastejante persegue a menos de 12 m, a cada 1,5 s ou mais.', 'Ruído passa-faixa grave (380 Hz) e passa-baixa (220 Hz): corpo raspando o chão; 1 voz, volume pela distância.', 'drag'],
     ['Zumbis', 'Raspar na cerca', 'Enquanto um zumbi sobe a cerca a menos de 12 m.', 'Ruído passa-faixa (1,8 kHz, Q alto), a cada 0,5 s.', 'climb'],
     ['Carro', 'Motor (parado e acelerando)', 'Enquanto o jogador dirige com o motor ligado.', 'Serra + quadrada graves subindo com a velocidade, mais ruído passa-faixa, num filtro passa-baixa.', 'engine'],
     ['Casa e itens', 'Sifão', 'Enquanto o jogador sifona gasolina de um carro.', 'Seno de 180 Hz com amplitude modulada a 12 Hz: bolhas.', 'siphon'],
@@ -107,6 +113,7 @@ input[type=range]{flex:1;min-height:var(--toque)}
     if (a('walk') || a('run') || a('crouch')) { P.noise = a('run') ? 12 : a('crouch') ? 3 : 6; P.running = a('run'); P.crouch = a('crouch') && !a('run'); P.x += 0.05; px = P.x; }
     if (a('pant')) P.stamina = 5;
     if (a('groan')) G.zombies.push(Object.assign({}, Z, { state: 'chase', x: P.x + 5 }));
+    if (a('drag')) G.zombies.push({ id: 'z3', x: P.x + 4, y: 0, state: 'chase', crawl: true });
     if (a('climb')) G.zombies.push({ id: 'z2', x: P.x + 6, y: 0, state: 'idle', anim: { act: 'climb' } });
     if (a('engine')) { P.car = 'c1'; P._eng = true; G.cars[0].speed = vel; }
     if (a('siphon')) P.action = { type: 'siphon', id: 's1' };
