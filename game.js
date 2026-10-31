@@ -423,7 +423,7 @@
     const s0 = Math.floor((z.y - y0) / S) * nx + Math.floor((z.x - x0) / S), qu = [s0];
     prev[s0] = -1;
     let best = s0, bd = Math.hypot(cx(s0) - gx, cy(s0) - gy);
-    for (let k = 0; k < qu.length; k++) {
+    for (let k = 0; k < qu.length && k < 400; k++) { // teto de nos (~3 m de raio): pico de BFS ~2 ms; acima disso fica o melhor ate ali
       const c = qu[k], i = c % nx, j = Math.floor(c / nx);
       for (const [di, dj] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
         const a = i + di, b = j + dj, n = b * nx + a;
@@ -498,15 +498,16 @@
         z.bang = 0;
         if (w) aim = Math.atan2(w.y - z.y, w.x - z.x);
       }
-      if (!z.ck || G.t - z.ck.t > 0.6) { // empacado (<0,25 m em 0,6 s): grade ate o alvo (vao atual ou jogador)
-        if (z.ck && Math.hypot(z.x - z.ck.x, z.y - z.ck.y) < 0.25) { const g = z.way && !z.way.dr ? z.way : p, q = pathTo(z, g.x, g.y); if (q) z.pw = { x: q.x, y: q.y, t: G.t + 0.9 }; }
+      const stuck = z.ck && Math.hypot(z.x - z.ck.x, z.y - z.ck.y) < 0.25;
+      if ((!z.ck || G.t - z.ck.t > 0.6) && !(stuck && G._pn >= 1)) { // empacado (<0,25 m em 0,6 s): grade ate o alvo (vao atual ou jogador); sem orcamento, tenta no proximo quadro
+        if (stuck) { G._pn++; const g = z.way && !z.way.dr ? z.way : p, q = pathTo(z, g.x, g.y); if (q) z.pw = { x: q.x, y: q.y, t: G.t + 0.9 }; }
         z.ck = { x: z.x, y: z.y, t: G.t };
       }
       if (z.pw && z.pw.t > G.t) aim = Math.atan2(z.pw.y - z.y, z.pw.x - z.x);
       const b = aim !== null ? aim : a;
       if (tryDir(b)) { z.fl = 0; return; }
-      if (++z.fl >= 4 && !(z.pw && z.pw.t > G.t)) { // 4 passos seguidos sem avancar: grade ja
-        const g = z.way && !z.way.dr ? z.way : p, q = pathTo(z, g.x, g.y); z.fl = 0;
+      if (++z.fl >= 4 && !(z.pw && z.pw.t > G.t) && G._pn < 1) { // 4 passos seguidos sem avancar: grade ja (1 BFS por update; o resto tenta no proximo)
+        G._pn++; const g = z.way && !z.way.dr ? z.way : p, q = pathTo(z, g.x, g.y); z.fl = 0;
         if (q) { z.pw = { x: q.x, y: q.y, t: G.t + 0.9 }; if (tryDir(Math.atan2(q.y - z.y, q.x - z.x))) return; }
       }
       for (const o of [Math.PI / 2, 2.0, 2.6]) for (const sd of [z.side, -z.side]) // sem rota: desliza pela tangente
@@ -516,7 +517,7 @@
 
   function step(dt) {
     const p = G.player, inp = p.input;
-    G.t += dt;
+    G.t += dt; G._pn = 0; // orcamento de BFS de perseguicao por quadro
     G.cd = Math.max(0, G.cd - dt);
 
     let mx = inp.mx, my = inp.my;
