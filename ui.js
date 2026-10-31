@@ -70,6 +70,7 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
 #tab-map{text-align:center}
 #tab-map canvas{width:min(320px,60vh);height:min(320px,60vh);image-rendering:pixelated;border:2px solid var(--borda);border-radius:14px;background:var(--fundo)}
 #menu input{width:100%;height:48px;padding:0 var(--esp-3);border:2px solid var(--borda);border-radius:14px;background:var(--slot);color:var(--texto);font:16px 'Atkinson Hyperlegible',sans-serif;touch-action:manipulation;user-select:text;-webkit-user-select:text}
+#menu .zoom{display:flex;align-items:center;gap:var(--esp-3);min-height:var(--toque);margin:var(--esp-2) 0}#menu .zoom input{flex:1;height:var(--toque);accent-color:#ff8c69;touch-action:manipulation}#menu .zoom b{min-width:52px;font-weight:400}
 #menu .ver{display:flex;align-items:center;min-height:48px;margin-top:var(--esp-4);font-size:13px;opacity:.6;user-select:none}
 #fuel .hpbar{display:block;width:44px;height:5px;margin-left:var(--esp-2);background:var(--fundo);border-radius:3px;overflow:hidden}
 #fuel .hpbar i{display:block;height:100%;background:var(--armadura)}
@@ -365,7 +366,15 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
 
   function renderSettings() {
     const m = !!(window.SFX && SFX.muted && SFX.muted());
-    panes.settings.innerHTML = '<h3>Ajustes</h3><button class="btn" data-a="mute">Som: ' + (m ? 'mudo' : 'ligado') + '</button> <button class="btn" data-a="exit">Sair para o início</button> <button class="btn" data-a="delw">Apagar este mundo</button><p class="ver" data-a="ver">Versão ' + ((document.querySelector('meta[name=versao]') || {}).content || 'dev') + '</p>' + (window.G.dev && window.G.dev.on ? '<button class="btn" data-a="dev">Modo dev</button>' : '');
+    const zm = zoomPct();
+    panes.settings.innerHTML = '<h3>Ajustes</h3><button class="btn" data-a="mute">Som: ' + (m ? 'mudo' : 'ligado') + '</button> <label class="zoom">Câmera <input type="range" min="50" max="170" step="10" value="' + zm + '" aria-label="Distância da câmera"><b>' + zm + ' %</b></label> <button class="btn" data-a="exit">Sair para o início</button> <button class="btn" data-a="delw">Apagar este mundo</button><p class="ver" data-a="ver">Versão ' + ((document.querySelector('meta[name=versao]') || {}).content || 'dev') + '</p>' + (window.G.dev && window.G.dev.on ? '<button class="btn" data-a="dev">Modo dev</button>' : '');
+    bindZoom();
+  }
+
+  function zoomPct() { try { return +localStorage['zl1.zoom'] || 100; } catch (e) { return 100; } } // preferencia do aparelho (nao do mundo); 100 % = raio 10 m
+  function bindZoom() {
+    const i = panes.settings.querySelector('.zoom input'); if (!i) return;
+    i.addEventListener('input', () => { i.nextSibling.textContent = i.value + ' %'; window.R && R.zoom && R.zoom(i.value); try { localStorage['zl1.zoom'] = i.value; } catch (e) {} });
   }
 
   // ---- PAINEL DEV (escondido: 7 toques na versão em Ajustes); mesmo estilo das telas de itens ----
@@ -587,6 +596,7 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
   function init(r) {
     root = r;
     const st = document.createElement('style'); st.textContent = CSS; document.head.appendChild(st);
+    if (window.R && R.zoom) R.zoom(zoomPct());
     window.addEventListener('contextmenu', (e) => e.preventDefault());
     const hud = el('div', 'hud', root);
     E.hp = el('div', 'hp', hud, svg('heart') + '<div class="bar"><i></i></div>', 'pill');

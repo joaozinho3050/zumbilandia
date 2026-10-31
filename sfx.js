@@ -152,6 +152,7 @@
     }),
     swing: () => voice(0.25, (t, n) => noise(n, t, 0.25, 0.25, 'bandpass', 900, 1.2, 0.08)),
     hit: () => voice(0.15, (t, n) => osc(n, 'sine', 150, 45, t, 0.15, 0.6)),
+    stealthKill: () => voice(0.3, (t, n) => { osc(n, 'sine', 90, 40, t, 0.25, 0.5); noise(n, t, 0.12, 0.12, 'lowpass', 500, 0.8, 0.05); }), // golpe abafado pelas costas
     hurt: () => voice(0.25, (t, n) => osc(n, 'triangle', 420, 140, t, 0.25, 0.35)),
     death: () => voice(1.3, (t, n) => {
       [330, 262, 196].forEach((f, i) => osc(n, 'triangle', f, f * 0.7, t + i * 0.05, 1.2 - i * 0.05, 0.12));

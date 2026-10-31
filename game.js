@@ -311,7 +311,9 @@
       G.cd = 0.6; setAct(p, 'swing');
       G.events.push({ type: 'swing' });
       G.zombies.forEach(z => {
-        if (dist(z, p) <= 1.5 && !blocked(p.x, p.y, z.x, z.y) && angDiff(Math.atan2(z.y - p.y, z.x - p.x), p.dir) <= Math.PI / 4) hurt(z, p.weapon === 'pipe_r' ? 35 : 25);
+        if (dist(z, p) > 1.5 || blocked(p.x, p.y, z.x, z.y) || angDiff(Math.atan2(z.y - p.y, z.x - p.x), p.dir) > Math.PI / 4) return;
+        if (z.state === 'idle' && !(z.alert > 0) && !front(z, p) && z.hp > 0) { hurt(z, z.hp); G.events.push({ type: 'stealthKill', id: z.id }); hint('furtivo2', 'Golpe pelas costas: o zumbi caiu sem perceber', 'furtivo'); return; } // pelas costas, sem ser notado: mata na hora
+        hurt(z, p.weapon === 'pipe_r' ? 35 : 25);
       });
     } else {
       const am = p.inv.find(i => i.id === 'ammo');
@@ -371,6 +373,8 @@
     if (z.hp <= 0 && !(z.anim && z.anim.act === 'dead')) { z.anim = { move: 'idle', act: 'dead', t: 0 }; G.dying.push({ id: z.id, x: z.x, y: z.y, anim: z.anim }); } // corpo some em 1,5 s
   }
 
+  const zf = z => z.face !== undefined ? z.face : (z.face = zv(String(z.id)).face);
+  const front = (z, p) => angDiff(Math.atan2(p.y - z.y, p.x - z.x), zf(z)) <= Math.PI / 3; // jogador no cone de 120 graus da frente
   const idPhase = id => { let v = 0; for (const c of String(id)) v = (v * 31 + c.charCodeAt(0)) % 25; return v / 100; }; // escalona o recalculo por id
   // proximo waypoint contra a casa h (so ela): vao/porta aberta visivel mais perto do alvo; senao porta fechada; senao canto
   function navWay(z, p, h) {
@@ -441,7 +445,7 @@
     const za = z.anim || (z.anim = { move: 'idle', act: null, t: 0 }); za.t += dt;
     const h = d < 12 ? G.houses.find(h => blocked(z.x, z.y, p.x, p.y, [h])) : null; // casa no caminho (parede/porta fechada)
     if (d <= 1.1 && !h) z.state = 'attack';
-    else if (d < (h && h.parts ? 3 : p.crouch ? 2.5 : 6) || d <= (p.noise || 0) || z.alert > 0 || (z.state === 'chase' && d < 10)) z.state = 'chase'; // abafado: 3 m; dono: percebe a 8 m correndo, 6 andando, 2,5 agachado; perde a 10 m
+    else if (d < (h && h.parts ? 3 : !front(z, p) ? 0 : p.crouch ? 2.5 : p.running ? 8 : 6) || d <= (p.noise || 0) || z.alert > 0 || (z.state === 'chase' && d < 10)) z.state = 'chase'; // abafado: 3 m; dono: percebe a 8 m correndo, 6 andando, 2,5 agachado; perde a 10 m
     else z.state = 'idle';
     if (z.police && d < 10) hint('police', 'Policial zumbi: pode soltar munição ou pistola', 'police');
     z.zc = Math.max(0, (z.zc || 0) - dt);
@@ -453,7 +457,7 @@
     za.move = mv; if (za.act !== ac && za.act !== 'climb') { za.act = ac; za.t = 0; }
     if (z.state === 'attack') return;
     if (z.state === 'chase') {
-      const a = Math.atan2(p.y - z.y, p.x - z.x), s = (z.runner ? 4 : 2.2) * dt;
+      const a = Math.atan2(p.y - z.y, p.x - z.x), s = (z.runner ? 4 : 2.2) * dt; z.face = a;
       z.side = z.side || (rng() < 0.5 ? 1 : -1);
       const tryDir = ang => { const nx = z.x + Math.cos(ang) * s, ny = z.y + Math.sin(ang) * s; if (!free(nx, ny)) return false; z.x = nx; z.y = ny; return true; };
       const slide = ang => { const c = Math.cos(ang) * s, n = Math.sin(ang) * s; // so um eixo (encosta e desliza)
@@ -531,7 +535,7 @@
     else if (len > 0.01 && !(p.action && p.action.type === 'cut' && len <= 0.3)) { p.dir = Math.atan2(my, mx); move(p, mx * vel * dt, my * vel * dt); } // cortando: zona morta 0,3 do joystick
     const dm = Math.hypot(p.x - ox, p.y - oy), real = !car && dm > 0.5 * vel * dt; // deslocamento real (parado na parede nao conta)
     p.running = wantRun && real; G._rw = p.running;
-    p.noise = car ? (p._eng ? 15 + 2 * Math.abs(car.speed) : 0) : !real ? 0 : p.crouch ? 2.5 : p.running ? 8 : 5;
+    p.noise = car ? (p._eng ? 15 + 2 * Math.abs(car.speed) : 0) : !real ? 0 : p.crouch ? 0 : p.running ? 8 : 3; // ruido: de costas o zumbi so ouve (agachado = mudo)
     const sp = p.stamina;
     p.stamina = Math.max(0, Math.min(100, p.stamina + (p.running ? -28 : (real && !p.crouch ? 2 : 8) * (p.hunger < 25 ? 0.5 : 1)) * dt));
     if (sp >= 15 && p.stamina < 15) { G.events.push({ type: 'staminaLow' }); hint('folego', 'Sem fôlego — ande para recuperar', 'correr'); }
@@ -669,6 +673,7 @@
     G.dying = G.dying.filter(d => (d.anim.t += dt) < 1.5);
     // hint agachar: zumbi parado a < 10 m que ainda nao te viu
     if (!p.crouch && G.zombies.some(z => z.state === 'idle' && dist(z, p) < 10)) hint('agachar', 'Agache para passar sem ser notado', 'agachar');
+    if (!car && G.zombies.some(z => z.state === 'idle' && z.hp > 0 && dist(z, p) < 4 && !front(z, p))) hint('furtivo', 'Zumbi de costas: chegue agachado e ataque — mata na hora, sem barulho', 'furtivo');
 
     G._spawn += dt;
     if (G._spawn >= (G.t > 1200 ? 15 : 30)) {
@@ -716,7 +721,7 @@
   const REPO = [['rag', 30], ['food', 15], ['wire', 15], ['bottle', 10], ['bandage', 3], [null, 27]];
   const COMMON = [['rag', 55], ['food', 25], ['wire', 20]];
   const P_TB = 0.37; // chance de caixa de ferramentas por casa (calibrada)
-  const zv = id => { let h = 0; for (let i = 0; i < id.length; i++) h = Math.imul(h ^ id.charCodeAt(i), 0x9E3779B1) >>> 0; h = Math.imul(h ^ (h >>> 15), 0x85EBCA6B) >>> 0; return { look: h % 8, size: 0.9 + ((h >>> 8) % 201) / 1000 }; }; // variacao visual do zumbi, por id
+  const zv = id => { let h = 0; for (let i = 0; i < id.length; i++) h = Math.imul(h ^ id.charCodeAt(i), 0x9E3779B1) >>> 0; h = Math.imul(h ^ (h >>> 15), 0x85EBCA6B) >>> 0; return { look: h % 8, size: 0.9 + ((h >>> 8) % 201) / 1000, face: ((h >>> 16) % 628) / 100 }; }; // face: para onde olha parado (rad) // variacao visual do zumbi, por id
   function pick(r, tab) { let v = r() * 100; for (const [id, w] of tab) if ((v -= w) < 0) return id; return null; }
   function mkItem(r, id) { return id === 'gascan' ? { id, fuel: 0, qty: 1 } : id === 'cutter' ? { id, qty: 1, dur: 4 } : id === 'ammo' ? { id, qty: 3 + Math.floor(r() * 4) } : { id, qty: 1 }; }
 
@@ -1149,6 +1154,7 @@
     g('food', 'Comida', ['comida', 'fome', 'comer', 'curar', 'atadura', 'bandagem'], [{ item: 'food', onde: 'geladeiras, armários, fogões e zumbis' }, { item: 'bandage', onde: 'armarinho de remédios, gavetas e prateleiras (raro)' }], ['Abra a mochila no MENU.', 'Toque na comida para comer (fome +30) ou na bandagem para curar (vida +25).'], 'food'),
     g('tomb', 'Tumba', ['tumba', 'morte', 'morrer', 'mochila'], [{ lugar: 'ponto de sua morte', onde: 'marcado em vermelho no Mapa' }], ['Ao morrer você volta ao início e deixa uma tumba com tudo.', 'Abra o Mapa e ache o ponto vermelho.', 'Vá até lá e toque PEGAR.'], 'search'),
     g('correr', 'Correr', ['correr', 'corrida', 'folego', 'rapido', 'joystick', 'shift', 'andar'], [], ['Empurre o joystick até a borda para correr.', 'No teclado, segure SHIFT.', 'Correr gasta fôlego: ande para recuperar.'], 'run'),
+    g('furtivo', 'Ataque furtivo', ['furtivo', 'costas', 'silencioso', 'matar', 'escondido', 'stealth'], [], ['Zumbi parado vê só na frente (6 m andando, 8 correndo, 2,5 agachado).', 'Por trás ele só ouve: correndo 8 m, andando 3 m, agachado nada.', 'Chegue agachado pelas costas e ataque com arma branca: mata na hora, sem alertar os outros.'], 'crouch'),
     g('agachar', 'Agachar', ['agachar', 'agachado', 'furtivo', 'silencio', 'esconder'], [], ['Toque o botão AGACHAR acima do joystick (no teclado: C).', 'Agachado: mais lento, passos quase mudos e menos visível.', 'Toque de novo para levantar.'], 'crouch'),
     g('atacar', 'Atacar e armas', ['atacar', 'arma', 'bater', 'cano', 'pistola', 'municao', 'tiro', 'luta'], [{ item: 'pipe', onde: 'você já começa com um' }, { item: 'pistol', onde: 'gavetas (rara) e policiais' }, { item: 'ammo', onde: 'gavetas e policiais' }], ['Toque ATACAR para bater (cano: curto alcance, cone à frente).', 'Pistola gasta 1 munição e acerta de longe; o barulho atrai zumbis.', 'Toque a arma (canto) para trocar de arma.'], 'pipe'),
     g('buscar', 'Buscar em móveis', ['buscar', 'vasculhar', 'movel', 'bau', 'geladeira', 'armario', 'gaveta', 'loot'], [], ['Chegue perto de um móvel e toque BUSCAR.', 'Fique parado 1 s: se mexer, cancela. O painel abre.', 'Toque um item para mover; o que não couber fica onde está.'], 'search'),

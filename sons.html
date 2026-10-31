@@ -80,6 +80,7 @@ input[type=range]{flex:1;min-height:var(--toque)}
     ['Dano de carro e fogo', 'Explosão', 'Quando o carro explode ou um molotov/explosão atinge a área.', 'Seno grave caindo de 120 a 35 Hz + ruído passa-baixa: boom.', { type: 'blast', x: 0, y: 0, r: 5 }],
     ['Dano de carro e fogo', 'Gasolina vazando', 'Quando o tanque vaza e cai uma poça.', 'Dois pingos curtos: seno caindo de 900 a 400 Hz.', { type: 'spill', x: 0, y: 0 }],
     ['Dano de carro e fogo', 'Motor engasgando', 'Quando o motor do carro morre de vez (vida zero).', 'Três trancos de serra (110 a 60 Hz) + ruído passa-faixa grave.', { type: 'carDead', id: 'c1' }],
+    ['Combate', 'Golpe furtivo', 'Quando você mata um zumbi pelas costas sem ele perceber.', 'Seno grave 90 a 40 Hz + ruído abafado curto.', { type: 'stealthKill', id: 'z1' }],
   ];
   // [secao, nome, quando, como, estado ligado, estado desligado, extra]
   const reset = () => { P.stamina = 100; P.crouch = P.running = false; P.noise = 6; P.car = null; P._eng = false; P.action = null; P.x = P.y = 0; G.fires = []; G.zombies = []; };

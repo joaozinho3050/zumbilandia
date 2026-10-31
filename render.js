@@ -61,7 +61,7 @@ const SMOKE = new THREE.MeshBasicMaterial({ color: 0xbfc4cc }), BOOM = new THREE
 const hsh = s => { let h = 0; for (const ch of String(s)) h = (h * 31 + ch.charCodeAt(0)) | 0; return h; }; // ids podem ser texto
 const puff = (x, y, z, vx, vz, vy = 0.7, sc = 1, mat = SMOKE) => { const m = sPool.find(s => !s.visible); if (!m) return; m.material = mat; m.position.set(x, y, z); m.userData = { t: 0, vx, vz, vy, sc }; m.scale.setScalar(0.08); m.visible = true; };
 
-const EL = 0.96, VIEW_R = 10;
+const EL = 0.96; let VIEW_R = 10; // 100 % = raio 10 m (dono); R.zoom(%) ajusta
 function camDist() { // menor d tal que (±R,0) e (0,±R) do chao projetam em |ndc|<=1 (camera olhando de EL)
   const c = camera, v = new THREE.Vector3();
   for (let d = 6; d < 120; d += 0.5) {
@@ -457,10 +457,10 @@ function draw(G) {
   };
   for (const z of G.zombies) {
     if (cn[0] + cn[1] >= 96) break;
-    const d = zData.get(z.id), ang0 = Math.atan2(p.x - z.x, p.y - z.y);
+    const d = zData.get(z.id), ang0 = z.state === 'idle' && z.face !== undefined ? Math.atan2(Math.cos(z.face), Math.sin(z.face)) : Math.atan2(p.x - z.x, p.y - z.y); // parado: olha para z.face (costas = ataque furtivo)
     if (d) {
       const dx = z.x - d.x, dy = z.y - d.y;
-      if (dx * dx + dy * dy > 1e-5) d.a = Math.atan2(dx, dy); else if (z.state !== 'idle') d.a = ang0;
+      if (dx * dx + dy * dy > 1e-5) d.a = Math.atan2(dx, dy); else d.a = ang0;
       d.x = z.x; d.y = z.y;
     }
     poseZ(z.id, z.x, z.y, z.anim, ang0, z.state === 'attack' ? 1 + 0.12 * Math.abs(Math.sin(now / 45)) : 1, z.police, z.runner, Number.isInteger(z.look) ? z.look : undefined);
@@ -725,5 +725,5 @@ function badMatrices() {
   });
   return bad;
 }
-window.R = { init, draw, pick, icon, spin, demo, info: () => ({ calls: renderer.info.render.calls, verts: lastBake.verts, ms: lastBake.ms }), mem: () => renderer.info.memory.geometries, chunks: () => chunks.size, badMatrices, devOverlay,
+window.R = { zoom(pct) { VIEW_R = 10 * Math.max(50, Math.min(170, +pct || 100)) / 100; if (camera) size(); }, init, draw, pick, icon, spin, demo, info: () => ({ calls: renderer.info.render.calls, verts: lastBake.verts, ms: lastBake.ms }), mem: () => renderer.info.memory.geometries, chunks: () => chunks.size, badMatrices, devOverlay,
   view() { const c = camera, v = new THREE.Vector3(), d = c.userData.d; c.position.set(0, 0.5 + d * Math.sin(EL), d * Math.cos(EL)); c.lookAt(0, 0.5, 0); c.updateMatrixWorld(true); return [[VIEW_R, 0], [-VIEW_R, 0], [0, VIEW_R], [0, -VIEW_R]].map(([x, z]) => { v.set(x, 0, z).project(c); return Math.max(Math.abs(v.x), Math.abs(v.y)); }); } };
