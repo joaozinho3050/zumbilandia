@@ -7,7 +7,7 @@
   let ctx = null, master = null, noiseBuf = null, voices = 0, muteOn = false;
   try { muteOn = localStorage.getItem(MUTE_KEY) === '1'; } catch (e) {}
   const seen = new WeakSet(); // evento já tocado (G.events pode não ser limpo)
-  let stepAt = 0, groanAt = 0, breathAt = 0, climbAt = 0, lastX = null, lastY = null;
+  let stepAt = 0, bipAt = 0, groanAt = 0, breathAt = 0, climbAt = 0, lastX = null, lastY = null;
 
   // Cria o AudioContext (só dentro de gesto do usuário) e retoma se suspenso.
   function ensure() {
@@ -96,6 +96,7 @@
     }, 200);
   }
   // k = 0 parado .. 1 a 11 m/s: serra + quadrada grave subindo, ruído filtrado a seguir.
+  const ENG_PT = { car: 1, jeep: 0.8, truck: 0.6, apc: 0.5 };
   function engineLoop(t, nodes, out) {
     const a = ctx.createOscillator(), sq = ctx.createOscillator(), lp = ctx.createBiquadFilter();
     const ga = ctx.createGain(), gq = ctx.createGain();
@@ -109,13 +110,34 @@
     ns.connect(nf).connect(ng).connect(out);
     a.start(t); sq.start(t); ns.start(t, Math.random() * 0.5);
     nodes.push(a, sq, lp, ga, gq, ns, nf, ng);
-    return (k) => {
+    return (k, pt = 1) => { // pt = tom do motor por tipo (carro 1; jipe 0,8; caminhao 0,6; blindado 0,5: diesel grave e mais barulhento)
       const now = ctx.currentTime;
-      a.frequency.setTargetAtTime(40 + 80 * k, now, 0.08);
-      sq.frequency.setTargetAtTime(20 + 40 * k, now, 0.08);
-      nf.frequency.setTargetAtTime(250 + 300 * k, now, 0.1);
-      out.gain.setTargetAtTime(0.6, now, 0.05);
+      a.frequency.setTargetAtTime((40 + 80 * k) * pt, now, 0.08);
+      sq.frequency.setTargetAtTime((20 + 40 * k) * pt, now, 0.08);
+      nf.frequency.setTargetAtTime((250 + 300 * k) * pt, now, 0.1);
+      lp.frequency.setTargetAtTime(500 * (0.5 + 0.5 * pt), now, 0.1);
+      out.gain.setTargetAtTime(pt < 1 ? 0.75 : 0.6, now, 0.05);
     };
+  }
+  // Rotor do helicoptero: pas batendo (ruido grave com amplitude em ~10-16 Hz) + zumbido de turbina; k = potencia 0..1 (ganho e cadencia)
+  function rotorLoop(t, nodes, out) {
+    const ns = ctx.createBufferSource(), nf = ctx.createBiquadFilter(), ng = ctx.createGain(), lfo = ctx.createOscillator(), lg = ctx.createGain(), hum = ctx.createOscillator(), hg = ctx.createGain();
+    ns.buffer = noiseBuf; ns.loop = true; nf.type = 'lowpass'; nf.frequency.value = 420; ng.gain.value = 0.3;
+    lfo.type = 'square'; lfo.frequency.value = 10; lg.gain.value = 0.28; // batida das pas modula o ganho do ruido
+    hum.type = 'sawtooth'; hum.frequency.value = 62; hg.gain.value = 0.05;
+    ns.connect(nf).connect(ng).connect(out); lfo.connect(lg).connect(ng.gain); hum.connect(hg).connect(out);
+    ns.start(t, Math.random() * 0.5); lfo.start(t); hum.start(t);
+    nodes.push(ns, nf, ng, lfo, lg, hum, hg);
+    return (k) => { const now = ctx.currentTime; lfo.frequency.setTargetAtTime(8 + 8 * k, now, 0.15); hum.frequency.setTargetAtTime(55 + 25 * k, now, 0.15); out.gain.setTargetAtTime(0.35 + 0.5 * k, now, 0.1); };
+  }
+  // Turbina do jato: assobio agudo que sobe com a velocidade + rugido de ruido; k = velocidade 0..1
+  function turbineLoop(t, nodes, out) {
+    const o = ctx.createOscillator(), og = ctx.createGain(), ns = ctx.createBufferSource(), nf = ctx.createBiquadFilter(), ng = ctx.createGain();
+    o.type = 'sawtooth'; o.frequency.value = 400; og.gain.value = 0.035;
+    ns.buffer = noiseBuf; ns.loop = true; nf.type = 'bandpass'; nf.frequency.value = 900; nf.Q.value = 0.6; ng.gain.value = 0.3;
+    o.connect(og).connect(out); ns.connect(nf).connect(ng).connect(out); o.start(t); ns.start(t, Math.random() * 0.5);
+    nodes.push(o, og, ns, nf, ng);
+    return (k) => { const now = ctx.currentTime; o.frequency.setTargetAtTime(380 + 900 * k, now, 0.2); nf.frequency.setTargetAtTime(700 + 1400 * k, now, 0.2); out.gain.setTargetAtTime(0.4 + 0.4 * k, now, 0.1); };
   }
   // Borbulhar: seno grave com modulação de amplitude de ~12 Hz (bolhas).
   function bubbleLoop(t, nodes, out) {
@@ -232,6 +254,21 @@
       noise(n, t, 0.35, 0.12, 'bandpass', 300, 0.8, 0.02);
     }),
     engineOff: () => voice(0.5, (t, n) => osc(n, 'sawtooth', 100, 35, t, 0.45, 0.14)), // giro caindo
+    engineOnMil: () => voice(0.6, (t, n) => { // arranque diesel de veiculo militar: giro grave e longo, tosse de ruido
+      osc(n, 'sawtooth', 30, 70, t, 0.55, 0.16); osc(n, 'square', 22, 48, t + 0.1, 0.4, 0.08);
+      noise(n, t, 0.5, 0.15, 'bandpass', 180, 0.8, 0.03);
+    }),
+    engineOffMil: () => voice(0.6, (t, n) => osc(n, 'sawtooth', 70, 24, t, 0.55, 0.16)), // diesel caindo
+    engineOnAir: () => voice(0.9, (t, n) => { osc(n, 'sawtooth', 30, 140, t, 0.8, 0.12); noise(n, t, 0.8, 0.12, 'bandpass', 500, 0.8, 0.2); }), // partida: giro subindo devagar
+    engineOffAir: () => voice(0.9, (t, n) => { osc(n, 'sawtooth', 140, 25, t, 0.85, 0.12); noise(n, t, 0.7, 0.1, 'lowpass', 400, 0.8, 0.02); }), // giro caindo
+    takeoff: () => voice(0.5, (t, n) => noise(n, t, 0.5, 0.2, 'bandpass', 600, 0.8, 0.08)), // sopro ao descolar
+    land: (ev) => voice(0.4, (t, n) => { const k = Math.min(1, Math.abs(ev.vz || 0) / 6); osc(n, 'sine', 120, 45, t, 0.25, 0.25 + 0.4 * k); noise(n, t, 0.2, 0.1 + 0.2 * k, 'lowpass', 500, 0.8, 0.02); }), // baque do pouso (forte pela velocidade vertical)
+    crashAir: () => voice(0.6, (t, n) => { noise(n, t, 0.5, 0.4, 'bandpass', 500, 0.8, 0.03); osc(n, 'sawtooth', 110, 30, t, 0.4, 0.3); osc(n, 'square', 300, 90, t + 0.04, 0.2, 0.15); }), // metal amassando
+    alertBip: () => voice(0.2, (t, n) => osc(n, 'square', 880, 880, t, 0.12, 0.1)), // PERDENDO ALTITUDE: bip agudo
+    gateBase: (ev) => voice(0.9, (t, n) => { // portao da base: grade pesada correndo no trilho + batida metalica; abrir sobe, fechar bate no fim
+      noise(n, t, 0.55, 0.3, 'bandpass', 380, 1.6, 0.05); osc(n, 'sawtooth', ev.open ? 55 : 90, ev.open ? 95 : 45, t, 0.5, 0.12);
+      osc(n, 'square', 180, 120, t + 0.5, 0.12, 0.12); osc(n, 'sine', 90, 40, t + 0.52, 0.3, 0.55);
+    }),
     brake: () => voice(0.2, (t, n) => noise(n, t, 0.18, 0.2, 'bandpass', 3200, 2, 0.02)), // chiado curto
     crash: () => voice(0.35, (t, n) => { // pancada + vidro leve
       osc(n, 'sine', 110, 40, t, 0.25, 0.6);
@@ -339,6 +376,7 @@
   // Evento -> som. door: abrir/fechar pelo ev.open. search: só o início (p:0 com action ativa; cancelamento tem action null).
   // windup: rosnado só se o zumbi estiver a <12 m do jogador. open: ev.kind = crate|trunk|tomb. move: to 'inv' = mochila.
   function play(ev, G) {
+    if (ev.type === 'door' && ev.base) return SND.gateBase(ev);
     if (ev.type === 'door') return (ev.gate ? (ev.open ? SND.gateOpen : SND.gateClose) : (ev.open ? SND.doorOpen : SND.doorClose))();
     if (ev.type === 'stairs') { // jogador: passos no inicio (p:0 com acao ativa); zumbi (up definido, sem done): baixo e so a <12 m
       const a = G.player && G.player.action, z = ev.up !== undefined && !ev.done && (G.zombies || []).find((e) => e.id === ev.id);
@@ -355,7 +393,7 @@
       return;
     }
     if (ev.type === 'search') { const a = G.player && G.player.action; if (ev.p === 0 && a && a.id === ev.id) SND.search(); return; }
-    if (ev.type === 'engine') return (ev.on ? SND.engineOn : SND.engineOff)();
+    if (ev.type === 'engine') { const c = (G.cars || []).find((e) => e.id === ev.id), mil = c && c.kind && c.kind !== 'car'; if (c && ((G.VEH || {})[c.kind] || {}).air) return (ev.on ? SND.engineOnAir : SND.engineOffAir)(); return (ev.on ? (mil ? SND.engineOnMil : SND.engineOn) : (mil ? SND.engineOffMil : SND.engineOff))(); }
     if (SND[ev.type]) SND[ev.type](ev); // siphon/pour não têm one-shot: o loop do sifão cuida
 
   }
@@ -399,7 +437,11 @@
           }
           // loops: motor (dirigindo com motor ligado), sifão (action siphon) e fogo (G.fires < 15 m). Param ao sair/morrer/mudo.
           const car = p.car && (G.cars || []).find((c) => c.id === p.car);
-          if (!G.dead && p._eng && car) { const L = loopOn('engine', engineLoop); if (L) L.set(Math.min(1, Math.abs(car.speed || 0) / 11)); }
+          const V = car && (G.VEH || {})[car.kind || 'car'], air = V && V.air;
+          if (!G.dead && p._eng && air) { const L = loopOn(air === 'heli' ? 'rotor' : 'turbine', air === 'heli' ? rotorLoop : turbineLoop); if (L) L.set(air === 'heli' ? Math.min(1, 0.4 + 0.6 * (Math.abs(car.speed || 0) / V.vmax) + 0.1 * Math.min(1, Math.abs(car.vz || 0) / 3)) : Math.min(1, (Math.abs(car.speed || 0) - 5) / 35)); }
+          else { loopOff('rotor'); loopOff('turbine'); }
+          if (!G.dead && car && car.stall && now - bipAt >= 0.6) { bipAt = now; SND.alertBip(); }
+          if (!G.dead && p._eng && car && !air) { const L = loopOn('engine', engineLoop); if (L) L.set(Math.min(1, Math.abs(car.speed || 0) / (((G.VEH || {})[car.kind || 'car'] || { vmax: 11 }).vmax)), ENG_PT[car.kind || 'car'] || 1); }
           else loopOff('engine');
           if (!G.dead && p.action && p.action.type === 'siphon') { const L = loopOn('siphon', bubbleLoop); if (L) L.set(1); }
           else loopOff('siphon');

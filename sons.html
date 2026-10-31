@@ -35,7 +35,7 @@ input[type=range]{flex:1;min-height:var(--toque)}
 (function () {
   // G falso mínimo: só o que o sfx.js lê.
   const P = { x: 0, y: 0, stamina: 100, crouch: false, running: false, noise: 6, car: null, action: null, anim: {} };
-  const G = window.G = { players: [P], player: P, cars: [{ id: 'c1', x: 0, y: 0, speed: 0 }], fires: [], zombies: [], events: [], dead: false };
+  const G = window.G = { players: [P], player: P, cars: [{ id: 'c1', x: 0, y: 0, speed: 0 }, { id: 'c2', x: 0, y: 0, speed: 0, kind: 'truck' }, { id: 'c3', x: 0, y: 0, speed: 0, kind: 'heli' }, { id: 'c4', x: 0, y: 0, speed: 0, kind: 'jet' }], VEH: { car: { vmax: 11 }, jeep: { vmax: 12 }, truck: { vmax: 9 }, apc: { vmax: 8 }, heli: { vmax: 20, air: 'heli' }, jet: { vmax: 40, air: 'jet' } }, fires: [], zombies: [], events: [], dead: false };
   const Z = { id: 'z1', x: 5, y: 0, state: 'idle', anim: {} };
 
   const um = (ev) => () => { G.events.push(Object.assign({}, ev)); };
@@ -70,6 +70,17 @@ input[type=range]{flex:1;min-height:var(--toque)}
     ['Casa e itens', 'Fechar contêiner', 'Ao fechar o painel do contêiner (✕ ou toque fora).', 'Batida suave: seno de 140 a 90 Hz, curto.', { type: 'close' }],
     ['Carro', 'Ligar motor', 'Ao girar a chave e ligar o carro.', 'Serra subindo de 50 a 110 Hz + ruído passa-faixa grave.', { type: 'engine', on: true }],
     ['Carro', 'Desligar motor', 'Ao desligar o carro.', 'Serra caindo de 100 a 35 Hz.', { type: 'engine', on: false }],
+    ['Carro', 'Ligar motor militar', 'Ao ligar jipe, caminhão ou blindado da base (diesel).', 'Serra grave subindo de 30 a 70 Hz + quadrada de 22 a 48 Hz + ruído passa-faixa de 180 Hz.', { type: 'engine', on: true, id: 'c2' }],
+    ['Aeronaves', 'Ligar aeronave', 'Ao ligar o helicóptero ou o jato.', 'Serra subindo devagar de 30 a 140 Hz + ruído passa-faixa de 500 Hz.', { type: 'engine', on: true, id: 'c3' }],
+    ['Aeronaves', 'Apagar aeronave', 'Ao desligar ou ficar sem querosene.', 'Serra caindo de 140 a 25 Hz + ruído passa-baixa.', { type: 'engine', on: false, id: 'c3' }],
+    ['Aeronaves', 'Decolar', 'Ao sair do chão (jato ou helicóptero).', 'Sopro de ruído passa-faixa de 600 Hz.', { type: 'takeoff', id: 'c3' }],
+    ['Aeronaves', 'Pouso suave', 'Toque no chão a até 3 m/s.', 'Seno grave de 120 a 45 Hz curto + ruído passa-baixa.', { type: 'land', id: 'c3', vz: -2 }],
+    ['Aeronaves', 'Pouso forte', 'Toque no chão acima de 3 m/s: dano.', 'Mesmo baque, mais alto e mais longo.', { type: 'land', id: 'c3', vz: -7 }],
+    ['Aeronaves', 'Queda / batida no ar', 'Bater abaixo de 6 m ou pousar fora da pista (jato).', 'Ruído passa-faixa + serra de 110 a 30 Hz + quadrada (metal amassando).', { type: 'crashAir', id: 'c3' }],
+    ['Aeronaves', 'Alerta PERDENDO ALTITUDE', 'Sem querosene ou motor destruído em voo.', 'Quadrada de 880 Hz, bip curto a cada 0,6 s.', { type: 'alertBip' }],
+    ['Carro', 'Desligar motor militar', 'Ao desligar um veículo militar.', 'Serra caindo de 70 a 24 Hz.', { type: 'engine', on: false, id: 'c2' }],
+    ['Carro', 'Portão da base abrindo', 'Quando o portão com cadeado da base militar é aberto (ou cortado).', 'Ruído passa-faixa (380 Hz) de grade correndo + serra subindo de 55 a 95 Hz + batida metálica no fim.', { type: 'door', open: true, base: true }],
+    ['Carro', 'Portão da base fechando', 'Quando o portão da base é fechado.', 'Mesmo chocalho com serra caindo de 90 a 45 Hz e batida grave no fim.', { type: 'door', open: false, base: true }],
     ['Carro', 'Freada', 'Ao frear forte.', 'Ruído passa-faixa agudo (3,2 kHz), chiado curto.', { type: 'brake' }],
     ['Carro', 'Batida', 'Quando o carro bate em algo.', 'Seno grave (110 a 40 Hz) + ruído passa-alta de vidro.', { type: 'crash' }],
     ['Carro', 'Atropelar', 'Quando o carro atropela um zumbi.', 'Seno grave (120 a 45 Hz) + ruído passa-baixa: baque.', { type: 'run_over' }],
@@ -109,6 +120,12 @@ input[type=range]{flex:1;min-height:var(--toque)}
     ['Zumbis', 'Arrasto do rastejante', 'Enquanto um rastejante persegue a menos de 12 m, a cada 1,5 s ou mais.', 'Ruído passa-faixa grave (380 Hz) e passa-baixa (220 Hz): corpo raspando o chão; 1 voz, volume pela distância.', 'drag'],
     ['Zumbis', 'Raspar na cerca', 'Enquanto um zumbi sobe a cerca a menos de 12 m.', 'Ruído passa-faixa (1,8 kHz, Q alto), a cada 0,5 s.', 'climb'],
     ['Carro', 'Motor (parado e acelerando)', 'Enquanto o jogador dirige com o motor ligado.', 'Serra + quadrada graves subindo com a velocidade, mais ruído passa-faixa, num filtro passa-baixa.', 'engine'],
+    ['Carro', 'Motor do jipe', 'Dirigindo o jipe da base.', 'Mesmo motor do carro, 20 % mais grave e mais forte.', 'engine_jeep'],
+    ['Carro', 'Motor do caminhão', 'Dirigindo o caminhão da base.', 'Motor do carro 40 % mais grave, filtro mais fechado.', 'engine_truck'],
+    ['Aeronaves', 'Rotor do helicóptero', 'Enquanto voa ou está ligado: mais cadência e volume com a velocidade.', 'Ruído passa-baixa (420 Hz) modulado por quadrada de 8 a 16 Hz (as pás) + serra de 55 a 80 Hz.', 'heli'],
+    ['Aeronaves', 'Turbina do jato', 'Enquanto o jato está ligado: o assobio sobe com a velocidade.', 'Serra de 380 a 1280 Hz + ruído passa-faixa de 700 a 2100 Hz.', 'jet'],
+    ['Aeronaves', 'Aviso PERDENDO ALTITUDE (contínuo)', 'Enquanto a aeronave planeia sem motor: bip a cada 0,6 s.', 'Quadrada de 880 Hz.', 'stall'],
+    ['Carro', 'Motor do blindado', 'Dirigindo o blindado de transporte.', 'Motor do carro 50 % mais grave: o mais pesado.', 'engine_apc'],
     ['Casa e itens', 'Sifão', 'Enquanto o jogador sifona gasolina de um carro.', 'Seno de 180 Hz com amplitude modulada a 12 Hz: bolhas.', 'siphon'],
     ['Ambiente e interface', 'Fogo por perto', 'Quando há fogo a menos de 15 m; mais alto quanto mais perto.', 'Ruído passa-faixa (whoosh) + passa-alta modulado por quadrada de 18 Hz (crepitar).', 'fire'],
   ];
@@ -123,7 +140,9 @@ input[type=range]{flex:1;min-height:var(--toque)}
     if (a('groan')) G.zombies.push(Object.assign({}, Z, { state: 'chase', x: P.x + 5 }));
     if (a('drag')) G.zombies.push({ id: 'z3', x: P.x + 4, y: 0, state: 'chase', crawl: true });
     if (a('climb')) G.zombies.push({ id: 'z2', x: P.x + 6, y: 0, state: 'idle', anim: { act: 'climb' } });
-    if (a('engine')) { P.car = 'c1'; P._eng = true; G.cars[0].speed = vel; }
+    if (a('engine')) { P.car = 'c1'; P._eng = true; G.cars[0].speed = vel; delete G.cars[0].kind; }
+    for (const kk of ['jeep', 'truck', 'apc']) if (a('engine_' + kk)) { P.car = 'c1'; P._eng = true; G.cars[0].kind = kk; G.cars[0].speed = vel * G.VEH[kk].vmax / 11; }
+    if (a('heli') || a('jet') || a('stall')) { P.car = a('jet') ? 'c4' : 'c3'; P._eng = !a('stall'); const c = G.cars.find((e) => e.id === P.car); c.speed = vel * G.VEH[c.kind].vmax / 11; c.alt = 10; c.stall = a('stall'); }
     if (a('siphon')) P.action = { type: 'siphon', id: 's1' };
     if (a('fire')) G.fires = [{ x: P.x + 3, y: 0 }];
   }
@@ -165,7 +184,7 @@ input[type=range]{flex:1;min-height:var(--toque)}
     }
     for (const [sec, nome, q, c, k] of LOOPS.filter((r) => r[0] === s)) {
       const el = card(sec, nome, q, c); nomes.push(n + ' — ' + nome);
-      if (k === 'engine') {
+      if (k === 'engine' || k.startsWith('engine_')) {
         const l = document.createElement('label'); l.className = 'sl';
         l.innerHTML = 'Parado <input type="range" min="0" max="11" step="0.5" value="0" aria-label="Velocidade do carro"> 11 m/s';
         l.querySelector('input').oninput = (e) => { vel = +e.target.value; };

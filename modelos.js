@@ -466,7 +466,7 @@ export function makeFurniture(kind, opts = {}) {
       add(g, softGeo(1.2, 0.06, 0.8, 0.03).rotateX(Math.PI / 2), 0xeab26a, 0, 0.72, 0);
       for (const x of [-0.54, 0.54]) for (const z of [-0.34, 0.34]) add(g, Cyl(0.04, 0.04, 0.7, 6), 0x9b6a3c, x, 0.35, z);
       break;
-    case 'box_mercado': case 'box_posto': case 'box_galpao': return makeFurniture('box', opts); // caixas de depósito (mesmo modelo)
+    case 'box_mercado': case 'box_posto': case 'box_galpao': case 'box_militar': return makeFurniture('box', opts); // caixas de depósito (mesmo modelo)
     case 'toolbox_oficina': return makeFurniture('toolbox', opts); // bancada de ferramentas
     case 'pew': // banco de igreja 2,8×0,6×0,9
       add(g, Box(2.8, 0.08, 0.45), 0xeab26a, 0, 0.45, 0.05);
@@ -701,6 +701,25 @@ export function makeProp(kind) {
     case 'can': // lata no chao (deitada, eixo x): corpo 9aa3b5 com faixa ff8c69
       add(g, Cyl(0.055, 0.055, 0.17, 8), 0x9aa3b5, 0, 0.056, 0, 0, 0, Math.PI / 2); add(g, Cyl(0.058, 0.058, 0.06, 8), 0xff8c69, 0, 0.056, 0, 0, 0, Math.PI / 2);
       break;
+    case 'kerotank': // tanque de querosene da base (colisao r 1): cilindro deitado, apoios, faixa f2d16b e tampa no topo
+      add(g, Cyl(0.8, 0.8, 2.0, 12), 0x9aa3b5, 0, 1.05, 0, 0, 0, Math.PI / 2);
+      add(g, Cyl(0.815, 0.815, 0.3, 12), 0xf2d16b, 0, 1.05, 0, 0, 0, Math.PI / 2);
+      for (const x of [-0.6, 0.6]) add(g, Box(0.3, 0.3, 1.4), 0x5e5b6b, x, 0.15, 0);
+      add(g, Cyl(0.32, 0.32, 0.06, 12), 0x5e5b6b, 0, 1.86, 0); add(g, Cyl(0.25, 0.25, 0.07, 12), 0x9aa3b5, 0, 1.87, 0); add(g, Box(0.22, 0.03, 0.05), 0xf2d16b, 0, 1.92, 0);
+      break;
+    case 'pista40': case 'pistaA': case 'pistaB': { // pista 80 m em 3 pecas (20 + 40 + 20): asfalto, faixa central tracejada, bordas e cabeceiras f2d16b; chao plano, sem contorno
+      const L = kind === 'pista40' ? 40 : 20, e = kind === 'pistaA' ? -1 : kind === 'pistaB' ? 1 : 0;
+      add(g, Box(L, 0.02, 8), 0x5e5b6b, 0, 0.01, 0);
+      for (const z of [-3.7, 3.7]) add(g, Box(L, 0.022, 0.12), 0xfff1e0, 0, 0.011, z);
+      for (let x = -L / 2 + 2.5; x < L / 2 - 1; x += 5) add(g, Box(2.4, 0.022, 0.25), 0xfff1e0, x, 0.011, 0);
+      if (e) for (let i = -3; i <= 3; i++) add(g, Box(1.6, 0.022, 0.4), 0xf2d16b, e * (L / 2 - 1.2), 0.012, i * 1.0);
+      return g;
+    }
+    case 'heliporto': // disco O14 m asfalto, anel f2d16b e H fff1e0; chao plano
+      add(g, Cyl(7, 7, 0.02, 28), 0x5e5b6b, 0, 0.01, 0);
+      { const r = new THREE.Mesh(new THREE.RingGeometry(5.7, 6.3, 28).rotateX(-Math.PI / 2), mat(0xf2d16b)); r.position.y = 0.022; g.add(r); }
+      add(g, Box(0.5, 0.022, 3.6), 0xfff1e0, -1.0, 0.012, 0); add(g, Box(0.5, 0.022, 3.6), 0xfff1e0, 1.0, 0.012, 0); add(g, Box(1.5, 0.022, 0.5), 0xfff1e0, 0, 0.012, 0);
+      return g;
     case 'dropped': // gaveta caida (saqueada): caixa eab26a virada, puxador 6e4422
       add(g, softGeo(0.5, 0.14, 0.4, 0.03), 0xeab26a, 0, 0.09, 0, 0, 0, 0.12); add(g, Box(0.14, 0.04, 0.04), 0x6e4422, 0.1, 0.12, 0.21);
       break;
@@ -710,3 +729,136 @@ export function makeProp(kind) {
   }
   return done(g);
 }
+
+// ---------- base militar (ESTILO.md "Base militar") ----------
+const OLIVA = 0x6f7d4a, OLIVA_ESC = 0x4a5535, CONCRETO = 0xd6cfc4;
+const inkBox = (g, w, h, d, x, y, z) => { const m = new THREE.Mesh(Box(w + 0.1, h + 0.1, d + 0.1), INK); m.position.set(x, y, z); m.userData.noInk = true; g.add(m); }; // contorno constante (a casca 1,07x de uma peca de 10-40 m estouraria)
+// muro de concreto de uma peca (len m ao longo de x, centrado): bloco, travessa de topo e pilar a cada ~10 m
+export function makeBaseWall(len = 10) {
+  const g = new THREE.Group(), n = Math.max(1, Math.round(len / 10));
+  add(g, Box(len, 2.4, 0.4), CONCRETO, 0, 1.2, 0); inkBox(g, len, 2.4, 0.4, 0, 1.2, 0);
+  add(g, Box(len, 0.12, 0.5), 0x9aa3b5, 0, 2.46, 0); inkBox(g, len, 0.12, 0.5, 0, 2.46, 0);
+  for (let i = 0; i <= n; i++) { const x = -len / 2 + len * i / n; add(g, Box(0.5, 2.6, 0.5), 0x9aa3b5, x, 1.3, 0); inkBox(g, 0.5, 2.6, 0.5, x, 1.3, 0); }
+  return g;
+}
+// telhado plano da guarita/galpao militar: faixa de paredes 0,8-3,0 m, laje 5e5b6b, platibanda 9aa3b5 e faixa oliva rente; doorX = centro da(s) porta(s) ao sul
+export function makeMilRoof(w, d, doorX = 0) {
+  const g = new THREE.Group(), t = 0.2, y0 = 0.8, H = 2.2, yc = y0 + H / 2, zc = d / 2 - t / 2, xc = w / 2 - t / 2, L = d - 2 * t, a = doorX - 1, b = doorX + 1;
+  add(g, Box(w, H, t), CONCRETO, 0, yc, -zc); add(g, Box(t, H, L), CONCRETO, xc, yc, 0); add(g, Box(t, H, L), CONCRETO, -xc, yc, 0);
+  add(g, Box(b - a, 1.0, t), CONCRETO, doorX, 2.5, zc);
+  for (const [x0, x1] of [[-w / 2, a], [b, w / 2]]) add(g, Box(x1 - x0, H, t), CONCRETO, (x0 + x1) / 2, yc, zc);
+  add(g, Box(w, 0.2, d), 0x5e5b6b, 0, 3.1, 0);
+  add(g, Box(w, 0.4, t), 0x9aa3b5, 0, 3.4, zc); add(g, Box(w, 0.4, t), 0x9aa3b5, 0, 3.4, -zc);
+  add(g, Box(t, 0.4, L), 0x9aa3b5, xc, 3.4, 0); add(g, Box(t, 0.4, L), 0x9aa3b5, -xc, 3.4, 0);
+  add(g, Box(w + 0.06, 0.3, 0.06), OLIVA, 0, 2.85, d / 2 + 0.03); add(g, Box(w + 0.06, 0.3, 0.06), OLIVA, 0, 2.85, -d / 2 - 0.03);
+  add(g, Box(0.06, 0.3, d), OLIVA, w / 2 + 0.03, 2.85, 0); add(g, Box(0.06, 0.3, d), OLIVA, -w / 2 - 0.03, 2.85, 0);
+  return done(g);
+}
+// veiculos militares SEM armas (jipe 4,0 x 2,0 | caminhao 6,0 x 2,4 | blindado 6,0 x 2,6), frente em +x, escala 1 (metros do mundo).
+// parts:true = pivos como makeCar (body, trunkLid, wheel*, lightL/lightR, exhaust) para o carro dirigido; userData: wr, hood, crack, ex, lamp
+const MIL = {
+  jeep: { wr: 0.38, W: [['FL', 1.2, -0.98], ['FR', 1.2, 0.98], ['RL', -1.2, -0.98], ['RR', -1.2, 0.98]], lamp: [1.76, 0.95, 0.6], tail: [-1.76, 0.95, 0.6], hood: [1.2, 1.35, 0], lid: [-1.84, 1.1], ex: [-1.8, 0.35, 0.5], crack: [0.38, 1.35, 0] },
+  truck: { wr: 0.5, W: [['FL', 1.9, -1.15], ['FR', 1.9, 1.15], ['RL', -1.0, -1.15], ['RR', -1.0, 1.15], ['RL2', -2.05, -1.15], ['RR2', -2.05, 1.15]], lamp: [2.99, 0.95, 0.7], tail: [-2.78, 0.9, 0.9], hood: [2.5, 1.5, 0], lid: [-2.76, 1.55], ex: [-2.7, 0.4, 1.0], crack: [2.07, 1.7, 0] },
+  apc: { wr: 0.45, W: [['FL', 1.8, -1.3], ['FR', 1.8, 1.3], ['RL', -1.7, -1.3], ['RR', -1.7, 1.3]], lamp: [2.71, 1.0, 0.85], tail: [-2.71, 1.0, 0.85], hood: [2.2, 1.9, 0], lid: [-2.72, 2.0], ex: [-2.7, 0.5, 1.0], crack: [2.0, 1.55, 0] },
+};
+export function makeMil(kind = 'jeep', opts = {}) {
+  const D = MIL[kind], parts = !!opts.parts, g = new THREE.Group(), b = parts ? pivot(g, 'body', 0, 0, 0) : g, wr = D.wr, G2 = 0x2f2a35, GLASS = 0x4a5266;
+  const lid = parts ? pivot(b, 'trunkLid', D.lid[0], D.lid[1], 0) : b, lx = parts ? 0 : D.lid[0], ly = parts ? 0 : D.lid[1];
+  if (kind === 'jeep') {
+    add(b, Box(3.6, 0.5, 1.7), OLIVA, 0, 0.7, 0);
+    add(b, Box(1.2, 0.36, 1.6), OLIVA, 1.15, 1.07, 0);
+    add(b, Box(0.1, 0.5, 1.5), GLASS, 0.38, 1.35, 0, 0, 0, 0.3);
+    add(b, Box(0.7, 0.45, 1.3), OLIVA_ESC, -0.1, 1.17, 0);
+    add(b, Box(1.0, 0.4, 1.7), OLIVA, -1.2, 1.15, 0);
+    add(lid, Box(0.08, 0.5, 1.6), OLIVA, lx, ly - 0.25, 0);
+    for (const x of [-1.9, 1.9]) add(b, Box(0.14, 0.22, 1.9), OLIVA_ESC, x, 0.5, 0);
+    add(b, Box(0.04, 0.3, 1.0), G2, 1.77, 1.0, 0);
+    add(b, Cyl(0.33, 0.33, 0.18, 10), G2, -2.0, 1.1, 0, 0, 0, Math.PI / 2);
+  } else if (kind === 'truck') {
+    add(b, Box(5.4, 0.3, 2.0), OLIVA_ESC, 0, 0.75, 0);
+    add(b, Box(1.5, 1.2, 2.1), OLIVA, 1.3, 1.5, 0);
+    add(b, Box(0.04, 0.6, 1.8), GLASS, 2.07, 1.7, 0);
+    for (const z of [-1.07, 1.07]) add(b, Box(0.7, 0.5, 0.04), GLASS, 1.4, 1.7, z);
+    add(b, Box(0.9, 0.7, 2.0), OLIVA, 2.5, 1.1, 0);
+    add(b, Box(0.04, 0.4, 1.4), G2, 2.97, 1.05, 0);
+    add(b, Box(0.14, 0.25, 2.2), OLIVA_ESC, 3.02, 0.62, 0);
+    add(b, Box(3.4, 0.2, 2.2), OLIVA_ESC, -1.1, 0.95, 0);
+    for (const z of [-1.05, 1.05]) add(b, Box(3.4, 0.5, 0.1), OLIVA, -1.1, 1.3, z);
+    add(b, Box(0.1, 0.5, 2.0), OLIVA, 0.55, 1.3, 0);
+    add(b, Cap(0.9, 2.6), OLIVA_ESC, -1.1, 1.55, 0, 0, 0, Math.PI / 2).scale.set(1, 0.7, 1.05);
+    add(lid, Box(0.08, 0.5, 2.0), OLIVA, lx, ly - 0.55, 0);
+    add(b, Box(0.14, 0.25, 2.2), OLIVA_ESC, -2.85, 0.62, 0);
+  } else {
+    add(b, Box(5.4, 0.9, 2.3), OLIVA, 0, 1.05, 0);
+    add(b, Cyl(1.15, 1.75, 0.8, 4), OLIVA, 0, 1.9, 0, 0, Math.PI / 4, 0).scale.set(1.5, 1, 0.78);
+    add(b, Box(1.0, 0.12, 2.2), OLIVA, 2.45, 1.55, 0, 0, 0, -0.5);
+    add(b, Box(0.04, 0.2, 1.0), GLASS, 2.71, 1.4, 0);
+    for (const z of [-1.17, 1.17]) for (const x of [-1.2, 0, 1.2]) add(b, Box(0.5, 0.18, 0.04), GLASS, x, 1.45, z);
+    add(b, Cyl(0.35, 0.35, 0.1, 10), OLIVA_ESC, 0.2, 2.35, 0.5);
+    add(b, Box(0.14, 0.25, 2.5), OLIVA_ESC, 2.78, 0.62, 0); add(b, Box(0.14, 0.25, 2.5), OLIVA_ESC, -2.78, 0.62, 0);
+    add(lid, Box(0.1, 1.2, 2.0), OLIVA_ESC, lx, ly - 0.6, 0);
+  }
+  for (const z of [-D.lamp[2], D.lamp[2]]) { add(b, Box(0.05, 0.18, 0.26), 0xfff3b0, D.lamp[0], D.lamp[1], z); add(b, Box(0.05, 0.16, 0.22), 0xd9302c, D.tail[0], D.tail[1], z); }
+  for (const [n, x, z] of D.W) {
+    if (!parts) { add(g, Cyl(wr, wr, 0.3, 10), G2, x, wr, z, Math.PI / 2, 0, 0); add(g, Cyl(wr * 0.45, wr * 0.45, 0.02, 8), 0x9aa3b5, x, wr, z + Math.sign(z) * 0.16, Math.PI / 2, 0, 0); continue; }
+    const axle = pivot(g, 'axle' + n, x, wr, z); axle.rotation.y = Math.PI / 2;
+    const w = pivot(axle, 'wheel' + n, 0, 0, 0); w.rotation.order = 'YXZ';
+    const spin = m => { m.rotation.order = 'YXZ'; m.rotation.set(Math.PI / 2, -Math.PI / 2, 0); return m; };
+    spin(add(w, Cyl(wr, wr, 0.3, 10), G2)); spin(add(w, Cyl(wr * 0.45, wr * 0.45, 0.02, 8), 0x9aa3b5, -Math.sign(z) * 0.16));
+  }
+  if (parts) { pivot(b, 'lightL', D.lamp[0] + 0.04, D.lamp[1], -D.lamp[2]); pivot(b, 'lightR', D.lamp[0] + 0.04, D.lamp[1], D.lamp[2]); pivot(b, 'exhaust', ...D.ex); }
+  done(g); g.userData = { wr, hood: D.hood, crack: D.crack, len: kind === 'jeep' ? 4 : 6, wid: kind === 'jeep' ? 2 : kind === 'truck' ? 2.4 : 2.6 };
+  return g;
+}
+
+// ---------- aeronaves SEM armas (ESTILO.md "Base militar", etapas 2-3): frente em +x, escala 1 (metros do mundo) ----------
+// helicoptero 7 x 2,4: cabine oliva, bolha de vidro, cauda, esquis; o ROTOR e outra peca (makeRotor) para girar (IM proprio)
+export function makeHeli() {
+  const g = new THREE.Group(), G2 = 0x2f2a35, GLASS = 0x4a5266, AL = 0x9aa3b5;
+  add(g, Box(3.0, 1.2, 1.7), OLIVA, 0.3, 1.0, 0);
+  add(g, Sph(0.85), GLASS, 1.75, 1.0, 0).scale.set(1, 0.95, 1);
+  for (const z of [-0.86, 0.86]) add(g, Box(1.0, 0.55, 0.04), GLASS, 0.5, 1.2, z);
+  add(g, Box(2.2, 0.22, 1.4), OLIVA_ESC, 0.1, 1.72, 0);
+  add(g, Box(3.4, 0.36, 0.36), OLIVA, -2.5, 1.3, 0);
+  add(g, Box(0.55, 1.0, 0.1), OLIVA_ESC, -4.0, 1.75, 0);
+  add(g, Cyl(0.5, 0.5, 0.05, 8), AL, -4.0, 2.0, 0.12, Math.PI / 2, 0, 0);
+  add(g, Cyl(0.12, 0.12, 0.5, 8), G2, 0.1, 2.05, 0);
+  for (const z of [-0.8, 0.8]) { add(g, Box(3.6, 0.1, 0.14), G2, 0.2, 0.12, z); for (const x of [-0.9, 1.1]) add(g, Box(0.1, 0.7, 0.1), G2, x, 0.5, z * 0.95); }
+  add(g, Box(0.05, 0.14, 0.3), 0xfff3b0, 2.5, 0.9, 0); add(g, Box(0.05, 0.12, 0.2), 0xd9302c, -4.28, 1.75, 0);
+  done(g); g.userData = { len: 7, wid: 2.4, rotorY: 2.3 };
+  return g;
+}
+// rotor principal: cubo e 4 pas (2 cruzadas) com ponta f2d16b, centrado na origem (y do mastro = userData.rotorY do heli)
+export function makeRotor() {
+  const g = new THREE.Group(), G2 = 0x2f2a35;
+  add(g, Cyl(0.26, 0.26, 0.16, 8), G2, 0, 0, 0);
+  for (const r of [0, Math.PI / 2]) {
+    const b = new THREE.Group(); b.rotation.y = r;
+    add(b, Box(6.8, 0.05, 0.28), OLIVA_ESC, 0, 0.02, 0);
+    for (const x of [-3.2, 3.2]) add(b, Box(0.5, 0.06, 0.3), 0xf2d16b, x, 0.02, 0);
+    g.add(b);
+  }
+  return done(g);
+}
+// jato 9 x 3 (asas de 6,4 m so no visual): fuselagem oliva, nariz cone, cabine, asas e cauda; gear:false = sem trem (o rig proprio recolhe o trem com alt > 2)
+export function makeJet(opts = {}) {
+  const g = new THREE.Group(), G2 = 0x2f2a35, GLASS = 0x4a5266;
+  add(g, Cyl(0.5, 0.5, 6.0, 10), OLIVA, -0.4, 1.1, 0, 0, 0, Math.PI / 2);
+  add(g, Cyl(0.06, 0.5, 2.4, 10), OLIVA, 3.7, 1.1, 0, 0, 0, -Math.PI / 2);
+  add(g, Sph(0.5), GLASS, 1.6, 1.5, 0).scale.set(1.9, 0.7, 0.8);
+  for (const z of [-1, 1]) { add(g, Box(2.4, 0.12, 3.1), OLIVA, -0.3, 1.0, z * 1.7).rotation.y = -z * 0.3; add(g, Box(0.5, 0.14, 0.5), 0xf2d16b, -0.9, 1.0, z * 3.1); }
+  add(g, Box(1.3, 0.1, 2.6), OLIVA_ESC, -3.7, 1.2, 0);
+  add(g, Box(1.5, 1.1, 0.1), OLIVA_ESC, -3.7, 1.85, 0).rotation.z = 0.3;
+  add(g, Cyl(0.36, 0.42, 0.6, 10), G2, -4.4, 1.1, 0, 0, 0, Math.PI / 2);
+  add(g, Box(0.06, 0.12, 0.3), 0xd9302c, -4.7, 1.1, 0);
+  if (opts.gear !== false) g.add(jetGear());
+  done(g); g.userData = { len: 9, wid: 3 };
+  return g;
+}
+function jetGear() {
+  const g = new THREE.Group(), G2 = 0x2f2a35, AL = 0x9aa3b5;
+  for (const [x, z, r] of [[2.4, 0, 0.2], [-0.6, -1.0, 0.25], [-0.6, 1.0, 0.25]]) { add(g, Cyl(0.05, 0.05, 0.8, 6), AL, x, 0.7, z); add(g, Cyl(r, r, 0.16, 10), G2, x, r, z, Math.PI / 2, 0, 0); }
+  g.name = 'gear';
+  return g;
+}
+export function makeJetGear() { return done(jetGear()); }

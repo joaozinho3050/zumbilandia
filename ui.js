@@ -23,8 +23,8 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
 .pulse{animation:pulso 1s ease-in-out infinite}
 @keyframes pulso{50%{transform:scale(1.06)}}
 #time{top:var(--mt);right:calc(var(--mr) + 112px);height:48px;display:flex;align-items:center;font:20px 'Pixelify Sans',monospace;text-shadow:var(--sombra-texto)}
-#hint{top:56px;left:50%;transform:translateX(-50%);max-width:60vw;display:flex;align-items:center;gap:var(--esp-2);min-height:36px;padding:0 var(--esp-3);background:var(--superficie);border:2px solid var(--borda);border-radius:14px;box-shadow:var(--sombra);font-size:16px;pointer-events:auto}
-#hint span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#hint{top:56px;left:50%;transform:translateX(-50%);max-width:min(60vw,calc(100vw - 2 * (var(--mr) + 236px)));display:flex;align-items:center;gap:var(--esp-2);min-height:36px;padding:0 var(--esp-3);background:var(--superficie);border:2px solid var(--borda);border-radius:14px;box-shadow:var(--sombra);font-size:16px;pointer-events:auto}
+#hint span{overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;line-height:1.15;font-size:15px;padding:3px 0}
 #hint button{display:none;min-width:48px;min-height:48px;border:0;background:none;color:var(--municao);font:inherit;font-size:14px;text-decoration:underline}
 #hint.g button{display:block}
 #hud .pop{position:absolute;left:0;top:0;width:80px;text-align:center;font:12px 'Pixelify Sans',monospace;color:var(--texto);text-shadow:var(--sombra-texto),0 0 3px #15121a;pointer-events:none;opacity:0}
@@ -61,6 +61,12 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
 #joy .marca{position:absolute;left:0;top:0;width:100%;height:100%;fill:none;stroke:var(--borda);stroke-width:1}
 #btn-crouch{left:calc(var(--ml) + 36px);bottom:calc(var(--mb) + 136px);width:48px;height:48px}
 #btn-crouch.on{opacity:1;border-color:var(--folego)}
+#joy.aero .zona{display:none}
+#btn-up,#btn-down{left:calc(var(--ml) + 32px);width:56px;height:56px;font-size:11px}
+#btn-up{bottom:calc(var(--mb) + 196px)}#btn-down{bottom:calc(var(--mb) + 132px)}
+#alt{right:var(--mr);top:calc(var(--mt) + 100px);color:var(--folego)}
+#warn{left:50%;top:calc(var(--mt) + 100px);transform:translateX(-50%);padding:6px var(--esp-4);background:var(--vida);color:#15121a;border:2px solid #15121a;border-radius:14px;box-shadow:var(--sombra);font:16px 'Pixelify Sans',monospace;white-space:nowrap;animation:pulso .6s ease-in-out infinite}
+@media (prefers-reduced-motion:reduce){#warn{animation:none}}
 #joy .nub{position:absolute;left:36px;top:36px;width:48px;height:48px;border-radius:50%;background:var(--slot);border:2px solid var(--texto)}
 #menu{z-index:5;position:absolute;left:50%;top:50%;width:92vw;height:86vh;transform:translate(-50%,-50%);display:flex;flex-direction:column;background:var(--superficie-forte);border:2px solid var(--borda);border-radius:14px;transition:opacity var(--fade);pointer-events:auto}
 #menu .tabs{display:flex;align-items:center;gap:var(--esp-1);padding:var(--esp-2);border-bottom:2px solid var(--borda);font:12px 'Pixelify Sans',monospace}
@@ -165,6 +171,7 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
     pump: '<path d="M5 21V5a1 1 0 0 1 1-1h7a1 1 0 0 1 1 1v16M3 21h13M6 8h7"/><path d="M14 10h2.5a1.5 1.5 0 0 1 1.5 1.5v5a1.5 1.5 0 0 0 3 0V9l-3-3"/>',
     fire: '<path d="M10 11h4v2l1.5 2v5.5h-7V15l1.5-2z"/><path d="M11 11V8.5h2V11"/><path d="M12 2c1 2 3 3 3 5a3 3 0 0 1-6 0c0-1 .6-1.7 1-2.5.2.8.6 1 1 1 0-1.5 0-2.5 1-3.5z"/>',
     stairs: '<path d="M3 20h5v-4h4v-4h4V8h5"/><path d="M13 5l3-3 3 3"/>',
+    up: '<path d="M12 19V5M6 11l6-6 6 6"/>', down: '<path d="M12 5v14M6 13l6 6 6-6"/>', plane: '<path d="M3 13l8-2V5l2-1 1 7 7 2v2l-8-1-1 4 2 1v1l-4-1-4 1v-1l2-1-1-4-4 1z"/>',
     crouch: '<circle cx="15" cy="6" r="2.5"/><path d="M14 10l-3 4.5 4 2.5-1 4.5M11 14.5l-4 1.5v4h4"/>'
   };
   const svg = (n, c) => '<svg viewBox="0 0 24 24"' + (c ? ' style="color:' + c + '"' : '') + '>' + ICON[n] + '</svg>';
@@ -176,11 +183,11 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
   };
   const acaoDe = (n) => (n.type === 'door' || n.type === 'crate') && n.locked ? (n.cut ? ACAO.cut : ACAO.locked) : n.act ? ACAO[n.act] : n.type === 'stairs' ? ['stairs', n.up ? 'SUBIR' : 'DESCER'] : n.type === 'door' ? (n.open ? ['door', 'FECHAR'] : ['door', 'ABRIR']) : ACAO[n.type] || ['hand', 'AÇÃO'];
   const NOME = { food: 'Comida', bandage: 'Bandagem', ammo: 'Munição', rag: 'Trapo', wire: 'Arame', bottle: 'Garrafa', hose: 'Mangueira', cutter: 'Alicate', gascan: 'Galão', key: 'Chave', pipe: 'Cano', pipe_r: 'Cano reforçado', food_bad: 'Comida estragada', pistol: 'Pistola', molotov: 'Molotov', helmet: 'Capacete', jacket: 'Jaqueta', shinguards: 'Caneleiras', bag_school: 'Mochila escolar', bag_hiking: 'Mochila de trilha', bag_military: 'Mochila militar' };
-  const CNOME = { fridge: 'Geladeira', cabinet: 'Armário', wardrobe: 'Guarda-roupa', drawer: 'Gaveta', shelf: 'Gôndola', box: 'Caixa', box_mercado: 'Caixa', box_posto: 'Caixa', box_galpao: 'Caixa', toolbox: 'Caixa de ferramentas', toolbox_oficina: 'Bancada', pshelf: 'Prateleira', medcart: 'Carrinho', medcab: 'Armarinho', gunlocker: 'Armário de armas', desk: 'Recepção', locker: 'Armário', sacristy: 'Armário da sacristia', trunk: 'Porta-malas', tomb: 'Tumba', corpse: 'Corpo' };
+  const CNOME = { fridge: 'Geladeira', cabinet: 'Armário', wardrobe: 'Guarda-roupa', drawer: 'Gaveta', shelf: 'Gôndola', box: 'Caixa', box_mercado: 'Caixa', box_posto: 'Caixa', box_galpao: 'Caixa', box_militar: 'Caixa militar', toolbox: 'Caixa de ferramentas', toolbox_oficina: 'Bancada', pshelf: 'Prateleira', medcart: 'Carrinho', medcab: 'Armarinho', gunlocker: 'Armário de armas', desk: 'Recepção', locker: 'Armário', sacristy: 'Armário da sacristia', trunk: 'Porta-malas', tomb: 'Tumba', corpse: 'Corpo' };
   const ARMA = { pipe: 'CANO', pipe_r: 'CANO+', pistol: 'PISTOLA', molotov: 'MOLOTOV' };
   const durMax = (id) => id === 'cutter' ? 4 : ((window.G && G.DUR) || {})[id]; // durabilidade cheia: G.DUR (+ alicate, que nao e armadura)
 
-  const held = { atk: false, act: false }, keys = new Set(), last = {}, E = {};
+  const held = { atk: false, act: false, up: false, down: false }, keys = new Set(), last = {}, E = {};
   const joy = { id: null, cx: 0, cy: 0, mx: 0, my: 0, run: false };
   let tapT = null, intT = 0, pend = false, hintGuia = '', crouchPend = false, root, armorUntil = 0, hintUntil = 0, hintNear = '', hintAt = 0, hintQ = [], flashWUntil = 0, toastUntil = 0, flashUntil = 0, menuEl, startEl, confirmEl, deadEl, tourEl, tourStep = -1, tourPos, contEl, contSig = '', hp = null;
 
@@ -260,7 +267,7 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
     const st = [];
     if (DANO[it.id]) st.push('Dano ' + DANO[it.id]);
     if (it.dur != null) st.push('Durabilidade ' + it.dur + '/' + (durMax(it.id) || it.dur));
-    if (it.id === 'gascan' && it.fuel != null) st.push('Gasolina ' + Math.round(it.fuel / 10 * 100) + '%');
+    if (it.id === 'gascan' && it.fuel != null) st.push((it.fuelType === 'kero' && it.fuel > 0 ? 'Querosene ' : 'Gasolina ') + Math.round(it.fuel / 10 * 100) + '%');
     if (it.qty > 1) st.push('Quantidade ' + it.qty);
     return '<div class="icard"><b>' + nm(it.id) + '</b><p>' + ((window.G.ITEM_DESC || {})[it.id] || '') + '</p>' + (st.length ? '<small>' + st.join(' · ') + '</small>' : '') + '</div>';
   }
@@ -422,8 +429,8 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
       '<h3 class="dvh">Itens (toque +1, segure = pilha)</h3>' + grid(items) +
       '<h3 class="dvh">Zumbis</h3>' + DVB('z:walker', 'Andador') + DVB('z:runner', 'Corredor') + DVB('z:police', 'Policial') + DVB('z:jaleco', 'Jaleco') + DVB('z:macacao', 'Macacão') + DVB('z:crawl', 'Rastejante') + DVB('z:limp', 'Manco') + DVB('z:horde', 'Horda') +
       '<h3 class="dvh">Cenário</h3>' + DVB('caral', 'Carro com alarme') + DVB('corpo', 'Corpo') + DVB('lata', 'Lata') +
-      '<h3 class="dvh">Carro</h3>' + car +
-      '<h3 class="dvh">Teleporte</h3>' + DVB('tp:market', 'Mercado') + DVB('tp:posto', 'Posto') + DVB('tp:delegacia', 'Delegacia') + DVB('tp:igreja', 'Igreja') + DVB('tp:hospital', 'Hospital') + DVB('tp:saude', 'Posto de saúde') + DVB('tp:farmacia', 'Farmácia') + DVB('tp:escola', 'Escola') + DVB('tp:oficina', 'Oficina') + DVB('tp:galpao', 'Galpão') + DVB('tp:cemiterio', 'Cemitério') + DVB('tp:locked', 'Casa trancada') + DVB('tp:sobrado', 'Sobrado') + DVB('tp:garagem', 'Garagem') + DVB('tp:car', 'Carro') + DVB('tp:spawn', 'Início') + DVB('tp:far', '+10 chunks') +
+      '<h3 class="dvh">Carro</h3>' + car + '<div>Militares (tanque cheio, vida cheia) ' + DVB('veh:jeep:10', 'Jipe') + DVB('veh:truck:10', 'Caminhão') + DVB('veh:apc:10', 'Blindado') + DVB('veh:jeep:0', 'Jipe seco') + DVB('veh:heli:20', 'Helicóptero (querosene cheio)') + DVB('veh:jet:20', 'Jato (use Teleporte: pista)') + DVB('kcan', 'Galão de querosene') + '</div>' +
+      '<h3 class="dvh">Teleporte</h3>' + DVB('tp:pista', 'Pista da base') + DVB('tp:heliporto', 'Heliporto') + DVB('tp:market', 'Mercado') + DVB('tp:posto', 'Posto') + DVB('tp:delegacia', 'Delegacia') + DVB('tp:igreja', 'Igreja') + DVB('tp:hospital', 'Hospital') + DVB('tp:saude', 'Posto de saúde') + DVB('tp:farmacia', 'Farmácia') + DVB('tp:escola', 'Escola') + DVB('tp:oficina', 'Oficina') + DVB('tp:galpao', 'Galpão') + DVB('tp:cemiterio', 'Cemitério') + DVB('tp:locked', 'Casa trancada') + DVB('tp:sobrado', 'Sobrado') + DVB('tp:garagem', 'Garagem') + DVB('tp:base', 'Base militar (portão)') + DVB('tp:baseIn', 'Base: pátio') + DVB('tp:car', 'Carro') + DVB('tp:spawn', 'Início') + DVB('tp:far', '+10 chunks') +
       '<h3 class="dvh">Chaves</h3>' + DVB('god', 'Imortal' + on(d.god)) + DVB('nomiss', 'Tiro certeiro' + on(d.noMiss)) + DVB('noclip', 'Atravessar paredes' + on(d.noclip)) + DVB('t:1', 'Tempo ×1' + on(d.speed === 1)) + DVB('t:4', '×4' + on(d.speed === 4)) + DVB('t:16', '×16' + on(d.speed === 16)) + DVB('fill', 'Encher status') + DVB('ov', 'Overlay' + on(d.ov)) + '</div>';
   }
   function devAct(v) {
@@ -432,10 +439,12 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
     let r = true;
     if (k === 'z') d.spawnZ(a);
     else if (k === 'car') r = !!d.spawnCar({ fuel: +a, hp: +b });
+    else if (k === 'veh') r = !!d.spawnCar({ kind: a, fuel: +b, hp: 100 });
+    else if (k === 'kcan') r = d.spawnItem('gascan', 1, 'kero');
     else if (k === 'caral') r = !!d.spawnCar({ fuel: 5, hp: 100, alarm: 1 });
     else if (k === 'corpo') r = d.spawnCorpse();
     else if (k === 'lata') r = d.spawnCan();
-    else if (k === 'tp') r = d.tp(a);
+    else if (k === 'tp') { r = d.tp(a); if (r === false && (a === 'base' || a === 'baseIn' || a === 'pista' || a === 'heliporto') && G.gv < 3) { say('Sem base neste mundo (mundo antigo)'); return; } }
     else if (k === 'god' || k === 'noclip') d[k] = !d[k];
     else if (k === 'nomiss') d.noMiss = !d.noMiss;
     else if (k === 't') d.speed = +a;
@@ -452,7 +461,7 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
   // ---- CONTÊINER (M4.5): esquerda = contêiner, direita = mochila ----
   function contData(G, p) {
     const o = p.open, e = o && (o.type === 'trunk' ? G.cars : G.crates).find((c) => c.id === o.id);
-    return e && { list: o.type === 'trunk' ? e.trunk : e.loot, name: CNOME[o.type === 'trunk' ? 'trunk' : e.tomb ? 'tomb' : e.kind] || 'Móvel', cap: o.type === 'trunk' ? 10 : e.tomb ? Infinity : e.kind === 'shelf' ? 8 : 6 };
+    return e && { list: o.type === 'trunk' ? e.trunk : e.loot, name: CNOME[o.type === 'trunk' ? 'trunk' : e.tomb ? 'tomb' : e.kind] || 'Móvel', cap: o.type === 'trunk' ? ((G.VEH[e.kind || 'car'] || G.VEH.car).trunk) : e.tomb ? Infinity : e.kind === 'shelf' ? 8 : 6 };
   }
   function renderCont(G, p, c) {
     const cs = (list, n, side, ex) => { let g = ''; for (let i = 0; i < Math.max(n, list.length); i++) g += slotH(list[i], { a: 'data-s="' + side + '" data-i="' + i + '"', hold: true, sel: selC === side + ':' + i, ex: ex && i >= 8 }); return g; };
@@ -666,10 +675,13 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
     const joyEl = el('div', 'joy', hud, '<div class="base"><svg class="marca" viewBox="0 0 120 120"><circle cx="60" cy="60" r="54"/></svg><div class="nub"></div></div><div class="zona"></div>');
     E.joy = joyEl; E.nub = joyEl.querySelector('.nub');
     E.crouch = btn('btn-crouch', hud, svg('crouch')); E.crouch.setAttribute('aria-label', 'Agachar');
+    E.up = btn('btn-up', hud, svg('up') + 'SUBIR'); E.down = btn('btn-down', hud, svg('down') + 'DESCER'); E.up.classList.add('hidden'); E.down.classList.add('hidden');
     E.atk = btn('btn-attack', hud, svg('hit') + 'ATACAR');
     E.fuel = el('div', 'fuel', hud, svg('pump') + '<span>0</span><i class="hpbar hidden"><i></i></i>', 'pill hidden');
     E.hpbar = E.fuel.querySelector('.hpbar');
     E.re = el('div', 're', hud, 'RÉ', 'pill hidden');
+    E.alt = el('div', 'alt', hud, svg('plane') + '<span>ALT 0 m</span>', 'pill hidden');
+    E.warn = el('div', 'warn', hud, 'PERDENDO ALTITUDE', 'hidden');
     E.act = btn('btn-action', hud, '', 'hidden');
     E.act.className = 'hidden';
     // anel de progresso da BUSCA (stroke-dashoffset = 1 - t; pathLength=1)
@@ -688,6 +700,8 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
     hold(E.menuB, () => toggleMenu());
     hold(E.mute, toggleMute);
     hold(E.crouch, () => { crouchPend = true; });
+    hold(E.up, () => { held.up = true; }, () => { held.up = false; });
+    hold(E.down, () => { held.down = true; }, () => { held.down = false; });
 
     joyEl.addEventListener('pointerdown', (e) => {
       if (joy.id !== null) return;
@@ -705,7 +719,7 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
       else if (d > 90) { dx *= 90 / d; dy *= 90 / d; }
       const k = d > 60 ? 60 / Math.min(d, 90) : 1; // dentro do raio: velocidade proporcional; alem: so a zona de corrida
       joy.mx = dx * k / 60; joy.my = dy * k / 60;
-      if (!joyEl.classList.contains('car')) { if (d >= 81) joy.run = true; else if (d < 69) joy.run = false; } // zona externa: liga >= 1,35x o raio, desliga < 1,15x
+      if (!joyEl.classList.contains('car') && !joyEl.classList.contains('aero')) { if (d >= 81) joy.run = true; else if (d < 69) joy.run = false; } // zona externa: liga >= 1,35x o raio, desliga < 1,15x
       E.nub.style.transform = 'translate(' + dx + 'px,' + dy + 'px)';
     };
     const rel = (e) => {
@@ -729,7 +743,7 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
       else if (e.code === 'KeyC') crouchPend = true;
     });
     window.addEventListener('keyup', (e) => { keys.delete(e.code); if (e.code === 'KeyE') intT = 0; });
-    window.addEventListener('blur', () => { keys.clear(); held.atk = held.act = false; intT = 0; });
+    window.addEventListener('blur', () => { keys.clear(); held.atk = held.act = held.up = held.down = false; intT = 0; });
     // tocar para vasculhar: toque rapido no mundo (fora de #ui) => R.pick -> target + interact
     const tp0 = {};
     document.addEventListener('pointerdown', (e) => { tp0[e.pointerId] = { x: e.clientX, y: e.clientY, t: performance.now(), ok: e.target.id === 'ui' || !(e.target.closest && e.target.closest('#ui')) }; });
@@ -748,11 +762,13 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
     const kx = (keys.has('KeyD') || keys.has('ArrowRight') ? 1 : 0) - (keys.has('KeyA') || keys.has('ArrowLeft') ? 1 : 0);
     const ky = (keys.has('KeyS') || keys.has('ArrowDown') ? 1 : 0) - (keys.has('KeyW') || keys.has('ArrowUp') ? 1 : 0);
     const k = kx && ky ? Math.SQRT1_2 : 1, pz = UI.paused;
-    const car = G.cars && G.cars.find((c) => c.id === p.car);
+    const car = G.cars && G.cars.find((c) => c.id === p.car), air = !!(car && (G.VEH[car.kind || 'car'] || {}).air);
     const zm = (v) => (Math.abs(v) < .12 ? 0 : v); // zona morta do volante
-    inp.mx = pz ? 0 : joy.id !== null ? (car ? zm(joy.mx) : joy.mx) : kx * k;
-    inp.my = pz ? 0 : joy.id !== null ? (car ? -zm(joy.my) : joy.my) : car ? -ky : ky * k; // no carro, para cima = acelerar
-    inp.run = !pz && (joy.run || keys.has('ShiftLeft') || keys.has('ShiftRight'));
+    const gd = car && !air; // aeronave: joystick = direcao absoluta (como andar), sem zona de corrida
+    inp.mx = pz ? 0 : joy.id !== null ? (gd ? zm(joy.mx) : joy.mx) : kx * k;
+    inp.my = pz ? 0 : joy.id !== null ? (gd ? -zm(joy.my) : joy.my) : gd ? -ky : ky * k; // no carro, para cima = acelerar
+    inp.up = !pz && air && (held.up || keys.has('KeyR')); inp.down = !pz && air && (held.down || keys.has('KeyF'));
+    inp.run = !pz && !car && (joy.run || keys.has('ShiftLeft') || keys.has('ShiftRight'));
     if (crouchPend && !pz) inp.crouch = true; // pulso: o game alterna e zera
     crouchPend = false;
     inp.attack = !pz && !car && (held.atk || keys.has('Space'));
@@ -837,15 +853,19 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
     });
     put('ringp', !!(car && car.burn > 0), (v) => E.ring.classList.toggle('perigo', v));
 
-    const fc = car || (p.near && (p.near.type === 'car' || p.near.type === 'trunk') ? p.near : null), fl = fc ? Math.round(fc.fuel * 10) / 10 : -1;
-    put('fuel', fl, (v) => { E.fuel.classList.toggle('hidden', v < 0); E.fuel.querySelector('span').textContent = v < 0 ? '' : v.toFixed(1) + ' L'; });
-    const hv = car ? Math.max(0, Math.min(100, Math.round(car.hp == null ? 100 : car.hp))) : -1; // barra de vida do carro: so dirigindo
+    const fc = car || (p.near && (p.near.type === 'car' || p.near.type === 'trunk' || p.near.type === 'tank') ? p.near : null), fl = fc ? Math.round(fc.fuel * 10) / 10 : -1;
+    const ft = !fc ? '' : fc.type === 'tank' ? (G.tanks.find((t) => t.id === fc.id) || {}).fuelType || 'gas' : ((G.VEH[(car || G.cars.find((c) => c.id === fc.id) || {}).kind || 'car'] || {}).fuel) || 'gas'; // rotulo: GASOLINA | QUEROSENE
+    put('fuel', fl + '|' + ft, (v) => { const [n, t] = v.split('|'); E.fuel.classList.toggle('hidden', +n < 0); E.fuel.querySelector('span').textContent = +n < 0 ? '' : (t === 'kero' ? 'QUEROSENE ' : 'GASOLINA ') + (+n).toFixed(1) + ' L'; });
+    const hv = car ? Math.max(0, Math.min(100, Math.round(car.hp == null ? 100 : car.hp / (G.VEH[car.kind || 'car'].hp / 100)))) : -1; // barra de vida do carro: so dirigindo
     put('chp', hv, (v) => { E.hpbar.classList.toggle('hidden', v < 0); E.hpbar.classList.toggle('zero', v === 0); if (v >= 0) E.hpbar.firstChild.style.width = v + '%'; });
     put('re', !!(car && car.speed < -.5), (v) => E.re.classList.toggle('hidden', !v));
-    put('incar', !!car, (v) => {
-      E.joy.classList.toggle('car', v); E.atk.classList.toggle('hidden', v); E.crouch.classList.toggle('hidden', v);
+    put('incar', car ? (air ? 2 : 1) : 0, (v) => { // 0 a pe, 1 veiculo de terra, 2 aeronave (joystick aero, SUBIR/DESCER no lugar do agachar)
+      E.joy.classList.toggle('car', v === 1); E.joy.classList.toggle('aero', v === 2); E.atk.classList.toggle('hidden', v > 0); E.crouch.classList.toggle('hidden', v > 0);
+      E.up.classList.toggle('hidden', v !== 2); E.down.classList.toggle('hidden', v !== 2);
       if (v) { joy.mx = joy.my = 0; E.nub.style.transform = ''; }
     });
+    put('alt', air ? Math.round(car.alt || 0) : -1, (v) => { E.alt.classList.toggle('hidden', v < 0); if (v >= 0) E.alt.querySelector('span').textContent = 'ALT ' + v + ' m'; });
+    put('warn', air && car.stall ? 1 : 0, (v) => E.warn.classList.toggle('hidden', !v));
     const w = p.weapon, ranged = w === 'pistol', am = ranged ? p.ammo | 0 : -1;
     put('wpn', w + '|' + am, () => {
       E.atk.innerHTML = svg(w === 'molotov' ? 'fire' : 'hit') + (w === 'molotov' ? 'JOGAR' : 'ATACAR');

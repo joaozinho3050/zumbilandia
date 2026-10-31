@@ -1,8 +1,8 @@
 // Render do Zumbilandia (fase 0.2): three.js pixelado, cenario fundido por chunk. So le G, nunca muta.
 import * as THREE from './lib/three.module.min.js'; // relativo: dispensa o importmap (iOS < 16.4)
-import { makePlayer, makeZombieParts, makeCar, makeTree, makeFence, makeHouse, makeItem, makeWallSeg, makeRoof, makeMarketRoof, makeDoor, makeFurniture, makeFloor, makeDoorFrame, makeDoorstep, makePadlock, makeProp, makeStairs, makeGate, makeSlab, outline } from './modelos.js';
+import { makePlayer, makeZombieParts, makeCar, makeTree, makeFence, makeHouse, makeItem, makeWallSeg, makeRoof, makeMarketRoof, makeDoor, makeFurniture, makeFloor, makeDoorFrame, makeDoorstep, makePadlock, makeProp, makeStairs, makeGate, makeSlab, outline, makeMil, makeMilRoof, makeBaseWall, makeHeli, makeRotor, makeJet, makeJetGear } from './modelos.js';
 
-const ROTY = [0, Math.PI / 2, Math.PI, -Math.PI / 2], CH = 40, INK = 0x15121a, SIDES = ['n', 's', 'w', 'e'], LOOKS = [0xa77bd1, 0x5b7bd5, 0x9b6a3c, 0x78a865, 0xd6cfc4, 0xff8c69, 0x4a5266, 0x2f3a6b, 0xe6f7ff, 0x5b7bd5]; // 8 jaleco, 9 macacao (roupa por lugar; sem call nova)
+const ROTY = [0, Math.PI / 2, Math.PI, -Math.PI / 2], CH = 40, INK = 0x15121a, SIDES = ['n', 's', 'w', 'e'], LOOKS = [0xa77bd1, 0x5b7bd5, 0x9b6a3c, 0x78a865, 0xd6cfc4, 0xff8c69, 0x4a5266, 0x2f3a6b, 0xe6f7ff, 0x5b7bd5, 0x6f7d4a]; // 8 jaleco, 9 macacao, 10 farda (base militar) (roupa por lugar; sem call nova)
 const BODY = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true });
 const LINE = new THREE.MeshBasicMaterial({ color: INK, side: THREE.BackSide });
 const cm = new Map(); // materiais so para o bake (a cor vira atributo)
@@ -56,7 +56,8 @@ const FLH = 2.4; // altura de um andar (m)
 const stairRy = S => Math.abs(S.h) > Math.abs(S.w) ? (S.ly1 > S.ly0 ? 0 : Math.PI) : (S.lx1 > S.lx0 ? Math.PI / 2 : -Math.PI / 2); // +z do modelo = sentido da subida
 const dummy = new THREE.Object3D(), zR = new THREE.Matrix4(), zM = new THREE.Matrix4(), zB = new THREE.Matrix4(), zQ = new THREE.Quaternion(), zE = new THREE.Euler(), zV = new THREE.Vector3(), zS = new THREE.Vector3(1, 1, 1);
 const shots = [], hits = [], wc0 = new THREE.Color();
-let spillIM, flash, devLn = null, devEl = null, devCh = '', devT = 0, devN = 0, own, ownId = null, lidA = 0, cSm = { x: 0, y: 0, d: 1 }, sPool = [], sT = 0, fireIM, flameIM, flights = [], bottle = null;
+const milIM = {}, airIM = {}; let rotIM, shIM; // aeronaves: IM por tipo (cap 6) + rotor do heli (IM proprio) + sombra/marca de pouso (1 IM)
+let spillIM, flash, devLn = null, devEl = null, devCh = '', devT = 0, devN = 0, own, ownId = null, lidA = 0, cSm = { x: 0, y: 0, d: 1, a: 0 }, sPool = [], sT = 0, fireIM, flameIM, flights = [], bottle = null;
 const OWN_LAMP = new THREE.MeshBasicMaterial({ color: 0xfff3b0, transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false, fog: false });
 const OWN_BEAM = new THREE.MeshBasicMaterial({ color: 0xfff3b0, transparent: true, opacity: 0.14, depthWrite: false, fog: false });
 const SMOKE = new THREE.MeshBasicMaterial({ color: 0xbfc4cc }), BOOM = new THREE.MeshBasicMaterial({ color: 0xff8a2b });
@@ -164,13 +165,14 @@ function buildChunk(cx, cy, src) {
     if (h.parts) { // interior: chao + base 0,8 m das paredes (portas ficam de fora, sao instanciadas)
       for (const m of h.rooms.filter(m => !m.floor)) { const f = makeFloor(m.x1 - m.x0, m.y1 - m.y0); f.position.set((m.x0 + m.x1) / 2, 0, (m.y0 + m.y1) / 2); g.add(f); } // chao por comodo (L: o recorte fica sem piso)
       for (const d of h.doors) { // batente + soleira/capacho voltados para fora; so a folha e instanciada
-        const ax = d.w >= d.h, o = ax ? (d.y < h.y + h.h / 2 ? -1 : 1) : (d.x < h.x + h.w / 2 ? -1 : 1), wc = h.sign ? 0xd6cfc4 : WALL[h.pal], L = Math.max(d.w, d.h);
+        if (d.base) continue; // portao da base: so a grade (desenhada em draw)
+        const ax = d.w >= d.h, o = ax ? (d.y < h.y + h.h / 2 ? -1 : 1) : (d.x < h.x + h.w / 2 ? -1 : 1), wc = h.sign || h.mil ? 0xd6cfc4 : WALL[h.pal], L = Math.max(d.w, d.h);
         const x = ax ? (o < 0 ? d.x + d.w : d.x) : d.x + d.w / 2, z = ax ? d.y + d.h / 2 : (o < 0 ? d.y : d.y + d.h), ry = ax ? (o < 0 ? Math.PI : 0) : (o < 0 ? -Math.PI / 2 : Math.PI / 2);
         dst.push([wc, L, x, z, ry, d.gate]);
       }
       for (const p of h.parts) {
         if (p.door || p.floor) continue;
-        const m = makeWallSeg(Math.max(p.w, p.h), 0.8, 0.2, h.sign ? 0xd6cfc4 : WALL[h.pal]); m.position.set(p.x + p.w / 2, 0, p.y + p.h / 2); if (p.h > p.w) m.rotation.y = Math.PI / 2; g.add(m);
+        const m = makeWallSeg(Math.max(p.w, p.h), 0.8, 0.2, h.sign || h.mil ? 0xd6cfc4 : WALL[h.pal]); m.position.set(p.x + p.w / 2, 0, p.y + p.h / 2); if (p.h > p.w) m.rotation.y = Math.PI / 2; g.add(m);
       }
       continue;
     }
@@ -179,12 +181,12 @@ function buildChunk(cx, cy, src) {
     m.scale.setScalar(K); m.position.set(h.x + h.w / 2, 0, h.y + h.h / 2); g.add(m);
   }
   // arvores: InstancedMesh unico (tronco+copa, 2 calls) balancando inteiro, mais barato que separar a copa
-  for (const e of src.fences) { const hz = e.w >= e.h, m = makeFence(Math.max(e.w, e.h)); m.position.set(e.x + e.w / 2, 0, e.y + e.h / 2); if (!hz) m.rotation.y = Math.PI / 2; g.add(m); }
+  for (const e of src.fences) { const hz = e.w >= e.h, m = e.wall ? makeBaseWall(Math.max(e.w, e.h)) : makeFence(Math.max(e.w, e.h)); m.position.set(e.x + e.w / 2, 0, e.y + e.h / 2); if (!hz) m.rotation.y = Math.PI / 2; g.add(m); }
   const P = [[], []], C = []; collect(g, P, C);
   for (const [wc, L, x, z, ry, gt] of dst) { stamp(P, C, 'fr' + wc + L, () => makeDoorFrame(L, 2.0, wc), x, 0, z, ry); if (!gt) stamp(P, C, 'st' + L, () => makeDoorstep(L), x, 0, z, ry); }
   for (const h of src.houses) if (h.stairs) { const S = h.stairs; stamp(P, C, 'stairs', makeStairs, S.x + S.w / 2, 0, S.y + S.h / 2, stairRy(S)); } // escada do sobrado (o topo encosta na laje do andar 1)
   for (const q of src.props) { if (q.kind === 'can') continue; /* lata e dinamica (canIM) */ const k = q.kind === 'pole' ? 'lamp' : q.kind === 'canteiro' && q.balao ? 'canteiro_g' : q.kind === 'graf' ? 'graf' + q.t + (q.sm ? 's' : '') : q.kind; try { stamp(P, C, 'p' + k, () => makeProp(k), q.x, 0, q.y, q.a || 0); } catch (_) {} }
-  for (const t of src.tanks) stamp(P, C, 'ptank', () => makeProp('tank'), t.x, 0, t.y, 0); // tampa do tanque do posto
+  for (const t of src.tanks) if (t.fuelType !== 'kero') stamp(P, C, 'ptank', () => makeProp('tank'), t.x, 0, t.y, 0); // tampa do tanque do posto
   for (const c of src.crates) { // moveis (cache por kind+estado); frente aponta para o centro do lote
     if (!c.w || c.floor) continue; // andar 1: so no mesh preguicoso
     const op = !!c.opened && !c.scenery && c.kind !== 'register'; // cenario e caixa registradora nunca aparecem vasculhados
@@ -256,21 +258,41 @@ function mkRig(armor, back) {
   return { g, P };
 }
 // carro proprio (criado 1x): carroceria, tampa e 4 rodas viram 1 par de malhas cada (10 calls) + 3 de farol
-function mkCarOwn() {
-  const g = makeCar({ parts: true }), N = n => g.getObjectByName(n), P = { g };
+const ownRigs = {}, ownRig = k => ownRigs[k] || (ownRigs[k] = k === 'heli' || k === 'jet' ? mkAirOwn(k) : mkCarOwn(k)); // 1 rig por tipo, criado sob demanda; so o do veiculo dirigido fica visivel
+function mkCarOwn(kind = 'car') {
+  const mil = kind !== 'car', g = mil ? makeMil(kind, { parts: true }) : makeCar({ parts: true }), N = n => g.getObjectByName(n), P = { g, R: mil ? g.userData.wr : 0.38, hood: mil ? g.userData.hood : [0.6, 0.55, 0], vk: kind };
   const bk = o => { // troca as malhas do pivo por 1 par baked no espaco local do pivo
     const par = o.parent, p0 = o.position.clone(), q0 = o.quaternion.clone(), ms = [];
     o.removeFromParent(); o.position.set(0, 0, 0); o.quaternion.identity(); o.traverse(m => m.isMesh && ms.push(m));
     const b = bake(o); ms.forEach(m => m.removeFromParent()); o.add(...pair(b)); o.position.copy(p0); o.quaternion.copy(q0); par.add(o);
   };
   const body = P.body = N('body'), lid = P.lid = N('trunkLid'); lid.removeFromParent(); bk(body); body.add(lid); bk(lid);
-  P.w = ['FL', 'FR', 'RL', 'RR'].map(n => { const w = N('wheel' + n); bk(w); return w; });
+  P.w = ['FL', 'FR', 'RL', 'RR', 'RL2', 'RR2'].map(n => g.getObjectByName('wheel' + n)).filter(Boolean).map(w => { bk(w); return w; });
   P.ex = N('exhaust');
-  for (const n of ['lightL', 'lightR']) { const q = new THREE.Mesh(new THREE.PlaneGeometry(0.2, 0.1), OWN_LAMP); q.rotation.y = Math.PI / 2; q.position.x = 0.03; N(n).add(q); P[n] = q; }
-  const crack = P.crack = new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints([[0, 0.12, 0], [0.02, -0.1, 0.05], [0, 0.02, 0], [0.02, 0.05, -0.18], [0, 0.02, 0], [0.02, -0.06, 0.2], [0.02, 0.05, -0.18], [0.02, 0.1, -0.2]].map(a => new THREE.Vector3(...a))), new THREE.LineBasicMaterial({ color: 0xeaf2f8 })); crack.position.set(0.36, 0.78, 0); crack.rotation.z = -0.9; crack.visible = false; body.add(crack);
-  const beam = P.beam = new THREE.Mesh(new THREE.PlaneGeometry(2.6, 1.5).rotateX(-Math.PI / 2), OWN_BEAM); beam.position.set(2.4, 0.03, 0); g.add(beam);
-  g.visible = false; g.scale.set(2, 2, 2.1); scene.add(g);
+  for (const n of ['lightL', 'lightR']) { const q = new THREE.Mesh(new THREE.PlaneGeometry(0.2, 0.1), OWN_LAMP); q.rotation.y = Math.PI / 2; q.position.x = 0.03; if (mil) q.scale.setScalar(2); N(n).add(q); P[n] = q; }
+  const crack = P.crack = new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints([[0, 0.12, 0], [0.02, -0.1, 0.05], [0, 0.02, 0], [0.02, 0.05, -0.18], [0, 0.02, 0], [0.02, -0.06, 0.2], [0.02, 0.05, -0.18], [0.02, 0.1, -0.2]].map(a => new THREE.Vector3(...a))), new THREE.LineBasicMaterial({ color: 0xeaf2f8 })); if (mil) { crack.position.set(...g.userData.crack); crack.scale.setScalar(2); crack.rotation.z = -0.3; } else { crack.position.set(0.36, 0.78, 0); crack.rotation.z = -0.9; } crack.visible = false; body.add(crack);
+  const beam = P.beam = new THREE.Mesh(new THREE.PlaneGeometry(2.6, 1.5).rotateX(-Math.PI / 2), OWN_BEAM); if (mil) { beam.position.set(g.userData.len / 2 + 2.8, 0.03, 0); beam.scale.set(2, 1, g.userData.wid / 2 + 0.3); } else beam.position.set(2.4, 0.03, 0); g.add(beam);
+  g.visible = false; if (!mil) g.scale.set(2, 2, 2.1); scene.add(g);
   return P;
+}
+// aeronave propria (criada 1x por tipo): fuselagem baked (1 par), rotor (heli, 1 par) ou trem (jato, 1 par), sem arma; t = pivo de inclinacao
+function mkAirOwn(kind) {
+  const g = new THREE.Group(), t = new THREE.Group(), P = { g, t, vk: kind, air: true, st: { w: 0, dir: 0, pitch: 0, roll: 0 } };
+  t.add(...pair(bake(kind === 'heli' ? makeHeli() : makeJet({ gear: false })))); g.add(t);
+  if (kind === 'heli') { const r = new THREE.Group(); r.add(...pair(bake(makeRotor()))); r.position.y = 2.3; t.add(r); P.rot = r; }
+  else { const q = new THREE.Group(); q.add(...pair(bake(makeJetGear()))); t.add(q); P.gear = q; }
+  g.visible = false; scene.add(g);
+  return P;
+}
+function airOwnDraw(c, p, dt, now) {
+  const o = own, st = o.st, V = G.VEH[c.kind], alt = c.alt || 0, k = Math.min(1, dt * 6), heli = c.kind === 'heli';
+  let w = c.dir - st.dir; w = Math.atan2(Math.sin(w), Math.cos(w)) / Math.max(dt, 0.001); st.dir = c.dir; // velocidade angular: inclina na curva
+  const pt = RM === 1 ? (heli ? -(c.speed || 0) / 20 * 0.2 : (c.vz || 0) * 0.04) : 0, rl = RM === 1 ? Math.max(-0.5, Math.min(0.5, w * (heli ? 0.15 : 0.45))) : 0;
+  st.pitch += (pt - st.pitch) * k; st.roll += (rl - st.roll) * k;
+  o.g.position.set(c.x, alt, c.y); o.g.rotation.y = -c.dir; o.t.rotation.set(st.roll, 0, st.pitch);
+  o.t.position.y = RM === 1 && heli && alt > 0.3 ? Math.sin(now / 380) * 0.06 : 0; // pairar: balanco leve
+  if (heli) { st.w += ((p._eng ? (RM === 1 ? 26 : 3) : 0) - st.w) * Math.min(1, dt * 1.2); o.rot.rotation.y += st.w * dt; } // reduced-motion: rotor lento
+  else { const gk = Math.max(0, Math.min(1, (3 - alt) / 1.5)); o.gear.visible = gk > 0.02; o.gear.scale.set(1, gk, 1); } // trem recolhe acima de 1,5 m
 }
 const freeRig = r => r.g.traverse(o => o.isMesh && o.geometry.dispose());
 function buildPlayer(armor, back) { // troca a armadura: dispose da geometria antiga (R.mem estavel)
@@ -343,6 +365,11 @@ function init(canvas) {
   }
   [tIM, tIK] = instanced(makeTree(), 768);
   [carIM, carIK] = instanced(makeCar(), 24);
+  for (const k of ['jeep', 'truck', 'apc']) { milIM[k] = instanced(makeMil(k), 6); milIM[k][0].visible = milIM[k][1].visible = false; milIM[k][0].setColorAt(0, new THREE.Color(1, 1, 1)); } // veiculos militares: 1 IM por tipo (cap 6), visivel so com count > 0
+  for (const k of ['heli', 'jet']) { airIM[k] = instanced(k === 'heli' ? makeHeli() : makeJet(), 6); airIM[k][0].visible = airIM[k][1].visible = false; airIM[k][0].setColorAt(0, new THREE.Color(1, 1, 1)); }
+  rotIM = instanced(makeRotor(), 6); rotIM[0].visible = rotIM[1].visible = false;
+  shIM = new THREE.InstancedMesh(new THREE.CircleGeometry(1, 20).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.65, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -3, fog: false }), 1);
+  shIM.frustumCulled = false; shIM.count = 0; shIM.visible = false; shIM.setColorAt(0, new THREE.Color(0x8fd16a)); scene.add(shIM);
   // telhado por paleta x lado da porta: a fachada do lado da porta e removida do modelo (vira 3 pecas em wallIM com vao de 2,0 m)
   const SIDEF = { n: p => p.z < -2.85, s: p => p.z > 2.85, w: p => p.x < -2.85, e: p => p.x > 2.85 };
   roofIM = [0, 1, 2].map(i => SIDES.map(sd => { const m = makeRoof(6, 6, 'ABC'[i]); for (const c of [...m.children]) if (SIDEF[sd](c.position)) m.remove(c); const r = instanced(m, 64); r[0].visible = r[1].visible = false; return r; }));
@@ -355,7 +382,7 @@ function init(canvas) {
   const pb = bake(makePadlock()); padIM = instanced(pb, 128); padIM[0].setColorAt(0, new THREE.Color(1, 1, 1));
   for (let i = 0; i < 4; i++) { const g = new THREE.Group(); g.add(...pair(pb)); g.visible = false; g.userData = { t: 9 }; scene.add(g); padFall.push(g); }
   hl = new THREE.Mesh(undefined, new THREE.MeshBasicMaterial({ color: 0xf2d16b, side: THREE.BackSide, transparent: true, opacity: 0.8, depthWrite: false, fog: false })); hl.visible = false; hl.frustumCulled = false; scene.add(hl);
-  buildPlayer({}); own = mkCarOwn();
+  buildPlayer({}); own = ownRig('car');
   const sg = new THREE.IcosahedronGeometry(1, 0);
   for (let i = 0; i < 12; i++) { const m = new THREE.Mesh(sg, SMOKE); m.visible = false; m.userData = { t: 9 }; scene.add(m); sPool.push(m); }
   const mb = bake(makeItem('molotov')); // garrafa em voo (2 no ar, 4 calls)
@@ -405,21 +432,21 @@ function carOwnDraw(c, p, dt, now, trunk) {
   st.roll += (-inp.mx * Math.abs(v) * 0.005 * RM - st.roll) * k;
   st.steer += (-inp.mx * 0.5 - st.steer) * Math.min(1, dt * 10);
   o.g.position.set(c.x, 0, c.y); o.g.rotation.y = -c.dir;
-  const hp = c.hp ?? 100;
+  const hp = (c.hp ?? 100) / (G.VEH[c.kind || 'car'].hp / 100); // vida em % do tipo (estagios de dano iguais para todos)
   if (o.cid !== c.id) { o.cid = c.id; o.hop = 0; o.hp0 = hp; }
   if (hp < o.hp0 && RM === 1) o.hop = 0.12; o.hp0 = hp; // salto de 120 ms ao bater
   o.hop = Math.max(0, o.hop - dt);
   const hood = hp < 50 ? 0.05 : 0; // capo amassado: frente sobe
   o.body.rotation.set(st.roll + bump, 0, st.pitch + hood); o.body.position.y = Math.abs(bump) * 2 + (o.hop > 0 ? Math.sin(o.hop / 0.12 * Math.PI) * 0.06 : 0);
   o.crack.visible = hp < 75;
-  st.ph += v * dt / 2 / 0.19; // v m/s em 1/2 escala do modelo, raio 0,19
+  st.ph += v * dt / o.R; // v m/s / raio da roda no mundo (carro 0,38; militar wr)
   o.w.forEach((w, i) => { w.rotation.x = st.ph; w.rotation.y = i < 2 ? st.steer : 0; });
   lidA += ((trunk ? 1 : 0) - lidA) * Math.min(1, dt * 8); o.lid.rotation.z = -Math.PI / 3 * lidA;
   const on = !!(p.car && p._eng);
   o.lightL.visible = on && hp >= 50; o.lightR.visible = o.beam.visible = on; // farol esquerdo apaga
   if ((on || hp < 25) && RM === 1 && (sT -= dt) <= 0) {
     sT = 0.15; o.g.updateMatrixWorld(true);
-    if (hp < 25) { cv3.set(0.6, 0.55, 0); o.body.localToWorld(cv3); puff(cv3.x, cv3.y, cv3.z, (Math.random() - 0.5) * 0.4, (Math.random() - 0.5) * 0.4, 1.1, 1.3); } // fumaca do capo
+    if (hp < 25) { cv3.set(...o.hood); o.body.localToWorld(cv3); puff(cv3.x, cv3.y, cv3.z, (Math.random() - 0.5) * 0.4, (Math.random() - 0.5) * 0.4, 1.1, 1.3); } // fumaca do capo
     if (on) { o.ex.getWorldPosition(cv3); puff(cv3.x, cv3.y, cv3.z, -Math.cos(c.dir) * 0.3 + (Math.random() - 0.5) * 0.3, -Math.sin(c.dir) * 0.3 + (Math.random() - 0.5) * 0.3); }
   }
 }
@@ -435,11 +462,11 @@ function draw(G) {
     roofSig = rs; const rn = new Array(24).fill(0), keep = new Set(); let wn = 0, bn = 0, cn2 = 0; const wc = new THREE.Color();
     const piece = (col, x0, x1, z0, z1, y0, hh) => { if (wn >= 256 || x1 - x0 < 0.01 || z1 - z0 < 0.01) return; place(wallIM, wn, (x0 + x1) / 2, y0, (z0 + z1) / 2, 0, x1 - x0, hh, z1 - z0); wallIM.setColorAt(wn++, wc.set(col)); };
     for (const h of G.houses) {
-      if (!h.parts || h.open || !chunks.has(h.ch)) continue; // open: patio do posto, sem telhado
+      if (!h.parts || h.open || h.nroof || !chunks.has(h.ch)) continue; // open: patio do posto, sem telhado; nroof: portaria da base
       const s = h.id === p.inside ? 0 : 1;
-      if (h.sign) { // telhado plano com letreiro: um objeto (2 calls) por landmark, criado sob demanda (desenhado com a porta ao sul e girado por rot)
+      if (h.sign || h.mil) { // telhado plano com letreiro (ou da base militar, sem letreiro): um objeto (2 calls) por landmark, criado sob demanda (desenhado com a porta ao sul e girado por rot)
         keep.add(h.id); let e = mkRoof.get(h.id);
-        if (!e) { e = instanced(makeMarketRoof(h.cw, h.cd, h.dx, h.sign), 1); e[0].count = e[1].count = 1; e[1].instanceMatrix = e[0].instanceMatrix; mkRoof.set(h.id, e); }
+        if (!e) { e = instanced(h.mil ? makeMilRoof(h.cw, h.cd, h.dx) : makeMarketRoof(h.cw, h.cd, h.dx, h.sign), 1); e[0].count = e[1].count = 1; e[1].instanceMatrix = e[0].instanceMatrix; mkRoof.set(h.id, e); }
         place(e[0], 0, h.x + h.w / 2, 0, h.y + h.h / 2, ROTY[h.rot || 0], s, s, s); e[0].instanceMatrix.needsUpdate = true; continue;
       }
       const two = h.stairs ? 12 : 0, hh = h.stairs ? 3.8 : 1.4, gt = h.doors.find(q => q.gate);
@@ -472,21 +499,37 @@ function draw(G) {
     wallBase = wn; wallIM.count = wn; wallIM.visible = wn > 0; wallIM.instanceMatrix.needsUpdate = true; if (wallIM.instanceColor) wallIM.instanceColor.needsUpdate = true;
   }
   // portas: pivo na dobradica, giram 90 graus PARA DENTRO da casa em 150 ms; cadeado dourado na altura da macaneta (pulsa a <6 m)
-  let dn = 0, ln = 0, gn = 0; doorT.clear();
+  let dn = 0, ln = 0, wp = 0; doorT.clear();
   for (const h of G.houses) {
     if (!h.parts || !chunks.has(h.ch)) continue;
     for (const d of h.doors) {
       if (dn >= 128) break;
       const ax = d.w >= d.h, hx = h.x + h.w / 2, hy = h.y + h.h / 2;
+      if (d.base) { // portao da base: 2 longarinas + grade de barras, desliga de lado (escala X presa ao pilar oeste) em 0,6 s; cadeado sempre visivel
+        const Lg = Math.max(d.w, d.h), op = d.open || d.broken ? 1 : 0; let u = doorA.get(d.id); if (u === undefined) u = op;
+        u = RM === 1 ? u + Math.max(-dtm / 600, Math.min(dtm / 600, op - u)) : op; doorA.set(d.id, u);
+        const k = 1 - 0.92 * sm(u), x0 = ax ? d.x : d.x + d.w / 2, z0 = ax ? d.y + d.h / 2 : d.y, nb = Math.floor(Lg / 0.5);
+        if (wallBase + wp + nb + 3 <= 256) {
+          const put = (px, py, sx, sy, sz, c) => { place(wallIM, wallBase + wp, ax ? x0 + px * k : x0, py, ax ? z0 : z0 + px * k, ax ? 0 : -Math.PI / 2, sx, sy, sz); wallIM.setColorAt(wallBase + wp++, wc0.set(c)); };
+          const rail = (py) => { place(wallIM, wallBase + wp, ax ? x0 + Lg * k / 2 : x0, py, ax ? z0 : z0 + Lg * k / 2, ax ? 0 : -Math.PI / 2, Lg * k, 0.12, 0.14); wallIM.setColorAt(wallBase + wp++, wc0.set(0x9aa3b5)); };
+          rail(0.2); rail(2.0);
+          for (let i = 0; i <= nb; i++) put(Lg * i / nb, 0.2, 0.05, 1.9, 0.05, 0x2f2a35);
+        }
+        if (d.locked && ln < 128) {
+          const pl = (px, pz) => { const near = (px - p.x) ** 2 + (pz - p.y) ** 2 < 36, kk = near && RM === 1 ? Math.sin(now / 220) : 0, sc = 4 * (1 + 0.1 * kk); place(padIM[0], ln, px, 1.05, pz, ax ? 0 : Math.PI / 2, sc, sc, sc); padIM[0].setColorAt(ln++, wc0.setScalar(near ? 1.15 + 0.25 * kk : 1)); };
+          if (ax) pl(d.x + Lg / 2, d.y + d.h + 0.12); else pl(d.x + d.w + 0.12, d.y + Lg / 2);
+        }
+        continue;
+      }
       if (d.gate) { // portao: painel enrola para cima (escala Y presa ao topo) em 0,3 s
         let u = doorA.get(d.id); if (u === undefined) u = d.open ? 1 : 0; u += Math.max(-dtm / 300, Math.min(dtm / 300, (d.open ? 1 : 0) - u)); doorA.set(d.id, u);
         const Lg = Math.max(d.w, d.h), tg = { x: ax ? d.x : d.x + d.w / 2, z: ax ? d.y + d.h / 2 : d.y, a: ax ? 0 : -Math.PI / 2, sx: Lg / 2.4, sy: 1 - 0.92 * sm(u), sz: 1, gate: true };
         doorT.set(d.id, tg);
-        if (wallBase + gn * 5 + 5 <= 256) { // painel + 4 frisos como pecas da wallIM (so cor, sem contorno), a 2,0 m de altura e enrolando para o topo
-          const sy = tg.sy, cx = ax ? d.x + Lg / 2 : d.x + d.w / 2, cz = ax ? d.y + d.h / 2 : d.y + Lg / 2, i = wallBase + gn * 5;
+        if (wallBase + wp + 5 <= 256) { // painel + 4 frisos como pecas da wallIM (so cor, sem contorno), a 2,0 m de altura e enrolando para o topo
+          const sy = tg.sy, cx = ax ? d.x + Lg / 2 : d.x + d.w / 2, cz = ax ? d.y + d.h / 2 : d.y + Lg / 2, i = wallBase + wp;
           place(wallIM, i, cx, 2.0 - 2.0 * sy, cz, tg.a, Lg, 2.0 * sy, 0.12); wallIM.setColorAt(i, wc0.set(0xeab26a));
           [0.4, 0.85, 1.3, 1.75].forEach((k, j) => { place(wallIM, i + 1 + j, cx, 2.0 - k * sy - 0.025, cz, tg.a, Lg - 0.1, 0.05, 0.16); wallIM.setColorAt(i + 1 + j, wc0.set(0x6e4422)); });
-          gn++;
+          wp += 5;
         }
         continue;
       }
@@ -503,7 +546,7 @@ function draw(G) {
       }
     }
   }
-  wallIM.count = wallBase + gn * 5; wallIM.visible = wallIM.count > 0; wallIM.instanceMatrix.needsUpdate = true; if (wallIM.instanceColor) wallIM.instanceColor.needsUpdate = true;
+  wallIM.count = wallBase + wp; wallIM.visible = wallIM.count > 0; wallIM.instanceMatrix.needsUpdate = true; if (wallIM.instanceColor) wallIM.instanceColor.needsUpdate = true;
   doorIM[0].count = doorIM[1].count = dn; doorIM[0].instanceMatrix.needsUpdate = true; doorIM[1].instanceMatrix = doorIM[0].instanceMatrix;
   padIM[0].count = padIM[1].count = Math.min(ln, 128); padIM[0].visible = padIM[1].visible = ln > 0; padIM[0].instanceMatrix.needsUpdate = true; padIM[1].instanceMatrix = padIM[0].instanceMatrix;
   if (padIM[0].instanceColor) padIM[0].instanceColor.needsUpdate = true;
@@ -577,7 +620,7 @@ function draw(G) {
       if (dx * dx + dy * dy > 1e-5) d.a = Math.atan2(dx, dy); else d.a = ang0;
       d.x = z.x; d.y = z.y;
     }
-    poseZ(z.id, z.x, z.y, z.anim, ang0, z.state === 'attack' ? 1 + 0.12 * Math.abs(Math.sin(now / 45)) : 1, z.police, z.runner, Number.isInteger(z.look) ? z.look : z.look === 'jaleco' ? 8 : z.look === 'macacao' ? 9 : undefined, FLH * (z.floor || 0), z.crawl || z.limp || z.lg !== undefined ? { crawl: z.crawl, limp: z.limp, lg: z.lg !== undefined ? G.t - z.lg : undefined } : undefined);
+    poseZ(z.id, z.x, z.y, z.anim, ang0, z.state === 'attack' ? 1 + 0.12 * Math.abs(Math.sin(now / 45)) : 1, z.police, z.runner, Number.isInteger(z.look) ? z.look : z.look === 'jaleco' ? 8 : z.look === 'macacao' ? 9 : z.look === 'farda' ? 10 : undefined, FLH * (z.floor || 0), z.crawl || z.limp || z.lg !== undefined ? { crawl: z.crawl, limp: z.limp, lg: z.lg !== undefined ? G.t - z.lg : undefined } : undefined);
     const q = zData.get(z.id); q.x = z.x; q.y = z.y; seen.add(z.id);
   }
   for (const y of G.dying) if (cn[0] + cn[1] < 96 && !seen.has(y.id)) poseZ(y.id, y.x, y.y, y.anim, 0, 1, false, false, undefined, 0, y.crawl ? { crawl: true } : undefined);
@@ -602,17 +645,35 @@ function draw(G) {
   const tr = p.action && p.action.type === 'search' && p.action.trunk ? p.action.id : null, wantId = p.car || tr;
   if (wantId) ownId = wantId; else if (ownId && lidA < 0.02) ownId = null; // tampa fecha antes de voltar ao instanciado
   const oc = ownId && G.cars.find(c => c.id === ownId);
+  const mn = { jeep: 0, truck: 0, apc: 0, heli: 0, jet: 0 };
   for (const c of G.cars) {
-    if (n >= 24) break; if (c === oc) continue;
-    const hp = c.hp ?? 100, g = c.burnt ? 0.2 : hp < 25 ? 0.5 : hp < 50 ? 0.65 : hp < 75 ? 0.82 : 1;
+    if (c === oc) continue;
+    const k = c.kind || 'car', mil = k !== 'car', air = k === 'heli' || k === 'jet', im = air ? airIM[k][0] : mil ? milIM[k][0] : carIM;
+    if (mil ? mn[k] >= 6 : n >= 24) continue;
+    const hp = (c.hp ?? 100) / (G.VEH[k].hp / 100), g = c.burnt ? 0.2 : hp < 25 ? 0.5 : hp < 50 ? 0.65 : hp < 75 ? 0.82 : 1;
     const bl = c.alarmT > 0 ? (RM === 1 ? (Math.floor(now / 250) & 1 ? 1.6 : 1) : 1.3) : 1; // alarme: carroceria/farois piscam (reduced-motion: acesa fixa)
-    carIM.setColorAt(n, wc0.setRGB(g * bl, g * bl, g * bl)); place(carIM, n++, c.x, 0, c.y, -c.dir, 2, c.burnt ? 1.92 : 2, 2.1);
+    const i = mil ? mn[k]++ : n++;
+    im.setColorAt(i, wc0.setRGB(g * bl, g * bl, g * bl)); if (k === 'heli') place(rotIM[0], i, c.x, 2.3 + (c.alt || 0), c.y, -c.dir); if (air) place(im, i, c.x, c.alt || 0, c.y, -c.dir, 1, c.burnt ? 0.96 : 1, 1); else if (mil) place(im, i, c.x, 0, c.y, -c.dir, 1, c.burnt ? 0.96 : 1, 1); else place(im, i, c.x, 0, c.y, -c.dir, 2, c.burnt ? 1.92 : 2, 2.1);
   }
   carIM.count = carIK.count = n; carIM.instanceMatrix.needsUpdate = true; if (carIM.instanceColor) carIM.instanceColor.needsUpdate = true; carIK.instanceMatrix = carIM.instanceMatrix;
+  for (const k in airIM) { const [im, ik] = airIM[k], c = mn[k]; im.count = ik.count = c; im.visible = ik.visible = c > 0; im.instanceMatrix.needsUpdate = true; if (im.instanceColor) im.instanceColor.needsUpdate = true; ik.instanceMatrix = im.instanceMatrix; }
+  rotIM[0].count = rotIM[1].count = mn.heli; rotIM[0].visible = rotIM[1].visible = mn.heli > 0; rotIM[0].instanceMatrix.needsUpdate = true; rotIM[1].instanceMatrix = rotIM[0].instanceMatrix;
+  for (const k in milIM) { const [im, ik] = milIM[k], c = mn[k]; im.count = ik.count = c; im.visible = ik.visible = c > 0; im.instanceMatrix.needsUpdate = true; if (im.instanceColor) im.instanceColor.needsUpdate = true; ik.instanceMatrix = im.instanceMatrix; } // 1 IM por tipo, so desenha com veiculo na cena
 
-  own.g.visible = !!oc;
-  if (oc) carOwnDraw(oc, p, dt, now, tr === oc.id);
+  if (oc) own = ownRig(oc.kind || 'car');
+  for (const k in ownRigs) ownRigs[k].g.visible = !!oc && ownRigs[k] === own;
+  if (oc && own.air) airOwnDraw(oc, p, dt, now);
+  else if (oc) carOwnDraw(oc, p, dt, now, tr === oc.id);
   else if (!ownId) lidA = 0;
+  { // sombra no chao = marca de pouso: tamanho pela altitude; verde se vz >= -3 e chao livre (jato: so em pista/via), senao vermelha
+    const V = oc && p.car && G.VEH[oc.kind || 'car'], on = !!(V && V.air && (oc.alt || 0) > 0.05);
+    shIM.count = on ? 1 : 0; shIM.visible = on;
+    if (on) {
+      const ok = (oc.vz || 0) >= -3.0001 && G.free(oc.x, oc.y, V.w / 2 + 0.2, oc.id) && (V.air !== 'jet' || G.runwayOk(oc.x, oc.y, oc.dir)), sz = 1 + oc.alt / 80;
+      shIM.setColorAt(0, wc0.set(ok ? 0x8fd16a : 0xff5c57)); shIM.instanceColor.needsUpdate = true;
+      place(shIM, 0, oc.x, 0.05, oc.y, -oc.dir, V.l / 2 * sz, 1, (V.w / 2 + 0.3) * sz); shIM.instanceMatrix.needsUpdate = true;
+    }
+  }
   for (const m of sPool) if (m.visible) { const u = m.userData; u.t += dt; const k = u.t / 0.9; if (k >= 1) m.visible = false; else { m.position.x += u.vx * dt; m.position.y += (u.vy ?? 0.7) * dt; m.position.z += u.vz * dt; m.scale.setScalar((u.sc || 1) * (0.08 + 0.2 * Math.min(1, k / 0.6)) * (k > 0.6 ? 1 - (k - 0.6) / 0.4 : 1)); } }
 
   // molotov em voo (arco) e fogo no chao (3 chamas por fogo, cap 4)
@@ -722,12 +783,15 @@ function draw(G) {
 
   // camera ~55 graus
   const dc = p.car && G.cars.find(c => c.id === p.car), k = 1 - Math.exp(-dt * 3);
-  cSm.x += ((dc ? Math.cos(dc.dir) * dc.speed * 0.4 : 0) - cSm.x) * k; cSm.y += ((dc ? Math.sin(dc.dir) * dc.speed * 0.4 : 0) - cSm.y) * k; cSm.d += ((dc ? 1.25 : 1) - cSm.d) * k;
+  const la = dc && G.VEH[dc.kind || 'car'].air ? 0.15 : 0.4; // aeronave: antecipa menos (a 40 m/s o 0,4 jogava o jato para a borda da tela)
+  cSm.x += ((dc ? Math.cos(dc.dir) * dc.speed * la : 0) - cSm.x) * k; cSm.y += ((dc ? Math.sin(dc.dir) * dc.speed * la : 0) - cSm.y) * k; const dv = dc && G.VEH[dc.kind || 'car'], alt = dv && dv.air ? dc.alt || 0 : 0, zf = alt > 0 ? Math.max(1, Math.min(2, 1 + alt / 40, 20 / (VIEW_R * 1.25))) : 1; // aeronave: afasta ate x2 e sobe o foco com a altitude (raio visivel <= 20 m); G.viewR de logica nao muda
+  cSm.d += ((dc ? 1.25 * zf : 1) - cSm.d) * k; cSm.a += (alt * 0.6 - cSm.a) * k;
   cH += ((p.floor || 0) * FLH - cH) * (1 - Math.exp(-dt * 6));
   const d = camera.userData.d * cSm.d, el = EL, fx = p.x + cSm.x, fy = p.y + cSm.y;
   scene.fog.near = d + 14; scene.fog.far = d + 34;
-  camera.position.set(fx, 0.5 + cH + d * Math.sin(el), fy + d * Math.cos(el));
-  camera.lookAt(fx, 0.5 + cH, fy);
+  if (Math.abs(camera.far - (d + 70)) > 2) { camera.far = d + 70; camera.updateProjectionMatrix(); }
+  camera.position.set(fx, 0.5 + cH + cSm.a + d * Math.sin(el), fy + d * Math.cos(el));
+  camera.lookAt(fx, 0.5 + cH + cSm.a, fy);
   if (devLn) devUpdate(p, now);
   renderer.render(scene, camera);
 }
@@ -858,7 +922,73 @@ function demoZ(canvas, id) {
   };
   spinCv = canvas; spinId = id; spinRaf = requestAnimationFrame(spinTick);
 }
+// mini-cenas do guia da base militar (pecas baked 1x e guardadas): 'base' = boneco corta o cadeado e o portao desliza; 'militar' = jipe sai do patio com caminhao e blindado parados; 'kero' = boneco sifona o tanque de querosene
+const BDEMO = ['base', 'militar', 'kero', 'heli', 'jato'];
+let bdG = null;
+function bPose(mv, act, t, s) { // pose do boneco do guia (mesma preparacao de demoPose)
+  const rig = iRig; for (const n in rig.P) { rig.P[n].position.copy(rig.P[n].userData.p0); rig.P[n].rotation.set(0, 0, 0); rig.P[n].scale.set(1, 1, 1); }
+  const ph = pPh; pPh = s * 6; bt = s; pose(rig, mv, act, t, 1); pPh = ph;
+}
+function demoB(canvas, id) {
+  spinStop(); itemSetup(); demoRig = null;
+  if (!iRig) iRig = mkRig({ head: 1, torso: 1, legs: 1 });
+  if (!bdG) {
+    const mk = f => { const g = new THREE.Group(); g.add(...pair(bake(f))); return g; };
+    const gate = new THREE.Group(), bars = new THREE.Group();
+    for (const x of [-1.6, 1.6]) box(gate, 0.4, 2.6, 0.4, 0x9aa3b5, x, 1.3, 0);
+    box(gate, 3.4, 0.4, 0.3, 0xd6cfc4, 0, 2.5, 0); for (const x of [-2.6, 2.6]) box(gate, 1.4, 2.2, 0.4, 0xd6cfc4, x, 1.1, 0);
+    box(bars, 2.8, 0.12, 0.14, 0x9aa3b5, 1.4, 0.3, 0); box(bars, 2.8, 0.12, 0.14, 0x9aa3b5, 1.4, 2.0, 0); // origem na borda esquerda: a escala X prende no pilar
+    for (let i = 0; i <= 8; i++) box(bars, 0.05, 1.8, 0.05, 0x2f2a35, i * 0.35, 1.15, 0);
+    bdG = { gate: mk(gate), bars: mk(bars), lock: mk(makePadlock()), tank: mk(makeProp('kerotank')), jeep: mk(makeMil('jeep')), truck: mk(makeMil('truck')), apc: mk(makeMil('apc')) };
+  }
+  if (!bdG.heli) { const mk = f => { const g = new THREE.Group(); g.add(...pair(bake(f))); return g; }; bdG.heli = mk(makeHeli()); bdG.rotor = mk(makeRotor()); bdG.jet = mk(makeJet({ gear: false })); bdG.gear = mk(makeJetGear()); bdG.pad = mk(makeProp('heliporto')); bdG.rw = mk(makeProp('pista40')); bdG.sh = new THREE.Mesh(new THREE.CircleGeometry(1, 20).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0x8fd16a, transparent: true, opacity: 0.5, depthWrite: false })); }
+  iPivot.clear(); iPivot.rotation.y = 0;
+  const R90 = Math.PI / 2;
+  if (id === 'heli') { // boneco entra no helicoptero, ele sobe, paira com a sombra verde, pousa e o boneco sai
+    iPivot.add(bdG.pad, bdG.heli, bdG.rotor, bdG.sh, iRig.g); bdG.pad.scale.setScalar(0.8); bdG.heli.add(bdG.rotor); bdG.rotor.position.y = 2.3; bdG.heli.rotation.y = 0;
+    iC.position.set(0.2, 0.6, 1).normalize().multiplyScalar(19); iC.lookAt(0, 2.2, 0); iC.updateMatrixWorld();
+    demoFn = (s) => {
+      const u = s % 9, e = RM === 1 ? sm : (v => (v > 0.5 ? 1 : 0)), alt = 4.5 * e(Math.max(0, Math.min(1, (u - 2.2) / 2))) * (1 - e(Math.max(0, Math.min(1, (u - 5.8) / 2))));
+      const inside = u >= 1.6 && u < 8.4, spin = u >= 1.6 && u < 8.2 ? (RM === 1 ? 26 : 3) : 0;
+      bdG.heli.position.set(0, alt + (RM === 1 && alt > 0.5 ? 0.08 * Math.sin(s * 3) : 0), 0); bdG.heli.rotation.z = RM === 1 ? -0.06 * Math.sin(Math.PI * Math.max(0, Math.min(1, (u - 2.2) / 2))) : 0;
+      bdG.rotor.rotation.y = spin * s; bdG.sh.visible = alt > 0.05; bdG.sh.scale.set(3.4 * (1 + alt / 12), 1, 1.4 * (1 + alt / 12)); bdG.sh.position.y = 0.06;
+      iRig.g.visible = !inside; iRig.g.scale.set(1, 1, 1);
+      const x = u < 1.6 ? -6 + 4.1 * (u / 1.6) : -2 - (u - 8.4) * 2.5;
+      bPose(u < 1.6 || u >= 8.4 ? 'walk' : 'idle', null, 0, s); iRig.g.position.set(x, 0, 2.2); iRig.g.rotation.set(0, R90 + (u < 1.6 ? 0 : Math.PI), 0);
+    };
+  } else if (id === 'jato') { // jato acelera na pista em linha reta, decola, recolhe o trem
+    iPivot.add(bdG.rw, bdG.jet, bdG.gear, bdG.sh); bdG.jet.add(bdG.gear); bdG.rw.scale.set(1, 1, 1); bdG.rw.position.set(0, 0, 0); bdG.jet.scale.setScalar(0.9);
+    iC.position.set(0.25, 0.5, 1).normalize().multiplyScalar(30); iC.lookAt(0, 2, 0); iC.updateMatrixWorld();
+    demoFn = (s) => {
+      const u = (s % 6) / 6, t = RM === 1 ? u : Math.round(u * 6) / 6, x = -16 + 40 * t * t * (1.2 - 0.2 * t), lift = Math.max(0, Math.min(1, (t - 0.45) / 0.3)), alt = 5 * (RM === 1 ? sm(lift) : lift > 0.3 ? 1 : 0) * (t > 0.45 ? 1 : 0);
+      bdG.jet.position.set(x, alt, 0); bdG.jet.rotation.set(0, 0, RM === 1 ? 0.2 * lift * (1 - lift) * 4 : 0); const gk = Math.max(0, Math.min(1, (2.4 - alt) / 1.2)); bdG.gear.visible = gk > 0.02; bdG.gear.scale.set(1, gk, 1);
+      bdG.sh.visible = alt > 0.05; bdG.sh.position.set(x, 0.06, 0); bdG.sh.scale.set(4.5, 1, 1.8);
+    };
+  } else if (id === 'base') {
+    iPivot.add(bdG.gate, bdG.bars, bdG.lock, iRig.g); bdG.lock.scale.setScalar(3); bdG.lock.position.set(0, 1.1, 0.35);
+    iC.position.set(0.15, 0.55, 1).normalize().multiplyScalar(11); iC.lookAt(0, 1.0, 0); iC.updateMatrixWorld();
+    demoFn = (s) => {
+      const u = s % 4.5, cut = u < 1.5, open = Math.max(0, Math.min(1, (u - 1.7) / 0.6));
+      iRig.g.scale.set(1, 1, 1); bPose('crouch', cut ? 'cut' : null, cut ? u : 0, s);
+      iRig.g.position.set(-0.4, 0, 1.7); iRig.g.rotation.set(0, 0.2, 0);
+      bdG.lock.visible = u < 1.5; bdG.lock.rotation.y = 0;
+      bdG.bars.scale.x = 1 - 0.9 * (RM === 1 ? sm(open) : (open > 0.5 ? 1 : 0)); bdG.bars.position.set(-1.4, 0, 0); // grade presa ao pilar esquerdo
+    };
+  } else if (id === 'militar') {
+    iPivot.add(bdG.truck, bdG.apc, bdG.jeep);
+    bdG.truck.position.set(-1.6, 0, -3.4); bdG.apc.position.set(3.2, 0, -3.4);
+    iC.position.set(0.15, 0.55, 1).normalize().multiplyScalar(17); iC.lookAt(0, 0.8, -1); iC.updateMatrixWorld();
+    demoFn = (s) => { const u = (s % 5) / 5, x = -7 + 14 * (RM === 1 ? sm(u) : u); bdG.jeep.position.set(x, RM === 1 ? 0.03 * Math.sin(s * 14) : 0, 1.4); bdG.jeep.rotation.y = 0; };
+  } else {
+    iPivot.add(bdG.tank, iRig.g); bdG.tank.position.set(1.7, 0, 0);
+    iC.position.set(0.55, 0.45, 1).normalize().multiplyScalar(7); iC.lookAt(0.5, 0.9, 0); iC.updateMatrixWorld();
+    demoFn = (s) => { iRig.g.position.set(0.35, 0, 0.9); iRig.g.rotation.set(0, R90 - 0.3, 0); bPose('crouch', 'siphon', s % 1.2, s); iRig.g.position.set(0.35, 0, 0.9); iRig.g.rotation.set(0, R90 - 0.3, 0); };
+  }
+  spinCv = canvas; spinId = id; spinRaf = requestAnimationFrame(spinTick);
+}
 function demo(canvas, id) {
+  if (iRig) iRig.g.visible = true; // a mini-cena do helicoptero esconde o boneco ao entrar
+  if (BDEMO.includes(id)) return demoB(canvas, id);
   if (ZDEMO.includes(id)) return demoZ(canvas, id);
   demoFn = null;
   if (!DEMO[id]) return spin(canvas, id);
@@ -871,7 +1001,7 @@ function demo(canvas, id) {
 }
 
 // toque na tela -> {type,id}|null: raio da camera contra caixas por entidade (moveis, tumbas/baus, portas, drops) a <=2,5 m do jogador
-const FH = { corpse: 0.3, fridge: 1.6, cabinet: 0.9, wardrobe: 1.8, drawer: 0.8, shelf: 1.4, box: 0.5, stove: 0.95, sink: 1.1, bed: 0.6, nightstand: 0.5, toilet: 0.9, medcab: 1.8, sofa: 0.85, bookshelf: 1.8, table: 0.78, box_mercado: 0.5, box_posto: 0.5, box_galpao: 0.5, toolbox_oficina: 0.2, pshelf: 1.5, medcart: 0.9, gunlocker: 1.8, desk: 1, locker: 1.8, sacristy: 1.6 };
+const FH = { corpse: 0.3, fridge: 1.6, cabinet: 0.9, wardrobe: 1.8, drawer: 0.8, shelf: 1.4, box: 0.5, stove: 0.95, sink: 1.1, bed: 0.6, nightstand: 0.5, toilet: 0.9, medcab: 1.8, sofa: 0.85, bookshelf: 1.8, table: 0.78, box_mercado: 0.5, box_posto: 0.5, box_galpao: 0.5, box_militar: 0.5, toolbox_oficina: 0.2, pshelf: 1.5, medcart: 0.9, gunlocker: 1.8, desk: 1, locker: 1.8, sacristy: 1.6 };
 function pick(cx, cy) {
   const G = window.G; if (!G || !renderer) return null;
   const r = renderer.domElement.getBoundingClientRect(), p = G.player, ray = new THREE.Raycaster();
