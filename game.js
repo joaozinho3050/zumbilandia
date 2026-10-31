@@ -301,33 +301,49 @@
     if (!p.action || p.action.type !== 'cut') return;
     p.noise = 6;
     if ((p.action.t += dt) < 1.5) return;
-    p.action = null; dr.locked = false; dr.open = true; p.input.hold = false;
+    p.action = null; dr.locked = false; dr.open = true; dr.hp = Math.min(dr.hp, 100); p.input.hold = false;
     G.events.push({ type: 'cut', id: dr.id }, { type: 'door', id: dr.id, open: true });
     if (--cu.dur <= 0) { p.inv.splice(p.inv.indexOf(cu), 1); G.events.push({ type: 'toolBreak' }); hint('toolBreak', 'O alicate quebrou — procure outro em caixas de ferramentas', 'cutter'); }
+  }
+  // mira assistida (dono): corpo a corpo = mais perto a <= 2,2 m no cone de 100 graus p/ cada lado; pistola = <= 12 m, 35 graus, linha livre. G.aim so e lido pelo render
+  function aimOf(p) {
+    const gun = p.weapon === 'pistol', R = gun ? 12 : 1.7, A = gun ? Math.PI * 35 / 180 : Math.PI * 100 / 180;
+    if (p.weapon === 'molotov' || p.car || G.dead) return null;
+    let b = null, bd = R + 1;
+    for (const z of G.zombies) {
+      const d = dist(z, p);
+      if (z.hp > 0 && d <= R && d < bd && angDiff(Math.atan2(z.y - p.y, z.x - p.x), p.dir) <= A && !blocked(p.x, p.y, z.x, z.y)) { b = z; bd = d; }
+    }
+    return b;
+  }
+  // golpe nas costas (dono): jogador fora do cone da frente do zumbi = dano x2 e chance de matar na hora (50 % se nao tinha notado, 25 % se ja perseguia)
+  function strike(z, dmg, p) {
+    if (z.hp <= 0) return;
+    if (front(z, p)) { hurt(z, dmg); z.alert = Math.max(z.alert, 6); return; } // atingido de frente: passa a perseguir
+    const kill = rng() < (z.state === 'idle' && !(z.alert > 0) ? 0.5 : 0.25);
+    G.events.push({ type: 'backstab', id: z.id, kill });
+    if (kill) { hurt(z, z.hp); G.events.push({ type: 'stealthKill', id: z.id }); } else { hurt(z, dmg * 2); z.alert = Math.max(z.alert, 6); }
+    hint('furtivo2', 'Golpe pelas costas: dano dobrado e chance de derrubar na hora', 'furtivo');
   }
   function playerAttack(p) {
     if (p.weapon === 'molotov') return G.throw();
     if (p.weapon !== 'pistol') {
       G.cd = 0.6; setAct(p, 'swing');
       G.events.push({ type: 'swing' });
+      const a = aimOf(p); if (a) p.dir = Math.atan2(a.y - p.y, a.x - p.x);
       G.zombies.forEach(z => {
-        if (dist(z, p) > 1.5 || blocked(p.x, p.y, z.x, z.y) || angDiff(Math.atan2(z.y - p.y, z.x - p.x), p.dir) > Math.PI / 4) return;
-        if (z.state === 'idle' && !(z.alert > 0) && !front(z, p) && z.hp > 0) { hurt(z, z.hp); G.events.push({ type: 'stealthKill', id: z.id }); hint('furtivo2', 'Golpe pelas costas: o zumbi caiu sem perceber', 'furtivo'); return; } // pelas costas, sem ser notado: mata na hora
-        hurt(z, p.weapon === 'pipe_r' ? 35 : 25);
+        if (dist(z, p) > 1.7 || blocked(p.x, p.y, z.x, z.y) || angDiff(Math.atan2(z.y - p.y, z.x - p.x), p.dir) > Math.PI / 4) return;
+        strike(z, p.weapon === 'pipe_r' ? 35 : 25, p);
       });
     } else {
       const am = p.inv.find(i => i.id === 'ammo');
       if (!am) return;
       if (--am.qty <= 0) p.inv.splice(p.inv.indexOf(am), 1);
       G.cd = 0.4; setAct(p, 'shot');
+      const best = aimOf(p); if (best) p.dir = Math.atan2(best.y - p.y, best.x - p.x);
       G.events.push({ type: 'shot', x: p.x, y: p.y, dir: p.dir });
-      let best = null;
-      G.zombies.forEach(z => {
-        const d = dist(z, p);
-        if (d <= 12 && angDiff(Math.atan2(z.y - p.y, z.x - p.x), p.dir) <= 0.26 && !blocked(p.x, p.y, z.x, z.y) && (!best || d < dist(best, p))) best = z;
-      });
-      if (best) hurt(best, 50);
-      G.zombies.forEach(z => { if (dist(z, p) <= 15) { z.alert = 6; z.state = 'chase'; } });
+      if (best) strike(best, 50, p);
+      G.zombies.forEach(z => { if (z.hp > 0 && dist(z, p) <= 5) { z.alert = 6; z.state = 'chase'; } }); // dono: o tiro alerta so a 5 m
     }
   }
   // molotov: alvo = zumbi mais perto entre 3,5 e 12 m no cone de 60 graus sem parede; senao 6 m a frente. Voo 0,5 s, depois dano 35 (2,5 m) e fogo
@@ -445,7 +461,7 @@
     const za = z.anim || (z.anim = { move: 'idle', act: null, t: 0 }); za.t += dt;
     const h = d < 12 ? G.houses.find(h => blocked(z.x, z.y, p.x, p.y, [h])) : null; // casa no caminho (parede/porta fechada)
     if (d <= 1.1 && !h) z.state = 'attack';
-    else if (d < (h && h.parts ? 3 : !front(z, p) ? 0 : p.crouch ? 2.5 : p.running ? 8 : 6) || d <= (p.noise || 0) || z.alert > 0 || (z.state === 'chase' && d < 10)) z.state = 'chase'; // abafado: 3 m; dono: percebe a 8 m correndo, 6 andando, 2,5 agachado; perde a 10 m
+    else if ((!h && front(z, p) && d < (p.crouch ? 0.5 : p.running ? 5 : 2)) || d <= (p.noise || 0) || z.alert > 0 || (z.state === 'chase' && d < 5)) z.state = 'chase'; // dono: so de frente (120 graus), sem parede: 5 m correndo, 2 andando/parado, 0,5 agachado; perde a 5 m
     else z.state = 'idle';
     if (z.police && d < 10) hint('police', 'Policial zumbi: pode soltar munição ou pistola', 'police');
     z.zc = Math.max(0, (z.zc || 0) - dt);
@@ -487,12 +503,10 @@
         z.rc = (z.rc === undefined ? idPhase(z.id) : z.rc) - dt;
         if (z.rc <= 0 || !z.way) { z.rc = 0.25; z.way = navWay(z, p, h); }
         const w = z.way;
-        if (w && w.dr && dBox(w.dr, z.x, z.y) < 0.75) { // porta fechada no caminho: bate 4 s e arromba; trancada: bate 6 s e desiste (esse vao fica 10 s em z.last)
-          if ((z.bang = (z.bang || 0) + dt) >= (w.dr.locked ? 6 : 4)) {
-            if (w.dr.locked) z.last = (z.last || []).filter(l => G.t - l.t < 10).concat({ h: w.h, gi: w.gi, t: G.t });
-            else { w.dr.open = true; G.events.push({ type: 'doorBreak', id: w.dr.id }); }
-            z.bang = 0; z.way = null;
-          }
+        if (w && w.dr && dBox(w.dr, z.x, z.y) < 0.75) { // porta fechada no caminho: zumbi nao abre, bate 25/s (soma entre zumbis; 100 hp, trancada 200) ate quebrar
+          const dr = w.dr; dr.hp -= 25 * dt;
+          if (!(G.t < dr.nht)) { dr.nht = G.t + 0.8; G.events.push({ type: 'doorHit', id: dr.id, hp: Math.max(0, Math.round(dr.hp)) }); if (d < 12) hint('doorHit', 'Zumbis estão quebrando a porta — ela cede aos poucos', 'porta'); }
+          if (dr.hp <= 0) { dr.hp = 0; dr.broken = dr.open = true; dr.locked = false; z.way = null; G.events.push({ type: 'doorBreak', id: dr.id }); }
           return;
         }
         z.bang = 0;
@@ -536,7 +550,7 @@
     else if (len > 0.01 && !(p.action && p.action.type === 'cut' && len <= 0.3)) { p.dir = Math.atan2(my, mx); move(p, mx * vel * dt, my * vel * dt); } // cortando: zona morta 0,3 do joystick
     const dm = Math.hypot(p.x - ox, p.y - oy), real = !car && dm > 0.5 * vel * dt; // deslocamento real (parado na parede nao conta)
     p.running = wantRun && real; G._rw = p.running;
-    p.noise = car ? (p._eng ? 15 + 2 * Math.abs(car.speed) : 0) : !real ? 0 : p.crouch ? 0 : p.running ? 8 : 3; // ruido: de costas o zumbi so ouve (agachado = mudo)
+    p.noise = car ? (p._eng ? 15 + 2 * Math.abs(car.speed) : 0) : 0; // ruido so do motor (e do corte, em updateCut); passos nao alertam: a percepcao e a do cone da frente
     const sp = p.stamina;
     p.stamina = Math.max(0, Math.min(100, p.stamina + (p.running ? -28 : (real && !p.crouch ? 2 : 8) * (p.hunger < 25 ? 0.5 : 1)) * dt));
     if (sp >= 15 && p.stamina < 15) { G.events.push({ type: 'staminaLow' }); hint('folego', 'Sem fôlego — ande para recuperar', 'correr'); }
@@ -637,6 +651,7 @@
             if (p.inv.some(i => i.id === 'cutter')) hint('cutTap', 'Segure CORTAR 1,5 s', 'cutter');
             else { G.events.push({ type: 'locked', id: dr.id }); hint('locked', 'Trancada com cadeado — procure um alicate corta-cadeado em caixas de ferramentas nas casas, depósitos de mercado e porta-malas', 'locked'); }
           } else if (!dr.open) { dr.open = true; G.events.push({ type: 'door', id: dr.id, open: true }); }
+          else if (dr.broken) hint('doorBroken', 'Porta quebrada — não fecha mais', 'porta');
           else if ([p].concat(G.zombies).some(e => dBox(dr, e.x, e.y) < 1)) G.events.push({ type: 'hint', id: 'doorBusy', text: 'Saia da porta para fechar' });
           else { dr.open = false; G.events.push({ type: 'door', id: dr.id, open: false }); }
         } else if (n.type === 'drop') {
@@ -647,19 +662,24 @@
           G.openC(n); // tumba abre na hora (sem 1 s)
         } else if (n.type === 'car') enterCar(p, n.id);
         else if (n.type === 'trunk') {
-          p.action = { type: 'search', id: n.id, t: 0, trunk: true };
-          G.events.push({ type: 'trunk', id: n.id }, { type: 'search', id: n.id, p: 0 });
-          hint('trunk', 'Porta-malas: fique parado 1 s para abrir', 'trunk');
-        } else {
+          if (G.cars.some(c => c.id === n.id && c.opened)) G.openC(n); // ja vasculhado: abre na hora
+          else {
+            p.action = { type: 'search', id: n.id, t: 0, trunk: true };
+            G.events.push({ type: 'trunk', id: n.id }, { type: 'search', id: n.id, p: 0 });
+            hint('trunk', 'Porta-malas: fique parado 1 s para abrir', 'trunk');
+          }
+        } else if (G.crates.some(c => c.id === n.id && c.opened)) G.openC(n); // ja vasculhado (marcador verde no topo): abre na hora, sem os 1 s
+        else {
           p.action = { type: 'search', id: n.id, t: 0 };
           G.events.push({ type: 'search', id: n.id, p: 0 });
-          hint('search', 'Abrir leva 1 s — fique parado', 'buscar');
+          hint('search', 'Abrir leva 1 s na primeira vez — fique parado; móvel vasculhado ganha um marcador verde e abre na hora', 'buscar');
         }
       }
     }
 
     updateCut(p, car, len, dt);
     if (!p.action) p._tg = null;
+    G.aim = null; { const a = aimOf(p); if (a) { G.aim = { id: a.id, x: a.x, y: a.y }; hint('mira', 'Anel amarelo = alvo: ATACAR vira você para ele', 'atacar'); } }
     if (inp.attack && G.cd <= 0 && !car) playerAttack(p);
     updateFire(dt); tickCars(dt);
     updateSiphon(p, car, len, dt);
@@ -674,7 +694,7 @@
     G.dying = G.dying.filter(d => (d.anim.t += dt) < 1.5);
     // hint agachar: zumbi parado a < 10 m que ainda nao te viu
     if (!p.crouch && G.zombies.some(z => z.state === 'idle' && dist(z, p) < 10)) hint('agachar', 'Agache para passar sem ser notado', 'agachar');
-    if (!car && G.zombies.some(z => z.state === 'idle' && z.hp > 0 && dist(z, p) < 4 && !front(z, p))) hint('furtivo', 'Zumbi de costas: chegue agachado e ataque — mata na hora, sem barulho', 'furtivo');
+    if (!car && G.zombies.some(z => z.state === 'idle' && z.hp > 0 && dist(z, p) < 4 && !front(z, p))) hint('furtivo', 'Zumbi de costas: ataque por trás — dano dobrado e chance de matar na hora', 'furtivo');
 
     G._spawn += dt;
     if (G._spawn >= (G.t > 1200 ? 15 : 30)) {
@@ -795,7 +815,7 @@
         const t = lo + 0.8 + r() * (len - 1.6), sc = Math.min(1.3, ...tj.map(j => Math.abs(t - j)));
         if (sc > bs) { bs = sc; c = t; }
       }
-      const did = nid(), dr = vw ? { id: did, x: side ? X1 - WT : x, y: c - DW / 2, w: WT, h: DW, open: false, locked: false } : { id: did, x: c - DW / 2, y: side === 3 ? Y1 - WT : y, w: DW, h: WT, open: false, locked: false };
+      const did = nid(), dr = vw ? { id: did, x: side ? X1 - WT : x, y: c - DW / 2, w: WT, h: DW, open: false, locked: false, hp: 100 } : { id: did, x: c - DW / 2, y: side === 3 ? Y1 - WT : y, w: DW, h: WT, open: false, locked: false, hp: 100 };
       parts.push(Object.assign({ door: did }, { x: dr.x, y: dr.y, w: dr.w, h: dr.h }));
       gaps.push({ x: dr.x + dr.w / 2, y: dr.y + dr.h / 2 });
       const wall = (sx, sy, sw, sh) => { if (sw > 0.01 && sh > 0.01) parts.push({ x: sx, y: sy, w: sw, h: sh }); };
@@ -862,7 +882,7 @@
       const { x, y, w, h } = mk, X1 = x + w, Y1 = y + h, DY = y + 3.4, id = nid();
       for (let tr = 0; tr < 12; tr++) {
         const c = x + 4 + r() * 4, g = x + 3 + r() * 6, d1 = nid(), d2 = nid();
-        const dr = [{ id: d1, x: c - 1, y: Y1 - WT, w: 1, h: WT, open: false, locked: false }, { id: d2, x: c, y: Y1 - WT, w: 1, h: WT, open: false, locked: false }];
+        const dr = [{ id: d1, x: c - 1, y: Y1 - WT, w: 1, h: WT, open: false, locked: false, hp: 100 }, { id: d2, x: c, y: Y1 - WT, w: 1, h: WT, open: false, locked: false, hp: 100 }];
         const parts = [{ x, y, w, h: WT }, { x, y: y + WT, w: WT, h: h - 2 * WT }, { x: X1 - WT, y: y + WT, w: WT, h: h - 2 * WT }, { x, y: Y1 - WT, w: c - 1 - x, h: WT }, { x: c + 1, y: Y1 - WT, w: X1 - c - 1, h: WT },
           { x: x + WT, y: DY - WT / 2, w: g - DW / 2 - x - WT, h: WT }, { x: g + DW / 2, y: DY - WT / 2, w: X1 - WT - g - DW / 2, h: WT }];
         dr.forEach(q => parts.push({ door: q.id, x: q.x, y: q.y, w: q.w, h: q.h }));
@@ -928,7 +948,7 @@
       return hh;
     });
     const lr = mulberry32(hash(G.seed, cx, cy, 13)); // cadeados: RNG proprio (nao toca r nem nid); ~20 % das casas, nunca (0,0) casas 0/1 nem a casa da chave
-    o.houses.forEach((hh, i) => { if (lr() < 0.2 && !(origin && i < 2) && i !== keyAt) hh.doors[0].locked = true; });
+    o.houses.forEach((hh, i) => { if (lr() < 0.2 && !(origin && i < 2) && i !== keyAt) { hh.doors[0].locked = true; hh.doors[0].hp = 200; } });
     const mh2 = mk && market();
     if (mh2) { mh2.furn.forEach(f => o.crates.push(f)); delete mh2.furn; o.houses.push(mh2); }
     // zumbis: 1 guarda a <=3 m do 1o bau + 1-3 vagantes (<=4)
@@ -1052,7 +1072,7 @@
     const tag = l => l.forEach(e => { e.ch = key; });
     for (const k of ['roads', 'trees', 'fences', 'props']) { tag(g[k]); G[k].push(...g[k]); }
     g.fences.forEach((f, i) => { f.id = key + ':f:' + i; });
-    g.houses.forEach(h => h.doors.forEach(dr => { const v = dd0[dr.id]; if (v === undefined) return; if (typeof v === 'object') { dr.open = !!v.open; dr.locked = !!v.locked; } else dr.open = v; })); // v:3 {open,locked}
+    g.houses.forEach(h => h.doors.forEach(dr => { const v = dd0[dr.id]; if (v === undefined) return; if (typeof v === 'object') { dr.open = !!v.open; dr.locked = !!v.locked; if (v.hp !== undefined) dr.hp = v.hp; dr.broken = !!v.broken; } else dr.open = v; })); // v:3 {open,locked}
     G.houses.push(...g.houses);
     g.crates.forEach(c => { if (dc[c.id]) Object.assign(c, dc[c.id]); G.crates.push(c); });
     for (const id in dc) if (dc[id] && isFinite(dc[id].x) && !g.crates.some(c => c.id === id)) G.crates.push(Object.assign({ id, ch: key }, dc[id])); // tumbas
@@ -1068,7 +1088,7 @@
   // diff do chunk (sem descarregar); null se igual ao gen
   function diffOf(key) {
     const [cx, cy] = parse(key), g = G._gb.get(key) || gen(cx, cy), d = { crates: {}, cars: {}, zombies: {}, doors: {}, drops: {}, spills: {} };
-    G.houses.forEach(h => { if (h.ch === key) h.doors.forEach(dr => { const b = g.houses.find(q => q.id === h.id).doors.find(q => q.id === dr.id); if (dr.open !== b.open || !!dr.locked !== !!b.locked) d.doors[dr.id] = { open: dr.open, locked: !!dr.locked }; }); });
+    G.houses.forEach(h => { if (h.ch === key) h.doors.forEach(dr => { const b = g.houses.find(q => q.id === h.id).doors.find(q => q.id === dr.id); if (dr.open !== b.open || !!dr.locked !== !!b.locked || dr.hp !== b.hp || !!dr.broken) d.doors[dr.id] = { open: dr.open, locked: !!dr.locked, hp: dr.hp, broken: !!dr.broken }; }); });
     G.crates.forEach(c => {
       if (c.ch !== key) return;
       const b = g.crates.find(q => q.id === c.id);
@@ -1155,13 +1175,13 @@
     g('food', 'Comida', ['comida', 'fome', 'comer', 'curar', 'atadura', 'bandagem'], [{ item: 'food', onde: 'geladeiras, armários e fogões (não volta depois de pega)' }, { item: 'bandage', onde: 'armarinho de remédios, gavetas e prateleiras (raro)' }], ['Abra a mochila no MENU.', 'Toque na comida para comer (fome +30) ou na bandagem para curar (vida +25).'], 'food'),
     g('tomb', 'Tumba', ['tumba', 'morte', 'morrer', 'mochila'], [{ lugar: 'ponto de sua morte', onde: 'marcado em vermelho no Mapa' }], ['Ao morrer você volta ao início e deixa uma tumba com tudo.', 'Abra o Mapa e ache o ponto vermelho.', 'Vá até lá e toque PEGAR.'], 'search'),
     g('correr', 'Correr', ['correr', 'corrida', 'folego', 'rapido', 'joystick', 'shift', 'andar'], [], ['Empurre o joystick até a borda para correr.', 'No teclado, segure SHIFT.', 'Correr gasta fôlego: ande para recuperar.'], 'run'),
-    g('furtivo', 'Ataque furtivo', ['furtivo', 'costas', 'silencioso', 'matar', 'escondido', 'stealth'], [], ['Zumbi parado vê só na frente (6 m andando, 8 correndo, 2,5 agachado).', 'Por trás ele só ouve: correndo 8 m, andando 3 m, agachado nada.', 'Chegue agachado pelas costas e ataque com arma branca: mata na hora, sem alertar os outros.'], 'crouch'),
+    g('furtivo', 'Ataque furtivo', ['furtivo', 'costas', 'silencioso', 'matar', 'escondido', 'stealth'], [], ['O zumbi só percebe você na frente dele (cone de 120 graus): correndo a 5 m, andando ou parado a 2 m, agachado a 0,5 m.', 'Pelas costas ele não percebe, e parede esconde você — só o tiro (5 m) e o motor do carro chamam a atenção.', 'Acerto pelas costas (corpo a corpo ou tiro): dano dobrado e chance de matar na hora (50 % se ele não te notou, 25 % se já te perseguia).'], 'crouch'),
     g('agachar', 'Agachar', ['agachar', 'agachado', 'furtivo', 'silencio', 'esconder'], [], ['Toque o botão AGACHAR acima do joystick (no teclado: C).', 'Agachado: mais lento, passos quase mudos e menos visível.', 'Toque de novo para levantar.'], 'crouch'),
-    g('atacar', 'Atacar e armas', ['atacar', 'arma', 'bater', 'cano', 'pistola', 'municao', 'tiro', 'luta'], [{ item: 'pipe', onde: 'você já começa com um' }, { item: 'pistol', onde: 'gavetas (rara) e policiais' }, { item: 'ammo', onde: 'gavetas e policiais' }], ['Toque ATACAR para bater (cano: curto alcance, cone à frente).', 'Pistola gasta 1 munição e acerta de longe; o barulho atrai zumbis.', 'Toque a arma (canto) para trocar de arma.'], 'pipe'),
-    g('buscar', 'Buscar em móveis', ['buscar', 'vasculhar', 'movel', 'bau', 'geladeira', 'armario', 'gaveta', 'loot'], [], ['Chegue perto de um móvel e toque BUSCAR.', 'Fique parado 1 s: se mexer, cancela. O painel abre.', 'Toque um item para mover; o que não couber fica onde está.'], 'search'),
+    g('atacar', 'Atacar e armas', ['atacar', 'arma', 'bater', 'cano', 'pistola', 'municao', 'tiro', 'luta'], [{ item: 'pipe', onde: 'você já começa com um' }, { item: 'pistol', onde: 'gavetas (rara) e policiais' }, { item: 'ammo', onde: 'gavetas e policiais' }], ['Toque ATACAR para bater (cano: curto alcance, cone à frente).', 'Pistola gasta 1 munição e acerta de longe; o barulho atrai zumbis.', 'Toque a arma (canto) para trocar: só aparecem as armas que você tem.', 'Ao atacar você vira sozinho para o zumbi mais perto (anel amarelo no chão): corpo a corpo até 2 m, pistola até 12 m.'], 'pipe'),
+    g('buscar', 'Buscar em móveis', ['buscar', 'vasculhar', 'movel', 'bau', 'geladeira', 'armario', 'gaveta', 'loot'], [], ['Chegue perto de um móvel e toque BUSCAR.', 'Fique parado 1 s: se mexer, cancela. O painel abre.', 'Já vasculhado: um marcador verde aparece no topo do móvel e abrir de novo é imediato.', 'Toque um item para mover; o que não couber fica onde está.'], 'search'),
     g('container', 'Contêineres', ['container', 'conteiner', 'guardar', 'esconderijo', 'tumba', 'movel', 'mala', 'painel', 'pegar tudo'], [], ['BUSCAR abre o contêiner: ele à esquerda, sua mochila à direita.', 'Toque um item para mover a pilha; segure para mover 1.', 'Pegar tudo leva o que couber. Móvel 6, gôndola 8, porta-malas 10, tumba sem limite.', 'Você pode guardar qualquer item: vira esconderijo.'], 'search'),
     g('bag', 'Mochilas', ['mochila', 'mochilas', 'espacos', 'escolar', 'trilha', 'militar', 'costas', 'equipar'], [{ item: 'bag_school', onde: 'guarda-roupas (raro)' }, { item: 'bag_hiking', onde: 'guarda-roupas e porta-malas (muito raro)' }, { item: 'bag_military', onde: 'base militar' }], ['Equipe no MENU: escolar +4, trilha +8, militar +12 espaços.', 'Para tirar, esvazie os espaços extras antes.', 'Ao morrer, a mochila vai para a tumba.'], 'equip'),
-    g('porta', 'Portas', ['porta', 'abrir', 'fechar', 'casa', 'arrombar', 'batente'], [], ['Toda porta de casa começa fechada: perto dela, toque AÇÃO para abrir ou fechar.', 'Só fecha sem ninguém a menos de 1 m.', 'Zumbis arrombam porta fechada em 4 s.'], 'search'),
+    g('porta', 'Portas', ['porta', 'abrir', 'fechar', 'casa', 'arrombar', 'batente'], [], ['Toda porta de casa começa fechada: perto dela, toque AÇÃO para abrir ou fechar.', 'Só fecha sem ninguém a menos de 1 m.', 'Zumbi não abre porta: ele bate e vai quebrando (100 de vida, 200 se tiver cadeado; 1 zumbi leva 4 s, 2 levam 2 s).', 'Porta quebrada fica aberta, torta, e nunca mais fecha.'], 'search'),
     g('locked', 'Porta trancada', ['trancada', 'trancado', 'cadeado', 'porta', 'abrir', 'cortar'], [{ item: 'cutter', onde: 'caixas de ferramentas nas casas, depósitos de mercado e porta-malas (raro)' }], ['Algumas portas de casa têm cadeado: AÇÃO não abre.', 'Com o alicate na mochila, segure CORTAR por 1,5 s parado.', 'Zumbis também não passam por porta trancada.'], 'cutter'),
     g('cutter', 'Alicate corta-cadeado', ['alicate', 'corta', 'cadeado', 'cortar', 'ferramenta', 'trancada'], [{ item: 'cutter', onde: 'caixas de ferramentas nas casas, depósitos de mercado e porta-malas (raro)' }], ['Fica na mochila e vira o botão CORTAR perto de porta trancada.', 'Segure 1,5 s sem mexer o joystick; o corte faz barulho.', 'Tem 4 usos e depois quebra.'], 'cutter'),
     g('moveis', 'Cômodos e móveis', ['cozinha', 'quarto', 'banheiro', 'sala', 'fogao', 'pia', 'cama', 'sofa', 'estante', 'criado', 'remedio', 'movel', 'tocar'], [{ item: 'bandage', onde: 'armarinho de remédios do banheiro (raro)' }, { item: 'food', onde: 'geladeira, armários e fogão da cozinha' }, { item: 'rag', onde: 'guarda-roupa, criado-mudo e estante' }], ['Cada casa tem cozinha, quarto, banheiro e sala com móveis próprios.', 'Fogão, geladeira, armários, guarda-roupa, criado-mudo, armarinho, estante e gaveteiro guardam itens; cama, sofá, mesa, vaso e pia só atrapalham.', 'O móvel aceso é o alvo do BUSCAR; ou toque direto no móvel perto de você.'], 'search'),
@@ -1177,11 +1197,12 @@
     g('map', 'Mapa', ['mapa', 'explorar', 'mundo', 'onde', 'localizar'], [], ['Abra o MENU e toque a aba Mapa.', 'Mostra os quarteirões que você já visitou.', 'O ponto vermelho é sua tumba.'], 'run'),
     g('interior', 'Mercado', ['mercado', 'supermercado', 'deposito', 'gondola', 'loja'], [{ item: 'food', onde: 'gôndolas do mercado' }, { item: 'wire', onde: 'depósito do mercado' }], ['Mercados são raros e têm zumbis dentro.', 'Gôndolas guardam comida; o depósito, materiais.'], 'search'),
   ];
+  const ITEM_DESC = { food: 'Comida enlatada ou embalada. Mata a fome.', bandage: 'Pano limpo para estancar ferimentos. Cura vida.', rag: 'Pedaço de pano velho. Serve de pavio e para fabricar.', wire: 'Rolo de arame. Reforça o cano.', ammo: 'Munição de pistola. Cada tiro gasta uma.', bottle: 'Garrafa de vidro vazia. Base do molotov.', jacket: 'Jaqueta grossa que protege o tronco. Gasta ao levar dano.', helmet: 'Capacete que protege a cabeça. Gasta ao levar dano.', shinguards: 'Caneleiras que protegem as pernas. Gastam ao levar dano.', bag_school: 'Mochila escolar de costas: poucos espaços extras.', bag_hiking: 'Mochila de trilha: mais espaços extras.', pistol: 'Arma de fogo. Acerta de longe, mas o tiro chama zumbis a 5 m.', cutter: 'Alicate corta-cadeado. Abre porta trancada; quebra após alguns usos.', pipe: 'Cano de ferro. Arma corpo a corpo de curto alcance.', hose: 'Mangueira de borracha. Com um galão, sifona gasolina de carros.', gascan: 'Galão para gasolina. Mostra quanto combustível carrega.', pipe_r: 'Cano reforçado com arame. Bate mais forte.', molotov: 'Garrafa incendiária. Fogo em área; queima você também.', key: 'Chave de um carro específico. Sem ela o carro não liga.', bag_military: 'Mochila militar: o maior espaço extra de costas.' };
   const ITEM_IDS = [...new Set([...Object.keys(STACK), ...Object.values(FURN).flatMap(t => t.map(x => x[0]).filter(Boolean)), ...RECIPES.map(r => r.out), 'pipe', 'pistol', 'key', 'helmet', 'jacket', 'shinguards', 'bag_school', 'bag_hiking', 'bag_military'])];
 
   const G = window.G = {
     t: 0, map: { chunk: CH }, nextId: 0, ref: [0, 0], chunkGen: 0, _ls: new Set(), _pk: '',
-    chunks: {}, loaded: [], queue: [], fires: [], spills: [], flights: [], _gb: new Map(), _gp: {}, explored: [], roads: [], cars: [], trees: [], fences: [], drops: [], props: [], _pc: [], recipes: RECIPES, guide: GUIDE, ITEM_IDS, HOLD_MS: 400, capOf, hurtPlayer, gen, loot: FURN, free,
+    chunks: {}, loaded: [], queue: [], fires: [], spills: [], flights: [], _gb: new Map(), _gp: {}, explored: [], roads: [], cars: [], trees: [], fences: [], drops: [], props: [], _pc: [], recipes: RECIPES, guide: GUIDE, ITEM_IDS, ITEM_DESC, HOLD_MS: 400, capOf, hurtPlayer, gen, loot: FURN, free,
     // dev (fora do save): so existe na memoria; UI liga com 7 toques na versao
     dev: {
       on: false, god: false, noclip: false, speed: 1,
@@ -1269,8 +1290,8 @@
       else return;
       if (--s.qty <= 0) p.inv.splice(slot, 1);
     },
-    switchWeapon() { // cicla pipe, pipe_r, pistol entre os que tiver (shortcut: pistola sempre disponivel, como antes)
-      const p = G.player, l = ['pipe'].concat(countOf(p, 'pipe_r') ? ['pipe_r'] : [], 'pistol', countOf(p, 'molotov') ? ['molotov'] : []);
+    switchWeapon() { // cicla so entre as armas que o jogador tem (o cano inicial sempre)
+      const p = G.player, l = ['pipe'].concat(countOf(p, 'pipe_r') ? ['pipe_r'] : [], countOf(p, 'pistol') ? ['pistol'] : [], countOf(p, 'molotov') ? ['molotov'] : []);
       p.weapon = l[(l.indexOf(p.weapon) + 1) % l.length]; setAct(p, 'equip');
     },
     craft(id) {

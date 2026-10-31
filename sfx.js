@@ -161,6 +161,8 @@
     doorOpen: () => voice(0.25, (t, n) => osc(n, 'triangle', 170, 380, t, 0.22, 0.2)),   // rangido curto subindo
     doorClose: () => voice(0.16, (t, n) => osc(n, 'sine', 120, 50, t, 0.15, 0.6)),       // batida grave curta
     search: () => voice(0.3, (t, n) => [0, 0.09, 0.18].forEach((d) => noise(n, t + d, 0.04, 0.3, 'bandpass', 1400, 1.5, 0.005))), // remexer: 3 burst
+    doorHit: () => voice(0.3, (t, n) => { osc(n, 'sine', 120, 55, t, 0.18, 0.6); noise(n, t, 0.08, 0.35, 'lowpass', 400, 0.7, 0.004); osc(n, 'triangle', 210, 140, t, 0.1, 0.2); }), // pancada de zumbi na porta: baque de madeira
+    backstab: () => voice(0.3, (t, n) => { noise(n, t, 0.07, 0.4, 'bandpass', 1800, 1.2, 0.003); osc(n, 'sawtooth', 320, 90, t, 0.14, 0.3); }), // golpe pelas costas: estalo agudo + queda
     doorBreak: () => voice(1.0, (t, n) => [0, 0.3, 0.6].forEach((d) => { // pancadas fortes graves
       osc(n, 'sine', 90, 40, t + d, 0.22, 0.7);
       noise(n, t + d, 0.12, 0.4, 'lowpass', 300, 0.7, 0.005);

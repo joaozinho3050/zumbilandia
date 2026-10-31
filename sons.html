@@ -57,6 +57,7 @@ input[type=range]{flex:1;min-height:var(--toque)}
     ['Casa e itens', 'Abrir porta', 'Ao abrir uma porta.', 'Triângulo subindo de 170 a 380 Hz: rangido curto.', { type: 'door', open: true }],
     ['Casa e itens', 'Fechar porta', 'Ao fechar uma porta.', 'Seno grave caindo de 120 a 50 Hz: batida.', { type: 'door', open: false }],
     ['Casa e itens', 'Vasculhar', 'No início de vasculhar um móvel.', 'Três estalos de ruído passa-faixa (1,4 kHz), como remexer.', { type: 'search', id: 'm1', p: 0 }, 's'],
+    ['Casa e itens', 'Zumbi bate na porta', 'A cada ~0,8 s em que zumbis batem numa porta fechada.', 'Seno grave 120 a 55 Hz + ruído passa-baixa + triângulo curto.', { type: 'doorHit', id: 'd1', hp: 60 }],
     ['Casa e itens', 'Arrombar porta', 'Quando uma porta trancada é arrombada.', 'Três pancadas: seno grave (90 a 40 Hz) + ruído passa-baixa.', { type: 'doorBreak' }],
     ['Casa e itens', 'Largar item', 'Ao largar um item no chão.', 'Seno caindo de 110 a 55 Hz + ruído passa-baixa curto: baque.', { type: 'drop' }],
     ['Casa e itens', 'Pegar item', 'Ao pegar um item do chão ou do contêiner.', 'Triângulo agudo (1,4 a 1,8 kHz) + ruído passa-alta: estalo.', { type: 'pick' }],
@@ -80,6 +81,7 @@ input[type=range]{flex:1;min-height:var(--toque)}
     ['Dano de carro e fogo', 'Explosão', 'Quando o carro explode ou um molotov/explosão atinge a área.', 'Seno grave caindo de 120 a 35 Hz + ruído passa-baixa: boom.', { type: 'blast', x: 0, y: 0, r: 5 }],
     ['Dano de carro e fogo', 'Gasolina vazando', 'Quando o tanque vaza e cai uma poça.', 'Dois pingos curtos: seno caindo de 900 a 400 Hz.', { type: 'spill', x: 0, y: 0 }],
     ['Dano de carro e fogo', 'Motor engasgando', 'Quando o motor do carro morre de vez (vida zero).', 'Três trancos de serra (110 a 60 Hz) + ruído passa-faixa grave.', { type: 'carDead', id: 'c1' }],
+    ['Combate', 'Golpe nas costas', 'Qualquer acerto em um zumbi que não está de frente para você (dano x2).', 'Estalo de ruído agudo + serra caindo de 320 a 90 Hz.', { type: 'backstab', id: 'z1', kill: false }],
     ['Combate', 'Golpe furtivo', 'Quando você mata um zumbi pelas costas sem ele perceber.', 'Seno grave 90 a 40 Hz + ruído abafado curto.', { type: 'stealthKill', id: 'z1' }],
   ];
   // [secao, nome, quando, como, estado ligado, estado desligado, extra]

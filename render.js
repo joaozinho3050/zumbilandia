@@ -51,7 +51,7 @@ let lastBake = { verts: 0, ms: 0 };
 let ground; const mkRoof = new Map(); // id do mercado -> [corpo, contorno]
 let zIM, zIK, zParts, plP, zPs = [], eqSig = '000', dPool = [], dCache = new Map(), ring, brk = [], demoRig = null, plRig, tIM, tIK, tSig = '', tList = [], bt = 0, pPh = 0, pPx = 0, pPy = 0, pV = 0, RM = 1, zIMs = [],
    carIM, carIK, crIM = [], roofIM = [], doorIM, roofSig = '', doorA = new Map(), lastDraw = 0, playerPivot, zData = new Map(), frame = 0,
-   doorB, wallIM, padIM, padFall = [], hl, hlG = new Map(), doorT = new Map(), crB = [], ZBODY, lookC = [];
+   doorB, wallIM, padIM, padFall = [], hl, hlG = new Map(), doorT = new Map(), doorSh = new Map(), aimRing, seenIM, crB = [], ZBODY, lookC = [];
 const dummy = new THREE.Object3D(), zR = new THREE.Matrix4(), zM = new THREE.Matrix4(), zB = new THREE.Matrix4(), zQ = new THREE.Quaternion(), zE = new THREE.Euler(), zV = new THREE.Vector3(), zS = new THREE.Vector3(1, 1, 1);
 const shots = [], hits = [], wc0 = new THREE.Color();
 let spillIM, flash, devLn = null, devEl = null, devCh = '', devT = 0, devN = 0, own, ownId = null, lidA = 0, cSm = { x: 0, y: 0, d: 1 }, sPool = [], sT = 0, fireIM, flameIM, flights = [], bottle = null;
@@ -323,6 +323,8 @@ function init(canvas) {
   const zq = makeZombieParts({ police: true }); zPs = ['body', 'legL', 'legR'].map(n => instanced(bake(zq[n]), 96));
   const rm = new THREE.MeshBasicMaterial({ color: 0xff5c57, transparent: true, opacity: 0.45, depthWrite: false, fog: false });
   ring = new THREE.Mesh(new THREE.RingGeometry(0.55, 0.75, 24).rotateX(-Math.PI / 2), rm); ring.visible = false; scene.add(ring);
+  seenIM = new THREE.InstancedMesh(new THREE.OctahedronGeometry(0.11), new THREE.MeshBasicMaterial({ color: 0x8fd16a, fog: false }), 128); seenIM.frustumCulled = false; seenIM.count = 0; seenIM.visible = false; scene.add(seenIM); // 'visto': 1 draw call so quando ha movel vasculhado (grama 8fd16a)
+  aimRing = new THREE.Mesh(new THREE.RingGeometry(0.62, 0.7, 28).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0xf2d16b, transparent: true, opacity: 0.7, depthWrite: false, fog: false })); aimRing.visible = false; scene.add(aimRing); // mira assistida: anel fino amarelo (maçaneta f2d16b) sob o alvo
   for (let i = 0; i < 8; i++) { const g = new THREE.Group(); g.add(new THREE.Mesh(undefined, BODY), new THREE.Mesh(undefined, LINE)); g.visible = false; scene.add(g); dPool.push(g); }
   const bg = new THREE.BoxGeometry(0.12, 0.12, 0.12);
   for (let i = 0; i < 6; i++) { const m = new THREE.Mesh(bg, cmat(0xffffff)); m.visible = false; m.userData = { end: 0 }; scene.add(m); brk.push(m); }
@@ -409,11 +411,12 @@ function draw(G) {
     for (const d of h.doors) {
       if (dn >= 128) break;
       const ax = d.w >= d.h, hx = h.x + h.w / 2, hy = h.y + h.h / 2;
-      const a0 = ax ? 0 : -Math.PI / 2, a1 = !d.open ? a0 : ax ? (d.y < hy ? -Math.PI / 2 : Math.PI / 2) : (d.x < hx ? 0 : -Math.PI);
+      const a0 = ax ? 0 : -Math.PI / 2, o1 = !d.open ? a0 : ax ? (d.y < hy ? -Math.PI / 2 : Math.PI / 2) : (d.x < hx ? 0 : -Math.PI), a1 = d.broken ? a0 + (o1 - a0) * 0.7 : o1; // quebrada: pendurada torta, nunca fecha
       let a = doorA.get(d.id); if (a === undefined) a = a1;
       const st = dtm * Math.PI / 300; a += Math.max(-st, Math.min(st, a1 - a)); doorA.set(d.id, a);
+      const sh = doorSh.get(d.id), tr = sh && now < sh && RM === 1 ? Math.sin(now / 25) * 0.06 : 0; // pancada de zumbi: porta treme 0,3 s
       const L = Math.max(d.w, d.h), t = { x: ax ? d.x : d.x + d.w / 2, z: ax ? d.y + d.h / 2 : d.y, a, sx: L / 1.4, sz: 0.9 };
-      doorT.set(d.id, t); place(doorIM[0], dn++, t.x, 0, t.z, a, t.sx, 1, t.sz);
+      doorT.set(d.id, t); place(doorIM[0], dn++, t.x, 0, t.z, a + tr, t.sx, d.broken ? 0.85 : 1, t.sz);
       if (d.locked && ln < 128) {
         const o = ax ? (d.y < hy ? -1 : 1) : (d.x < hx ? -1 : 1), px = ax ? d.x + L - 0.3 : d.x + d.w / 2 + o * 0.22, pz = ax ? d.y + d.h / 2 + o * 0.22 : d.y + L - 0.3;
         const near = (px - p.x) ** 2 + (pz - p.y) ** 2 < 36, k = near && RM === 1 ? Math.sin(now / 220) : 0, sc = 3.2 * (1 + 0.1 * k);
@@ -530,6 +533,9 @@ function draw(G) {
   // baus
   const cnt = [0, 0];
   for (const c of G.crates) { if (c.w) continue; const k = c.opened ? 1 : 0, im = crIM[k][0]; if (cnt[k] < 128) place(im, cnt[k]++, c.x, 0, c.y, 0); }
+  { let sn = 0; // marcador de vasculhado no topo (so do andar atual, 1 InstancedMesh)
+    for (const c of G.crates) if (c.opened && !c.scenery && c.kind !== 'register' && sn < 128) place(seenIM, sn++, c.x, (c.w ? FH[c.kind] || 1 : 0.6) + 0.28 + (RM === 1 ? 0.04 * Math.sin(now / 400 + sn) : 0), c.y, RM === 1 ? now / 700 : 0);
+    seenIM.count = sn; seenIM.visible = sn > 0; seenIM.instanceMatrix.needsUpdate = true; }
   crIM.forEach(([im, ik], k) => { im.count = ik.count = cnt[k]; im.instanceMatrix.needsUpdate = true; ik.instanceMatrix = im.instanceMatrix; });
 
   // drops: so os 8 mais proximos; geometria baked por id (cache), flutua e gira devagar
@@ -557,6 +563,7 @@ function draw(G) {
   hl.visible = on;
   // anel sob o zumbi preparando o bote
   const T = G.target && typeof G.target === 'object' ? G.target : G.zombies.find(z => z.id === G.target);
+  const A = G.aim; aimRing.visible = !!A; if (A) { aimRing.position.set(A.x, 0.04, A.y); aimRing.scale.setScalar(1 + (RM === 1 ? 0.08 * Math.sin(now / 150) : 0)); }
   ring.visible = !!T; if (T) { ring.position.set(T.x, 0.03, T.y); ring.scale.setScalar(1 + (RM === 1 ? 0.1 * Math.sin(now / 120) : 0)); }
 
   // efeitos (reaproveitados)
@@ -568,7 +575,8 @@ function draw(G) {
     } else if (ev.type === 'armorBreak') {
       const c = { head: 0xff5c57, torso: 0x9b6a3c, legs: 0x9aa3b5 }[ev.part] || 0x9aa3b5;
       for (let i = 0; i < 5; i++) { const m = brk.find(s => !s.visible) || brk[i]; m.material = cmat(c); m.position.set(p.x, 1, p.y); m.userData = { end: now + 300, vx: (Math.random() - 0.5) * 4, vy: 2 + Math.random() * 2, vz: (Math.random() - 0.5) * 4 }; m.visible = true; }
-    } else if (ev.type === 'cut') {
+    } else if (ev.type === 'doorHit') doorSh.set(ev.id, now + 300);
+    else if (ev.type === 'cut') {
       const t = doorT.get(ev.id), g = padFall.find(q => !q.visible) || padFall[0];
       if (t) { const ax = Math.abs(Math.sin(t.a)) > 0.5 ? 0 : 1; g.position.set(t.x + (ax ? 1.1 : 0), 0.95, t.z + (ax ? 0 : 1.1)); g.userData = { t: 0, vy: 1.5, vx: (Math.random() - 0.5) * 1.2, vz: (Math.random() - 0.5) * 1.2 }; g.scale.setScalar(3.2); g.visible = true; }
     } else if (ev.type === 'blast') {
@@ -725,5 +733,5 @@ function badMatrices() {
   });
   return bad;
 }
-window.R = { zoom(pct) { VIEW_R = 10 * Math.max(50, Math.min(170, +pct || 100)) / 100; if (camera) size(); }, init, draw, pick, icon, spin, demo, info: () => ({ calls: renderer.info.render.calls, verts: lastBake.verts, ms: lastBake.ms }), mem: () => renderer.info.memory.geometries, chunks: () => chunks.size, badMatrices, devOverlay,
+window.R = { seenN: () => (seenIM && seenIM.visible ? seenIM.count : 0), aimOn: () => !!aimRing && aimRing.visible, zoom(pct) { VIEW_R = 10 * Math.max(50, Math.min(170, +pct || 100)) / 100; if (camera) size(); }, init, draw, pick, icon, spin, demo, info: () => ({ calls: renderer.info.render.calls, verts: lastBake.verts, ms: lastBake.ms }), mem: () => renderer.info.memory.geometries, chunks: () => chunks.size, badMatrices, devOverlay,
   view() { const c = camera, v = new THREE.Vector3(), d = c.userData.d; c.position.set(0, 0.5 + d * Math.sin(EL), d * Math.cos(EL)); c.lookAt(0, 0.5, 0); c.updateMatrixWorld(true); return [[VIEW_R, 0], [-VIEW_R, 0], [0, VIEW_R], [0, -VIEW_R]].map(([x, z]) => { v.set(x, 0, z).project(c); return Math.max(Math.abs(v.x), Math.abs(v.y)); }); } };

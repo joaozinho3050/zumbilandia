@@ -117,7 +117,8 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
 .ip h3.full{color:var(--vida)}
 .ip .grid{display:grid;grid-template-columns:repeat(auto-fill,56px);gap:var(--esp-2)}
 .ip .slot{position:relative;overflow:hidden;width:56px;height:56px;padding:0;border:2px solid var(--borda);border-radius:14px;background:var(--slot);display:flex;align-items:center;justify-content:center;font-size:10px;line-height:1}
-.ip .slot:disabled{border-style:dashed;background:none}
+.ip .slot:disabled{border-style:dashed;background:none;pointer-events:none}
+.ip .icard{margin-top:var(--esp-3);padding:var(--esp-2) var(--esp-3);border:2px solid var(--borda);border-radius:14px;background:var(--fundo);box-shadow:var(--sombra)}.ip .icard b{display:block;font:16px 'Pixelify Sans',monospace;font-weight:400}.ip .icard p{margin:var(--esp-1) 0;font-size:14px}.ip .icard small{color:var(--municao);font-size:12px}
 .ip .slot.ex{border-color:var(--municao)}
 .ip .slot.sel{border-color:var(--texto)}
 .ip .slot.no img{opacity:.35}
@@ -167,7 +168,7 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
     trunk: ['trunk', 'MALA'], car: ['door', 'ENTRAR'], siphon: ['pump', 'SIFONAR'], pour: ['pump', 'DESPEJAR'], search: ['search', 'BUSCAR'], drop: ['hand', 'PEGAR'], fence: ['jump', 'PULAR'], cut: ['hand', 'CORTAR'], locked: ['door', 'TRANCADA']
   };
   const acaoDe = (n) => n.type === 'door' && n.locked ? (n.cut ? ACAO.cut : ACAO.locked) : n.act ? ACAO[n.act] : n.type === 'door' ? (n.open ? ['door', 'FECHAR'] : ['door', 'ABRIR']) : ACAO[n.type] || ['hand', 'AÇÃO'];
-  const NOME = { food: 'Comida', bandage: 'Bandagem', ammo: 'Munição', rag: 'Trapo', wire: 'Arame', bottle: 'Garrafa', hose: 'Mangueira', gascan: 'Galão', key: 'Chave', pipe: 'Cano', pipe_r: 'Cano reforçado', bat: 'Taco', pistol: 'Pistola', molotov: 'Molotov', helmet: 'Capacete', jacket: 'Jaqueta', shinguards: 'Caneleiras', bag_school: 'Mochila escolar', bag_hiking: 'Mochila de trilha', bag_military: 'Mochila militar' };
+  const NOME = { food: 'Comida', bandage: 'Bandagem', ammo: 'Munição', rag: 'Trapo', wire: 'Arame', bottle: 'Garrafa', hose: 'Mangueira', cutter: 'Alicate', gascan: 'Galão', key: 'Chave', pipe: 'Cano', pipe_r: 'Cano reforçado', bat: 'Taco', pistol: 'Pistola', molotov: 'Molotov', helmet: 'Capacete', jacket: 'Jaqueta', shinguards: 'Caneleiras', bag_school: 'Mochila escolar', bag_hiking: 'Mochila de trilha', bag_military: 'Mochila militar' };
   const BAG = { bag_school: 4, bag_hiking: 8, bag_military: 12 };
   const CNOME = { fridge: 'Geladeira', cabinet: 'Armário', wardrobe: 'Guarda-roupa', drawer: 'Gaveta', shelf: 'Gôndola', box: 'Caixa', trunk: 'Porta-malas', tomb: 'Tumba' };
   const ARMA = { pipe: 'CANO', pipe_r: 'CANO+', bat: 'TACO', pistol: 'PISTOLA', molotov: 'MOLOTOV' };
@@ -224,7 +225,7 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
   const spinOff = () => { try { window.R && R.spin && R.spin(null); } catch (e) {} };
   const demoOff = () => { try { window.R && R.demo && R.demo(null); } catch (e) {} };
 
-  let curTab = 'inv', selInv = -1, guideQ = '', guideOpen = null, mapRaf = 0, panes = {}, tabBtns = {};
+  let curTab = 'inv', selInv = -1, selEq = '', selC = '', guideQ = '', guideOpen = null, mapRaf = 0, panes = {}, tabBtns = {};
   const mapCache = new Map();
 
   function showTab(id) {
@@ -245,6 +246,17 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
     const q = o.q != null ? o.q : qtxt(it), d = o.dur != null ? '<span class="dur"><i style="width:' + Math.round(Math.max(0, Math.min(1, o.dur)) * 100) + '%"></i></span>' : '';
     return '<' + tag + (tag === 'div' ? ' role="button" tabindex="0"' : '') + ' class="' + cls + '" ' + (o.a || '') + ' aria-label="' + (o.lab || nm(it.id)) + '">' + ico(it.id) + (o.hold ? '<i></i>' : '') + (q !== '' ? '<b>' + q + '</b>' : '') + d + '</' + tag + '>';
   }
+  // cartao de informacoes do item (1o toque): nome, descricao curta e stats conforme o item
+  const DANO = { pipe: 25, pipe_r: 35, pistol: 50, molotov: 35 };
+  function card(it) {
+    if (!it) return '';
+    const st = [];
+    if (DANO[it.id]) st.push('Dano ' + DANO[it.id]);
+    if (it.dur != null) st.push('Durabilidade ' + it.dur + '/' + (DUR[it.id] || it.dur));
+    if (it.id === 'gascan' && it.fuel != null) st.push('Gasolina ' + Math.round(it.fuel / 10 * 100) + '%');
+    if (it.qty > 1) st.push('Quantidade ' + it.qty);
+    return '<div class="icard"><b>' + nm(it.id) + '</b><p>' + ((window.G.ITEM_DESC || {})[it.id] || '') + '</p>' + (st.length ? '<small>' + st.join(' · ') + '</small>' : '') + '</div>';
+  }
   const col = (t, full, body) => '<div class="col"><h3' + (full ? ' class="full"' : '') + '>' + t + '</h3>' + body + '</div>';
   const grid = (h) => '<div class="grid">' + h + '</div>';
   const durOf = (it) => it.dur == null ? null : it.dur / (DUR[it.id] || it.dur || 1);
@@ -264,7 +276,7 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
     let det = '<span class="dim">Toque num item.</span>';
     if (it) {
       const usa = it.id === 'food' || it.id === 'bandage', d = durOf(it);
-      det = '<canvas class="spin" width="160" height="160"></canvas><h3>' + nm(it.id) + ' ×' + (it.qty || 1) + (d != null ? ' · dur ' + it.dur : '') + '</h3><div class="dim">' + (usa ? 'Toque de novo para usar.' : equipavel(it.id) ? 'Pode ser equipado.' : ['pistol','bat','pipe','pipe_r','molotov'].includes(it.id) ? 'Arma — troque com o botão ARMA.' : 'Material para fabricar ou usar no mundo.') + '</div><div class="acts">' +
+      det = '<canvas class="spin" width="160" height="160"></canvas><h3>' + nm(it.id) + ' ×' + (it.qty || 1) + (d != null ? ' · dur ' + it.dur : '') + '</h3>' + card(it) + '<div class="dim">' + (usa ? 'Toque de novo para usar.' : equipavel(it.id) ? 'Toque de novo para equipar.' : ['pistol','bat','pipe','pipe_r','molotov'].includes(it.id) ? 'Arma — troque com o botão ARMA.' : 'Material para fabricar ou usar no mundo.') + '</div><div class="acts">' +
         (usa ? '<button class="btn" data-a="use" data-v="' + selInv + '">USAR</button>' : '') + (equipavel(it.id) ? '<button class="btn" data-a="eq" data-v="' + it.id + '">EQUIPAR</button>' : '') + '<button class="btn" data-a="drop" data-v="' + selInv + '">LARGAR</button></div>';
     }
     panes.inv.innerHTML = bagCol(p, (x, i) => ({ a: 'data-a="slot" data-v="' + i + '"', sel: i === selInv, dur: durOf(x) })) + '<div class="col">' + det + '</div>';
@@ -276,13 +288,15 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
   function renderEquip() {
     const G = window.G, p = G.player, eq = p.equip || {};
     const nomes = { head: 'Cabeça', torso: 'Tronco', legs: 'Pernas', back: 'Costas' };
+    const selIt = selEq && (selEq[0] === 'e' ? eq[selEq.slice(2)] : p.inv[+selEq.slice(2)]);
+    if (selEq && !selIt) selEq = '';
     let g = '';
     for (const part in nomes) {
       const it = eq[part];
-      g += slotH(it, { a: 'data-a="un" data-v="' + part + '"', lab: nomes[part] + (it ? ': ' + nm(it.id) : ''), dur: it && part !== 'back' ? durOf(it) : null });
+      g += slotH(it, { a: 'data-a="es" data-v="e:' + part + '"', sel: selEq === 'e:' + part, lab: nomes[part] + (it ? ': ' + nm(it.id) : ''), dur: it && part !== 'back' ? durOf(it) : null });
     }
-    panes.equip.innerHTML = col('Equipados', false, grid(g) + '<p class="dim">Toque na peça para tirar.</p>') +
-      bagCol(p, (x) => equipavel(x.id) ? { a: 'data-a="eq" data-v="' + x.id + '"', dur: durOf(x) } : { no: true });
+    panes.equip.innerHTML = col('Equipados', false, grid(g) + (selIt ? card(selIt) : '<p class="dim">Toque numa peça para ver; toque de novo para tirar.</p>')) +
+      bagCol(p, (x, i) => ({ a: 'data-a="es" data-v="b:' + i + '"', sel: selEq === 'b:' + i, no: !equipavel(x.id), dur: durOf(x) }));
   }
 
   let selRec = '';
@@ -417,27 +431,33 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
     return e && { list: o.type === 'trunk' ? e.trunk : e.loot, name: CNOME[o.type === 'trunk' ? 'trunk' : e.tomb ? 'tomb' : e.kind] || 'Móvel', cap: o.type === 'trunk' ? 10 : e.tomb ? Infinity : e.kind === 'shelf' ? 8 : 6 };
   }
   function renderCont(G, p, c) {
-    const cs = (list, n, side, ex) => { let g = ''; for (let i = 0; i < Math.max(n, list.length); i++) g += slotH(list[i], { a: 'data-s="' + side + '" data-i="' + i + '"', hold: true, ex: ex && i >= 8 }); return g; };
+    const cs = (list, n, side, ex) => { let g = ''; for (let i = 0; i < Math.max(n, list.length); i++) g += slotH(list[i], { a: 'data-s="' + side + '" data-i="' + i + '"', hold: true, sel: selC === side + ':' + i, ex: ex && i >= 8 }); return g; };
+    const [sd, si] = selC.split(':'), sIt = selC && (sd === 'c' ? c.list : p.inv)[+si];
+    if (selC && !sIt) selC = '';
     contEl.querySelector('.cols').innerHTML = col(c.name + ' ' + c.list.length + (c.cap === Infinity ? '' : '/' + c.cap), c.list.length >= c.cap, grid(cs(c.list, c.cap === Infinity ? 0 : c.cap, 'c'))) +
       col('Mochila ' + p.inv.length + '/' + capTxt(p), p.inv.length >= cap(p), grid(cs(p.inv, cap(p), 'inv', true)));
+    contEl.querySelector('.info').innerHTML = selC ? card(sIt) : '';
   }
   function holdEnd() { if (hp) { clearTimeout(hp.t); hp.b.classList.remove('h'); hp = null; } }
   function buildCont() {
-    contEl = el('div', 'container', root, '<div class="top"><button class="btn" data-k="all">Pegar tudo</button><button class="btn" data-k="x" aria-label="Fechar">✕</button></div><div class="cols"></div>', 'hidden ip');
+    contEl = el('div', 'container', root, '<div class="top"><button class="btn" data-k="all">Pegar tudo</button><button class="btn" data-k="x" aria-label="Fechar">✕</button></div><div class="cols"></div><div class="info"></div>', 'hidden ip');
     const G = () => window.G;
     contEl.addEventListener('pointerdown', (e) => {
       const k = e.target.closest('[data-k]'), b = e.target.closest('[data-s]');
       if (k) { if (k.dataset.k === 'x') G().closeC(); else G().takeAll(); return; }
-      if (!b || hp) return;
+      if (!b) { if (selC) { selC = ''; contSig = ''; } return; } // tocar no vazio fecha o cartao
+      if (hp) return;
       const f = b.dataset.s, i = +b.dataset.i;
-      hp = { b, x: e.clientX, y: e.clientY, t: setTimeout(() => { const h = hp; hp = null; h.b.classList.remove('h'); G().moveItem(f, i, 1); }, G().HOLD_MS || 400) };
+      hp = { b, x: e.clientX, y: e.clientY, t: setTimeout(() => { const h = hp; hp = null; h.b.classList.remove('h'); selC = ''; G().moveItem(f, i, 1); }, G().HOLD_MS || 400) };
       void b.offsetWidth; b.classList.add('h');
     });
     contEl.addEventListener('pointermove', (e) => { if (hp && Math.hypot(e.clientX - hp.x, e.clientY - hp.y) > 8) holdEnd(); });
     const up = (e) => {
       if (!hp) return;
       const h = hp, ok = e.type === 'pointerup'; holdEnd();
-      if (ok) G().moveItem(h.b.dataset.s, +h.b.dataset.i);
+      if (!ok) return;
+      const k = h.b.dataset.s + ':' + h.b.dataset.i;
+      if (selC === k) { selC = ''; G().moveItem(h.b.dataset.s, +h.b.dataset.i); } else { selC = k; contSig = ''; } // 1o toque: cartao; 2o: move
     };
     contEl.addEventListener('pointerup', up);
     document.addEventListener('pointercancel', holdEnd);
@@ -447,17 +467,17 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
   function contTick(G, p) {
     const c = contData(G, p), on = !!c, was = !contEl.classList.contains('hidden');
     if (on !== was) {
-      hide(contEl, !on); contSig = '';
+      hide(contEl, !on); contSig = ''; selC = '';
       if (on) { held.atk = held.act = false; intT = 0; UI.paused = true; } else { holdEnd(); if (menuEl.classList.contains('hidden')) UI.paused = false; }
     }
     if (!on) return;
-    const sig = JSON.stringify([c.list, p.inv, cap(p)]);
+    const sig = JSON.stringify([c.list, p.inv, cap(p), selC]);
     if (sig !== contSig) { contSig = sig; holdEnd(); renderCont(G, p, c); }
   }
 
   function menuClick(e) {
     const b = e.target.closest('[data-a]');
-    if (!b) return;
+    if (!b) { if ((selInv >= 0 || selEq) && !e.target.closest('button, .icard')) { selInv = -1; selEq = ''; showTab(curTab); } return; } // tocar no vazio fecha o cartao
     const G = window.G, a = b.dataset.a, v = b.dataset.v;
     if (a === 'tab') { devOpen = false; return showTab(v); }
     if (a === 'ver') {
@@ -470,7 +490,10 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
     else
     if (a === 'slot') {
       const i = +v, it = G.player.inv[i];
-      if (i === selInv && it && (it.id === 'food' || it.id === 'bandage')) { G.useItem(i); if (!G.player.inv[i]) selInv = -1; } else selInv = i;
+      if (i === selInv && it && (it.id === 'food' || it.id === 'bandage')) { G.useItem(i); if (!G.player.inv[i]) selInv = -1; } else if (i === selInv && it && equipavel(it.id)) { G.equip(it.id); selInv = -1; } else selInv = i;
+    } else if (a === 'es') { // Equipar: 1o toque seleciona (cartao), 2o toque faz a acao (vestir / tirar)
+      const k = v[0], x = v.slice(2), it = k === 'e' ? G.player.equip[x] : G.player.inv[+x];
+      if (selEq !== v) selEq = v; else { if (k === 'e') G.unequip(x); else if (it && equipavel(it.id)) G.equip(it.id); selEq = ''; }
     } else if (a === 'use') { G.useItem(+v); if (!G.player.inv[+v]) selInv = -1; }
     else if (a === 'rec') selRec = v;
     else if (a === 'eq') G.equip(v);
@@ -677,7 +700,7 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
     window.addEventListener('blur', () => { keys.clear(); held.atk = held.act = false; intT = 0; });
     // tocar para vasculhar: toque rapido no mundo (fora de #ui) => R.pick -> target + interact
     const tp0 = {};
-    document.addEventListener('pointerdown', (e) => { tp0[e.pointerId] = { x: e.clientX, y: e.clientY, t: performance.now(), ok: !(e.target.closest && e.target.closest('#ui')) }; });
+    document.addEventListener('pointerdown', (e) => { tp0[e.pointerId] = { x: e.clientX, y: e.clientY, t: performance.now(), ok: e.target.id === 'ui' || !(e.target.closest && e.target.closest('#ui')) }; });
     document.addEventListener('pointercancel', (e) => { delete tp0[e.pointerId]; });
     document.addEventListener('pointerup', (e) => {
       const d = tp0[e.pointerId]; delete tp0[e.pointerId];
