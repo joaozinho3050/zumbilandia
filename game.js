@@ -1045,7 +1045,7 @@
     if (d.visit !== undefined && Math.floor(G.t / 60) - d.visit >= 60) { // reposicao: bau aberto comum volta com 1 item; zumbis mortos renascem
       const r = mulberry32(hash(G.seed, cx, cy, d.visit));
       for (const c of g.crates) if (dc[c.id] && !dc[c.id].loot.length && c.kind !== 'shelf' && c.kind !== 'box' && c.kind !== 'toolbox' && !c.loot.some(i => UNIQUE_SPAWN.has(i.id))) // nunca repõe quem nasceu com key/gascan/hose (regra do dono)
-        dc[c.id] = { opened: false, loot: [mkItem(r, pick(r, REPO))].filter(i => i.id) };
+        { const it = mkItem(r, pick(r, FURN[c.kind] || REPO)); dc[c.id] = { opened: false, loot: [it].filter(i => i.id && i.id !== 'food' && i.id !== 'bandage') }; } // repoe so com a tabela do proprio movel; comida/remedio nunca voltam (escassez)
       for (const z of g.zombies) if (dz[z.id] === null) delete dz[z.id]; // shortcut: se o zumbi saiu para outro chunk, duplica; aceitavel
     }
     const tag = l => l.forEach(e => { e.ch = key; });
@@ -1151,7 +1151,7 @@
     g('trunk', 'Porta-malas', ['porta-malas', 'mala', 'carro', 'bagageiro', 'vasculhar'], [], ['Chegue atrás do carro e toque MALA.', 'Fique parado 1 s: o painel abre (10 espaços).', 'Toque um item para mover entre porta-malas e mochila.'], 'trunk'),
     g('molotov', 'Molotov', ['molotov', 'fogo', 'bomba', 'incendio', 'queimar', 'garrafa'], [{ item: 'bottle', onde: 'armários' }, { item: 'rag', onde: 'armários e gavetas' }, { item: 'gascan', onde: 'mercados e porta-malas (gasta 2 L)' }], ['Fabrique no MENU: garrafa + trapo + 2 L do galão (o galão fica).', 'Troque para MOLOTOV e toque ATACAR: mira sozinho em zumbi de 3,5 a 12 m.', 'Dano 35 e fogo por 3 s. Cuidado: o fogo queima você também.'], 'throw'),
     g('key', 'Chave do carro', ['chave', 'carro', 'dirigir', 'ligar'], [{ item: 'key', onde: 'móvel de casa no mesmo quarteirão' }], ['Procure nas casas próximas ao carro.', 'Com a chave, toque ENTRAR perto do carro.'], 'key'),
-    g('food', 'Comida', ['comida', 'fome', 'comer', 'curar', 'atadura', 'bandagem'], [{ item: 'food', onde: 'geladeiras, armários, fogões e zumbis' }, { item: 'bandage', onde: 'armarinho de remédios, gavetas e prateleiras (raro)' }], ['Abra a mochila no MENU.', 'Toque na comida para comer (fome +30) ou na bandagem para curar (vida +25).'], 'food'),
+    g('food', 'Comida', ['comida', 'fome', 'comer', 'curar', 'atadura', 'bandagem'], [{ item: 'food', onde: 'geladeiras, armários e fogões (não volta depois de pega)' }, { item: 'bandage', onde: 'armarinho de remédios, gavetas e prateleiras (raro)' }], ['Abra a mochila no MENU.', 'Toque na comida para comer (fome +30) ou na bandagem para curar (vida +25).'], 'food'),
     g('tomb', 'Tumba', ['tumba', 'morte', 'morrer', 'mochila'], [{ lugar: 'ponto de sua morte', onde: 'marcado em vermelho no Mapa' }], ['Ao morrer você volta ao início e deixa uma tumba com tudo.', 'Abra o Mapa e ache o ponto vermelho.', 'Vá até lá e toque PEGAR.'], 'search'),
     g('correr', 'Correr', ['correr', 'corrida', 'folego', 'rapido', 'joystick', 'shift', 'andar'], [], ['Empurre o joystick até a borda para correr.', 'No teclado, segure SHIFT.', 'Correr gasta fôlego: ande para recuperar.'], 'run'),
     g('furtivo', 'Ataque furtivo', ['furtivo', 'costas', 'silencioso', 'matar', 'escondido', 'stealth'], [], ['Zumbi parado vê só na frente (6 m andando, 8 correndo, 2,5 agachado).', 'Por trás ele só ouve: correndo 8 m, andando 3 m, agachado nada.', 'Chegue agachado pelas costas e ataque com arma branca: mata na hora, sem alertar os outros.'], 'crouch'),
