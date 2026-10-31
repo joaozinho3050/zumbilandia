@@ -507,7 +507,7 @@ function draw(G) {
   const nr = !p.car && p.near; let on = false;
   if (nr) {
     let geo, x, z, ry = 0, sx = 1, sy = 1, sz = 1, y = 0;
-    if (nr.type === 'door') { const t = doorT.get(nr.id); if (t) { geo = doorB; x = t.x; z = t.z; ry = t.a; sx = t.sx * 1.08; sy = 1.05; sz = 2.4; } }
+    if (nr.type === 'door') { const t = doorT.get(nr.id); if (t) { geo = doorB.body; x = t.x; z = t.z; ry = t.a; sx = t.sx * 1.08; sy = 1.05; sz = 2.4; } }
     else if (nr.type === 'drop') { const q = G.drops.find(e => e.id === nr.id), b = q && dCache.get(q.item.id); if (b) { geo = b.body; x = q.x; z = q.y; y = 0.12; ry = now / 2500; sx = sy = sz = 0.6 * 1.25; } }
     else { const c = G.crates.find(e => e.id === nr.id); if (c) {
       if (c.w) { const op = !!c.opened && !c.scenery, key = c.kind + op; geo = hlG.get(key); if (!geo) hlG.set(key, geo = bake(furn(c.kind, { open: op })).body); ry = furnRy(c, G.houses); sx = sz = 1.1; sy = 1.06; }

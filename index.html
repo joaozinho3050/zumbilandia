@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
 <title>Zumbilândia</title>
-<meta name="versao" content="7bc5532b9b">
+<meta name="versao" content="e9b5c649d9">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="icon-192.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -49,11 +49,21 @@ CONTRATO (ver PLANO.md):
   function loop(now){
     raf = 0;
     if (document.hidden) return;
+    raf = requestAnimationFrame(loop); // antes: um erro num quadro nao congela o jogo
     const dt = Math.min((now - last) / 1000, 0.05); last = now;
-    if (!window.UI?.paused) { G.update(dt); R.draw(G); }
-    window.SFX?.draw(G); UI.draw(G);
-    raf = requestAnimationFrame(loop);
+    try { if (!window.UI?.paused) { G.update(dt); R.draw(G); } window.SFX?.draw(G); UI.draw(G); } catch (e) { erro(e); }
   }
+  let errEl = null, errN = 0;
+  function erro(e) { // mostra o 1o erro (para print) e segue jogando
+    console.error(e);
+    if (errN++) return;
+    const l = String(e && e.stack || '').split('\n').find(s => /\.js:\d+/.test(s)) || '';
+    errEl = document.createElement('div'); errEl.setAttribute('role', 'alert');
+    errEl.style.cssText = 'position:fixed;left:50%;bottom:8px;transform:translateX(-50%);max-width:90vw;padding:6px 12px;border-radius:10px;background:rgba(43,34,54,.92);border:2px solid #ff5c57;color:#fff1e0;font:12px monospace;z-index:99;pointer-events:none';
+    errEl.textContent = 'Erro (mande print): ' + (e && e.message) + ' ' + (l.match(/[\w-]+\.js:\d+/) || [''])[0];
+    document.body.appendChild(errEl); setTimeout(() => errEl.remove(), 15000);
+  }
+  window.addEventListener('error', (ev) => erro(ev.error || ev));
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) { cancelAnimationFrame(raf); raf = 0; return; }
     last = performance.now();
