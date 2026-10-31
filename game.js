@@ -983,7 +983,7 @@
     g.houses.forEach(h => h.doors.forEach(dr => { const v = dd0[dr.id]; if (v === undefined) return; if (typeof v === 'object') { dr.open = !!v.open; dr.locked = !!v.locked; } else dr.open = v; })); // v:3 {open,locked}
     G.houses.push(...g.houses);
     g.crates.forEach(c => { if (dc[c.id]) Object.assign(c, dc[c.id]); G.crates.push(c); });
-    for (const id in dc) if (dc[id] && !g.crates.some(c => c.id === id)) G.crates.push(Object.assign({ id, ch: key }, dc[id])); // tumbas
+    for (const id in dc) if (dc[id] && isFinite(dc[id].x) && !g.crates.some(c => c.id === id)) G.crates.push(Object.assign({ id, ch: key }, dc[id])); // tumbas
     g.zombies.forEach(z => { if (dz[z.id] === null || has(G.zombies, z.id)) return; G.zombies.push(Object.assign(z, dz[z.id])); });
     g.cars.forEach(c => { if (dk[c.id] === null || has(G.cars, c.id)) return; G.cars.push(Object.assign(c, dk[c.id])); });
     for (const [dd, l, b, def] of [[dz, G.zombies, g.zombies, { state: 'idle', alert: 0, atk: 0 }], [dk, G.cars, g.cars, { speed: 0 }]]) // estrangeiras

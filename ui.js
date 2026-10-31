@@ -70,6 +70,7 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
 #tab-map{text-align:center}
 #tab-map canvas{width:min(320px,60vh);height:min(320px,60vh);image-rendering:pixelated;border:2px solid var(--borda);border-radius:14px;background:var(--fundo)}
 #menu input{width:100%;height:48px;padding:0 var(--esp-3);border:2px solid var(--borda);border-radius:14px;background:var(--slot);color:var(--texto);font:16px 'Atkinson Hyperlegible',sans-serif;touch-action:manipulation;user-select:text;-webkit-user-select:text}
+#menu .ver{margin-top:var(--esp-4);font-size:13px;opacity:.6}
 #menu .hit{display:block;width:100%;min-height:48px;margin-top:var(--esp-2);text-align:left;padding:0 var(--esp-3);border:2px solid var(--borda);border-radius:14px;background:var(--slot);font-size:14px}
 #menu ol{margin:var(--esp-1) 0;padding-left:var(--esp-5)}
 #menu canvas.demo{width:160px;height:120px;border:2px solid var(--borda);border-radius:14px;background:var(--fundo)}
@@ -327,6 +328,8 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
     const tombs = (G.crates || []).filter((c) => c.tomb);
     for (const k in G.chunks) for (const id in (G.chunks[k].crates || {})) { const c = G.chunks[k].crates[id]; if (c && c.tomb && c.x != null) tombs.push(c); }
     for (const t of tombs) { const [a, b] = w2p(t.x, t.y); x.fillRect(a - 3, b - 3, 6, 6); }
+    x.fillStyle = '#7fae4a';
+    for (const z of G.zombies) if (z.hp > 0) { const [a, b] = w2p(z.x, z.y); x.fillRect(a - 1.5, b - 1.5, 3, 3); }
     const [a, b] = w2p(p.x, p.y);
     x.fillStyle = '#ff8c69'; x.beginPath(); x.arc(a, b, 3.5, 0, 6.3); x.fill();
     if (typeof p.dir === 'number') { x.strokeStyle = '#fff1e0'; x.lineWidth = 2; x.beginPath(); x.moveTo(a, b); x.lineTo(a + Math.cos(p.dir) * 8, b + Math.sin(p.dir) * 8); x.stroke(); }
@@ -355,7 +358,7 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
 
   function renderSettings() {
     const m = !!(window.SFX && SFX.muted && SFX.muted());
-    panes.settings.innerHTML = '<h3>Ajustes</h3><button class="btn" data-a="mute">Som: ' + (m ? 'mudo' : 'ligado') + '</button> <button class="btn" data-a="exit">Sair para o início</button> <button class="btn" data-a="delw">Apagar este mundo</button>';
+    panes.settings.innerHTML = '<h3>Ajustes</h3><button class="btn" data-a="mute">Som: ' + (m ? 'mudo' : 'ligado') + '</button> <button class="btn" data-a="exit">Sair para o início</button> <button class="btn" data-a="delw">Apagar este mundo</button><p class="ver">Versão ' + ((document.querySelector('meta[name=versao]') || {}).content || 'dev') + '</p>';
   }
 
   // ---- CONTÊINER (M4.5): esquerda = contêiner, direita = mochila ----
