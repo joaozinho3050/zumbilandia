@@ -1,6 +1,6 @@
 // Render do Zumbilandia (fase 0.2): three.js pixelado, cenario fundido por chunk. So le G, nunca muta.
 import * as THREE from './lib/three.module.min.js'; // relativo: dispensa o importmap (iOS < 16.4)
-import { makePlayer, makeZombieParts, makeCar, makeTree, makeFence, makeHouse, makeItem, makeWallSeg, makeRoof, makeMarketRoof, makeDoor, makeFurniture, makeFloor, makeDoorFrame, makeDoorstep, makePadlock, makeProp, makeStairs, makeGate, makeSlab, outline, makeMil, makeMilRoof, makeBaseWall, makeHeli, makeRotor, makeJet, makeJetGear } from './modelos.js';
+import { makePlayer, makeZombieParts, makeCar, makeTree, makeFence, makeHouse, makeItem, makeWallSeg, makeRoof, makeMarketRoof, makeDoor, makeFurniture, makeFloor, makeDoorFrame, makeDoorstep, makePadlock, makeProp, makeStairs, makeGate, makeSlab, outline, makeMil, makeMilRoof, makeBaseWall, makeHeli, makeRotor, makeJet, makeJetGear, makeNpcParts, makeNpcWeapon, NPC_SHIRT, NPC_HAIR, NPC_SHIRTS, NPC_HAIRS } from './modelos.js';
 
 const ROTY = [0, Math.PI / 2, Math.PI, -Math.PI / 2], CH = 40, INK = 0x15121a, SIDES = ['n', 's', 'w', 'e'], LOOKS = [0xa77bd1, 0x5b7bd5, 0x9b6a3c, 0x78a865, 0xd6cfc4, 0xff8c69, 0x4a5266, 0x2f3a6b, 0xe6f7ff, 0x5b7bd5, 0x6f7d4a]; // 8 jaleco, 9 macacao, 10 farda (base militar) (roupa por lugar; sem call nova)
 const BODY = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true });
@@ -55,9 +55,9 @@ let zIM, zIK, zParts, plP, zPs = [], eqSig = '000', dPool = [], dCache = new Map
 const FLH = 2.4; // altura de um andar (m)
 const stairRy = S => Math.abs(S.h) > Math.abs(S.w) ? (S.ly1 > S.ly0 ? 0 : Math.PI) : (S.lx1 > S.lx0 ? Math.PI / 2 : -Math.PI / 2); // +z do modelo = sentido da subida
 const dummy = new THREE.Object3D(), zR = new THREE.Matrix4(), zM = new THREE.Matrix4(), zB = new THREE.Matrix4(), zQ = new THREE.Quaternion(), zE = new THREE.Euler(), zV = new THREE.Vector3(), zS = new THREE.Vector3(1, 1, 1);
-const shots = [], hits = [], wc0 = new THREE.Color();
+const shots = [], hits = [], wc0 = new THREE.Color(), nT = new THREE.Matrix4(), nAr = new THREE.Matrix4();
 const milIM = {}, airIM = {}; let rotIM, shIM; // aeronaves: IM por tipo (cap 6) + rotor do heli (IM proprio) + sombra/marca de pouso (1 IM)
-let spillIM, flash, devLn = null, devEl = null, devCh = '', devT = 0, devN = 0, own, ownId = null, lidA = 0, cSm = { x: 0, y: 0, d: 1, a: 0 }, sPool = [], sT = 0, fireIM, flameIM, flights = [], bottle = null;
+let nB, nA, nW = {}, nMk, nAim = null, nData = new Map(), spillIM, flash, devLn = null, devEl = null, devCh = '', devT = 0, devN = 0, own, ownId = null, lidA = 0, cSm = { x: 0, y: 0, d: 1, a: 0 }, sPool = [], sT = 0, fireIM, flameIM, flights = [], bottle = null;
 const OWN_LAMP = new THREE.MeshBasicMaterial({ color: 0xfff3b0, transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false, fog: false });
 const OWN_BEAM = new THREE.MeshBasicMaterial({ color: 0xfff3b0, transparent: true, opacity: 0.14, depthWrite: false, fog: false });
 const SMOKE = new THREE.MeshBasicMaterial({ color: 0xbfc4cc }), BOOM = new THREE.MeshBasicMaterial({ color: 0xff8a2b });
@@ -363,6 +363,26 @@ function init(canvas) {
     zIMs[0][0].material = ZBODY; zIMs[0][0].setColorAt(0, new THREE.Color(1, 1, 1));
     lookC = LOOKS.map(c => new THREE.Color(c));
   }
+  { // sobreviventes (M5): IMs proprios (cap 12 = 8 vivos + 4 corpos): corpo+cabeca+cabelo, braco x2, perna x2, pistola, cano; camisa = instanceColor, cabelo = atributo por instancia (tint 1 = camisa, 2 = cabelo)
+    const np = makeNpcParts(), sh = new THREE.Color(NPC_SHIRT), hr = new THREE.Color(NPC_HAIR);
+    const tintGeo = (b, hair) => {
+      const g = b.body, c = g.attributes.color, t = new Float32Array(c.count);
+      for (let i = 0; i < c.count; i++) {
+        if (Math.abs(c.getX(i) - sh.r) + Math.abs(c.getY(i) - sh.g) + Math.abs(c.getZ(i) - sh.b) < 0.02) { t[i] = 1; c.setXYZ(i, 1, 1, 1); }
+        else if (hair && Math.abs(c.getX(i) - hr.r) + Math.abs(c.getY(i) - hr.g) + Math.abs(c.getZ(i) - hr.b) < 0.02) { t[i] = 2; c.setXYZ(i, 1, 1, 1); }
+      }
+      g.setAttribute('tint', new THREE.BufferAttribute(t, 1));
+      return b;
+    };
+    const nMat = hair => { const m = BODY.clone(); m.customProgramCacheKey = () => 'npc' + hair; m.onBeforeCompile = s2 => { s2.vertexShader = 'attribute float tint;\n' + (hair ? 'attribute vec3 hairC;\n' : '') + s2.vertexShader.replace('#include <color_vertex>', 'vColor = color.rgb;\n#ifdef USE_INSTANCING_COLOR\nvColor *= mix(vec3(1.0), instanceColor.rgb, step(tint, 1.5) * tint);\n#endif' + (hair ? '\nif (tint > 1.5) vColor = hairC;' : '')); }; return m; };
+    nB = instanced(tintGeo(bake(np.body), true), 12); nB[0].material = nMat(true); nB[0].setColorAt(0, new THREE.Color(1, 1, 1)); nB[0].geometry.setAttribute('hairC', new THREE.InstancedBufferAttribute(new Float32Array(36), 3));
+    nA = instanced(tintGeo(bake(np.arm), false), 48); nA[0].material = nMat(false); nA[0].setColorAt(0, new THREE.Color(1, 1, 1)); // membros: o MESMO braco serve de perna (escala + cor da calca por instancia): 2 calls no lugar de 4
+    for (const k of ['pistol', 'pipe']) { nW[k] = instanced(makeNpcWeapon(k), 12); nW[k][0].visible = nW[k][1].visible = false; }
+    nMk = [new THREE.InstancedMesh(new THREE.OctahedronGeometry(1), new THREE.MeshBasicMaterial({ color: 0xffffff, fog: false }), 12), new THREE.InstancedMesh(new THREE.OctahedronGeometry(1), new THREE.MeshBasicMaterial({ color: INK, side: THREE.BackSide, fog: false }), 12)]; // losango amigo/hostil + contorno
+    for (const m of nMk) { m.frustumCulled = false; m.count = 0; m.visible = false; scene.add(m); }
+    nMk[0].setColorAt(0, new THREE.Color(1, 1, 1));
+    nAim = new THREE.LineSegments(new THREE.BufferGeometry().setAttribute('position', new THREE.BufferAttribute(new Float32Array(24), 3)), new THREE.LineBasicMaterial({ color: 0xff5c57, transparent: true, opacity: 0.6 })); nAim.visible = false; nAim.frustumCulled = false; scene.add(nAim); // tracos de mira (ate 4, 1 call, so durante os 0,8 s)
+  }
   [tIM, tIK] = instanced(makeTree(), 768);
   [carIM, carIK] = instanced(makeCar(), 24);
   for (const k of ['jeep', 'truck', 'apc']) { milIM[k] = instanced(makeMil(k), 6); milIM[k][0].visible = milIM[k][1].visible = false; milIM[k][0].setColorAt(0, new THREE.Color(1, 1, 1)); } // veiculos militares: 1 IM por tipo (cap 6), visivel so com count > 0
@@ -628,6 +648,70 @@ function draw(G) {
   [zIMs, zPs].forEach((S, j) => { for (const [im, ik] of S) { im.count = ik.count = cn[j]; im.instanceMatrix.needsUpdate = true; ik.instanceMatrix = im.instanceMatrix; } });
   if (zIMs[0][0].instanceColor) zIMs[0][0].instanceColor.needsUpdate = true;
 
+  // sobreviventes (M5): <= 8 vivos + <= 4 corpos mais perto, nos IMs proprios (matriz so; sem mesh nova por quadro)
+  { const dts = Math.min(0.1, dt); let nn = 0, nw = { pistol: 0, pipe: 0 }, nm = 0, na = 0;
+    const lst = [];
+    for (const q of G.npcs) if ((q.x - p.x) ** 2 + (q.y - p.y) ** 2 < 900 && nn + lst.length < 8 && !(p.floor)) lst.push(q);
+    let bodies = null;
+    for (const c of G.crates) if (c.body && (c.x - p.x) ** 2 + (c.y - p.y) ** 2 < 900 && !p.floor) (bodies || (bodies = [])).push(c);
+    if (bodies && bodies.length > 4) { bodies.sort((a, b) => (a.x - p.x) ** 2 + (a.y - p.y) ** 2 - (b.x - p.x) ** 2 - (b.y - p.y) ** 2); bodies.length = 4; }
+    const col = new THREE.Color(), PI2 = Math.PI / 2;
+    const draw1 = (e, live) => {
+      const hs = hsh(live ? e.id : String(e.id).replace(/:b$/, '')), hu = hs >>> 0, an = live ? e.anim || { move: 'idle', act: null, t: 0 } : { move: 'idle', act: null, t: 9 };
+      let d = nData.get(e.id); if (!d) nData.set(e.id, d = { ph: (hu % 628) / 100, x: e.x, y: e.y, v: 0, a: live ? (e.face ?? 0) : 0, f: frame });
+      d.f = frame; d.v += (Math.hypot(e.x - d.x, e.y - d.y) / Math.max(dts, 0.001) - d.v) * 0.3; d.x = e.x; d.y = e.y; d.ph += dts * Math.max(d.v, 0.5) * 2.6;
+      const k = Math.min(1, d.v / 0.8), mov = an.move === 'walk' || an.move === 'run', amp = (an.move === 'run' ? 0.7 : 0.436) * k * RM * (mov ? 1 : 0), sw = Math.sin(d.ph) * amp, act = an.act, t = an.t, u = x => Math.min(1, t / x);
+      let lean = an.move === 'run' ? 0.14 : 0, bob = mov && RM === 1 ? Math.abs(Math.sin(d.ph)) * 0.04 * k : 0, aR = sw, aL = -sw, lL = sw, lR = -sw, sq = 1, azL = 0, azR = 0, lieE = 0, ry;
+      if (live) { ry = PI2 - (e.face ?? 0); }
+      else { ry = (hu % 628) / 100; lieE = sm(Math.min(1, Math.max(0, (300 - (e.expires - G.t)) / 0.5))); }
+      if (live) {
+        if (!mov && RM === 1) bob += 0.01 * (1 + Math.sin(now / 700 + hu % 7));
+        if (act === 'aim') { aR = -1.45; aL = -0.3; }
+        else if (act === 'shot') { aR = -1.45 + 0.25 * Math.max(0, 1 - t / 0.15); aL = -0.3; }
+        else if (act === 'windup') { aR = -2.6 * sm(u(0.6)); lean = -0.1 * u(0.6); }
+        else if (act === 'swing') { aR = -2.6 + 3.2 * sm(u(0.25)); lean = 0.2 * u(0.25); }
+        else if (act === 'search') { const w = Math.sin(t * 14); aL = -1 + 0.5 * w; aR = -1 - 0.5 * w; lean = 0.15; }
+        else if (act === 'talk') { aR = -1.0 + 0.4 * Math.sin(t * 6) * RM; }
+        else if (act === 'pick') { const w = Math.sin(Math.PI * u(0.4)); lean = 0.6 * w; aL = aR = -0.8 * w; }
+        else if (act === 'hurt' && t < 0.08) { sq = 0.9; lean = -0.2; }
+        if (act === 'windup' || act === 'swing') lL = lR = 0;
+        if (an.crouch) { bob -= 0.2; lean = 0.25; lL = lR = -0.6; } // agachado atras da cobertura
+      } else { aL = -0.2; aR = -0.2; azL = 1.2 * lieE; azR = -1.2 * lieE; lL = 0.15 * lieE; lR = -0.15 * lieE; lean = 0; bob = 0; }
+      // raiz
+      const R = zR; zE.set(live ? 0 : -PI2 * lieE, ry, 0); zE.order = 'YXZ'; zQ.setFromEuler(zE); R.compose(zV.set(e.x, (live ? 0 : 0.25 * lieE) + (live && an.crouch ? 0 : 0), e.y), zQ, zS.set(sq > 0.95 ? 1 : 1.05, sq, sq > 0.95 ? 1 : 1.05)); zE.order = 'XYZ';
+      const B = zB.copy(R).multiply(zM.compose(zV.set(0, 0.55 + bob, 0), zQ.setFromEuler(zE.set(lean, 0, 0)), zS.set(1, 1, 1)));
+      nB[0].setMatrixAt(nn, B);
+      col.setHex(NPC_SHIRTS[hu % 6]); nB[0].setColorAt(nn, col);
+      col.setHex(NPC_HAIRS[(hu >>> 5) % 6]); nB[0].geometry.attributes.hairC.setXYZ(nn, col.r, col.g, col.b);
+      for (let j = 0; j < 2; j++) { // pernas (o braco esticado 1,3x e mais gordo, cor da calca)
+        const sg = j ? 1 : -1;
+        nA[0].setMatrixAt(4 * nn + 2 + j, zM.compose(zV.set(sg * 0.15, 0.55, 0), zQ.setFromEuler(zE.set(j ? lR : lL, 0, sg * (live ? 0 : lieE * 0.15))), zS.set(1, 1, 1)).premultiply(R).multiply(nT.compose(zV.set(0, -0.022, 0), zQ.identity(), zS.set(1.3, 1.15, 1.3))));
+        nA[0].setColorAt(4 * nn + 2 + j, col.setHex(0x5b7bd5));
+      }
+      col.setHex(NPC_SHIRTS[hu % 6]);
+      for (let j = 0; j < 2; j++) {
+        const sg = j ? 1 : -1, ar = nAr.compose(zV.set(sg * 0.42, 0.55, 0), zQ.setFromEuler(zE.set(j ? aR : aL, 0, j ? azR : azL)), zS.set(1, 1, 1)).premultiply(B);
+        nA[0].setMatrixAt(4 * nn + j, ar); nA[0].setColorAt(4 * nn + j, col);
+        if (j && live && e.w && nw[e.w] < 12) { const wi = nW[e.w][0]; wi.setMatrixAt(nw[e.w]++, nT.compose(zV.set(0, -0.4, 0.04), zQ.identity(), zS.set(1, 1, 1)).premultiply(ar)); }
+      }
+      if (live) { // losango: amigo verde / hostil vermelho, gira devagar e flutua
+        const y = 2.15 + (RM === 1 ? 0.05 * Math.sin(now / 400 + hu % 5) : 0), r = RM === 1 ? now / 700 : 0;
+        nMk[0].setMatrixAt(nm, zM.compose(zV.set(e.x, y, e.y), zQ.setFromEuler(zE.set(0, r, 0)), zS.set(0.17, 0.24, 0.17))); nMk[0].setColorAt(nm, col.setHex(e.fac === 'a' ? 0x8fd16a : 0xff5c57));
+        nMk[1].setMatrixAt(nm++, zM.compose(zV.set(e.x, y, e.y), zQ.setFromEuler(zE.set(0, r, 0)), zS.set(0.23, 0.31, 0.23)));
+        if (e.aim > 0 && e.at && na < 4) { const a = nAim.geometry.attributes.position; a.setXYZ(2 * na, e.x + Math.cos(e.face) * 0.4, 1.0, e.y + Math.sin(e.face) * 0.4); a.setXYZ(2 * na + 1, e.at[0], 1.0, e.at[1]); na++; }
+      }
+      nn++;
+    };
+    for (const q of lst) { draw1(q, true); }
+    if (bodies) for (const c of bodies) if (nn < 12) draw1(c, false);
+    { const a = nAim.geometry.attributes.position; for (let i = 2 * na; i < 8; i++) a.setXYZ(i, 0, 0, 0); a.needsUpdate = true; nAim.visible = na > 0; }
+    for (const [im, ik] of [nB, nA]) { const c = im === nB[0] ? nn : nn * 4; im.count = ik.count = c; im.visible = ik.visible = c > 0; im.instanceMatrix.needsUpdate = true; ik.instanceMatrix = im.instanceMatrix; if (im.instanceColor) im.instanceColor.needsUpdate = true; }
+    nB[0].geometry.attributes.hairC.needsUpdate = true;
+    for (const k in nW) { const [im, ik] = nW[k]; im.count = ik.count = nw[k]; im.visible = ik.visible = nw[k] > 0; im.instanceMatrix.needsUpdate = true; ik.instanceMatrix = im.instanceMatrix; }
+    for (const m of nMk) { m.count = nm; m.visible = nm > 0; m.instanceMatrix.needsUpdate = true; } if (nMk[0].instanceColor) nMk[0].instanceColor.needsUpdate = true;
+    if (nData.size > nn + 24) for (const [k, d] of nData) if (d.f !== frame) nData.delete(k);
+  }
+
   // arvores: lista so muda com os chunks; balanco (vento, fase por posicao) so <=30 m
   const ts = G.chunkGen + '|' + chunks.size;
   if (ts !== tSig) { tSig = ts; tList = G.trees.filter(t => chunks.has(t.ch)).slice(0, 768); tList.forEach((t, i) => { t.ry = t.x * 7.3; t.sc = 1.3 + (Math.abs(t.y * 3.1) % 0.5); place(tIM, i, t.x, 0, t.y, t.ry, t.sc, t.sc, t.sc); }); tIM.count = tIK.count = tList.length; tIM.instanceMatrix.needsUpdate = true; tIK.instanceMatrix = tIM.instanceMatrix; }
@@ -705,7 +789,7 @@ function draw(G) {
 
   // baus
   const cnt = [0, 0];
-  for (const c of G.crates) { if (c.w || (c.floor || 0) !== (p.floor || 0)) continue; const k = c.opened ? 1 : 0, im = crIM[k][0]; if (cnt[k] < 128) place(im, cnt[k]++, c.x, FLH * (c.floor || 0), c.y, 0); }
+  for (const c of G.crates) { if (c.w || c.body || (c.floor || 0) !== (p.floor || 0)) continue; const k = c.opened ? 1 : 0, im = crIM[k][0]; if (cnt[k] < 128) place(im, cnt[k]++, c.x, FLH * (c.floor || 0), c.y, 0); }
   { let sn = 0; // marcador de vasculhado no topo (so do andar atual, 1 InstancedMesh)
     for (const c of G.crates) if (c.opened && !c.scenery && c.kind !== 'register' && (c.floor || 0) === (p.floor || 0) && sn < 128) place(seenIM, sn++, c.x, FLH * (c.floor || 0) + (c.w ? FH[c.kind] || 1 : 0.6) + 0.28 + (RM === 1 ? 0.04 * Math.sin(now / 400 + sn) : 0), c.y, RM === 1 ? now / 700 : 0);
     seenIM.count = sn; seenIM.visible = sn > 0; seenIM.instanceMatrix.needsUpdate = true; }
@@ -738,6 +822,7 @@ function draw(G) {
     else if (nr.type === 'drop') { const q = G.drops.find(e => e.id === nr.id), b = q && dCache.get(q.item.id); if (b) { geo = b.body; x = q.x; z = q.y; y = 0.12; ry = now / 2500; sx = sy = sz = 0.6 * 1.25; } }
     else { const c = G.crates.find(e => e.id === nr.id); if (c) {
       if (c.w) { const op = !!c.opened && !c.scenery, key = c.kind + op; geo = hlG.get(key); if (!geo) hlG.set(key, geo = bake(furn(c.kind, { open: op })).body); ry = furnRy(c, G.houses); sx = sz = 1.1; sy = 1.06; }
+      else if (c.body) geo = crB[1].body, sx = 2.6, sz = 1.5, sy = 0.5;
       else geo = crB[c.opened ? 1 : 0].body, sx = sz = 1.15, sy = 1.1;
       x = c.x; z = c.y; y = FLH * (c.floor || 0); } }
     if (geo) { on = true; if (hl.geometry !== geo) hl.geometry = geo; hl.position.set(x, y, z); hl.rotation.y = ry; hl.scale.set(sx, sy, sz); hl.material.opacity = RM === 1 ? 0.7 + 0.3 * Math.sin(now / 160) : 0.9; }
@@ -807,7 +892,7 @@ function devUpdate(p, now) {
     a.needsUpdate = true;
   }
   devN++;
-  if (now - devT >= 500) { devEl.textContent = Math.round(devN * 1000 / (now - devT)) + ' fps · ' + renderer.info.render.calls + ' calls · chunk ' + k; devN = 0; devT = now; }
+  if (now - devT >= 500) { devEl.textContent = Math.round(devN * 1000 / (now - devT)) + ' fps · ' + renderer.info.render.calls + ' calls · chunk ' + k + (window.G && G.dev.npcInfo ? ' · ' + G.npcs.length + ' npc (' + G.npcs.map(q => q.fac + (q.st || '-')[0] + (q.w ? 'P' : '')).join(' ') + ') ' : ''); devN = 0; devT = now; }
 }
 function devOverlay(on) {
   if (!on) { if (devLn) { scene.remove(devLn); devLn.geometry.dispose(); devLn.material.dispose(); devLn = null; } if (devEl) { devEl.remove(); devEl = null; } return; }
@@ -986,9 +1071,80 @@ function demoB(canvas, id) {
   }
   spinCv = canvas; spinId = id; spinRaf = requestAnimationFrame(spinTick);
 }
+// mini-cenas do guia dos sobreviventes: o mesmo boneco do jogo (pecas baked 1x, grupos com a mesma hierarquia e as mesmas formulas de pose)
+const NDEMO = ['npc', 'npcCorpo', 'bando', 'troca'];
+let ndIt = null;
+let ndR = null, ndLn = null;
+function nRig(fac) {
+  const np = makeNpcParts(), g = new THREE.Group(), P = { g };
+  g.rotation.order = 'YXZ';
+  const mk = (b, x, y, z) => { const q = new THREE.Group(); q.add(...pair(b)); q.position.set(x, y, z); return q; };
+  P.body = mk(bake(np.body), 0, 0.55, 0); P.armL = mk(bake(np.arm), -0.42, 0.55, 0); P.armR = mk(bake(np.arm), 0.42, 0.55, 0);
+  P.body.add(P.armL, P.armR); P.legL = mk(bake(np.leg), -0.15, 0.55, 0); P.legR = mk(bake(np.leg), 0.15, 0.55, 0);
+  P.w = mk(bake(makeNpcWeapon('pistol')), 0, -0.4, 0.04); P.armR.add(P.w);
+  P.mk = new THREE.Mesh(new THREE.OctahedronGeometry(1), new THREE.MeshBasicMaterial({ color: fac === 'a' ? 0x8fd16a : 0xff5c57 })); P.mk.scale.set(0.17, 0.24, 0.17); P.mk.position.y = 2.15;
+  g.add(P.body, P.legL, P.legR, P.mk);
+  return P;
+}
+function nRigPose(r, o) { // o: x, z, yaw, ph, w (andando), act, t (s da acao), lie (0-1 caido)
+  const a = o.w ? 0.436 * Math.sin(o.ph) * RM : 0, t = o.t || 0, lie = o.lie || 0;
+  let aR = a, aL = -a, lean = 0, lz = 0;
+  if (o.act === 'aim') { aR = -1.45; aL = -0.3; } else if (o.act === 'shot') { aR = -1.45 + 0.25 * Math.max(0, 1 - t / 0.15); aL = -0.3; }
+  else if (o.act === 'search') { const w = Math.sin(t * 14); aL = -1 + 0.5 * w; aR = -1 - 0.5 * w; lean = 0.15; }
+  else if (o.act === 'talk') aR = -1 + 0.4 * Math.sin(t * 6) * RM;
+  if (lie) { aL = aR = -0.2; lz = 1.2 * lie; }
+  r.body.rotation.set(lean, 0, 0); r.armL.rotation.set(aL, 0, lz); r.armR.rotation.set(aR, 0, -lz); r.legL.rotation.set(a, 0, 0.15 * lie); r.legR.rotation.set(-a, 0, -0.15 * lie);
+  r.w.visible = !!o.gun; r.mk.visible = !lie && !!o.mk; r.mk.rotation.y = o.mkr || 0;
+  r.g.rotation.set(-Math.PI / 2 * lie, o.yaw, 0); r.g.position.set(o.x, 0.25 * lie, o.z);
+}
+function demoN(canvas, id) {
+  spinStop(); itemSetup(); demoRig = null;
+  if (!iRig) iRig = mkRig({ head: 1, torso: 1, legs: 1 });
+  if (!ndR) { ndR = [nRig('h'), nRig('a'), nRig('h'), nRig('h')]; ndLn = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3(1, 0, 0)]), new THREE.LineBasicMaterial({ color: 0xff5c57, transparent: true, opacity: 0.6 })); ndLn.frustumCulled = false; }
+  iPivot.clear(); iPivot.rotation.y = 0;
+  const R90 = Math.PI / 2;
+  if (id === 'npc') { // hostil chega, mira 0,8 s (traco vermelho) e atira; o jogador fica agachado a 4 m
+    iPivot.add(ndR[0].g, ndLn, iRig.g);
+    iC.position.set(0.3, 0.5, 1).normalize().multiplyScalar(9.5); iC.lookAt(0, 0.9, 0); iC.updateMatrixWorld();
+    demoFn = (s) => {
+      const u = s % 5.5, walk = u < 1.4, x = walk ? -3.6 + 1.2 * (u / 1.4) : -2.4, aim = u >= 1.8 && u < 2.6, shot = u >= 2.6 && u < 2.75;
+      nRigPose(ndR[0], { x, z: 0, yaw: R90, ph: s * 4, w: walk, act: aim ? 'aim' : shot ? 'shot' : null, t: shot ? u - 2.6 : 0, gun: true, mk: true, mkr: RM === 1 ? s : 0 });
+      iRig.g.scale.set(1, 1, 1); bPose(u < 2.9 ? 'crouch' : 'idle', null, 0, s); iRig.g.position.set(1.6, 0, 0); iRig.g.rotation.set(0, -R90, 0);
+      ndLn.visible = aim; if (aim) { const a = ndLn.geometry.attributes.position; a.setXYZ(0, x + 0.5, 1.0, 0); a.setXYZ(1, 1.6, 1.0, 0); a.needsUpdate = true; }
+    };
+  } else if (id === 'bando') { // lider (pistola) e 2 seguidores andam em fila; o lider cai e os seguidores fogem
+    iPivot.add(ndR[0].g, ndR[2].g, ndR[3].g);
+    iC.position.set(0.15, 0.55, 1).normalize().multiplyScalar(10.5); iC.lookAt(0, 0.9, 0); iC.updateMatrixWorld();
+    demoFn = (s) => {
+      const u = s % 7, dead = u >= 3.2, fl = dead ? Math.min(1, (u - 3.2) / 0.5) : 0, x0 = -4 + 1.2 * Math.min(u, 3.2), run = Math.max(0, u - 3.7);
+      nRigPose(ndR[0], { x: x0, z: 0, yaw: R90, ph: s * 4, w: !dead, lie: dead ? sm(fl) : 0, gun: true, mk: true, mkr: RM === 1 ? s : 0 });
+      for (const [k, dz] of [[2, 1.1], [3, -1.1]]) { const back = dead && u > 3.7, x = back ? x0 - 1.8 - run * 3.2 : x0 - 1.8; nRigPose(ndR[k], { x, z: dz, yaw: back ? -R90 : R90, ph: s * 4 + k, w: !dead || back, gun: false, mk: true, mkr: RM === 1 ? s : 0 }); }
+    };
+  } else if (id === 'troca') { // amigo (losango verde) e jogador se encaram; um trapo vai para ele e uma comida volta
+    if (!ndIt) { const mk = f => { const g = new THREE.Group(); g.add(...pair(bake(f))); g.scale.setScalar(1.4); return g; }; ndIt = { rag: mk(makeItem('rag')), food: mk(makeItem('food')) }; }
+    iPivot.add(ndR[1].g, iRig.g, ndIt.rag, ndIt.food);
+    iC.position.set(0.25, 0.5, 1).normalize().multiplyScalar(8); iC.lookAt(0, 0.9, 0); iC.updateMatrixWorld();
+    demoFn = (s) => {
+      const u = s % 5, give = Math.max(0, Math.min(1, (u - 0.8) / 1.2)), back = Math.max(0, Math.min(1, (u - 2.6) / 1.2));
+      nRigPose(ndR[1], { x: 1.0, z: 0, yaw: -R90, ph: 0, act: u < 3.8 ? 'talk' : null, t: s, gun: false, mk: true, mkr: RM === 1 ? s : 0 });
+      iRig.g.scale.set(1, 1, 1); bPose('idle', null, 0, s); iRig.g.position.set(-1.0, 0, 0); iRig.g.rotation.set(0, R90, 0);
+      ndIt.rag.visible = u >= 0.8 && u < 2.6; ndIt.rag.position.set(-0.6 + 1.2 * sm(give), 1.1 + 0.35 * Math.sin(Math.PI * give), 0);
+      ndIt.food.visible = u >= 2.6 && u < 4.2; ndIt.food.position.set(0.7 - 1.2 * sm(back), 1.1 + 0.35 * Math.sin(Math.PI * back), 0);
+    };
+  } else { // corpo caido e o jogador vasculhando
+    iPivot.add(ndR[1].g, iRig.g);
+    iC.position.set(0.4, 0.7, 1).normalize().multiplyScalar(6.4); iC.lookAt(0, 0.4, 0); iC.updateMatrixWorld();
+    demoFn = (s) => {
+      nRigPose(ndR[1], { x: 0.7, z: 0, yaw: R90, ph: 0, lie: 1, gun: false, mk: false });
+      iRig.g.scale.set(1, 1, 1); bPose('crouch', 'search', s % 1.2, s); iRig.g.position.set(-0.7, 0, 0.2); iRig.g.rotation.set(0, R90 - 0.2, 0);
+    };
+  }
+  spinCv = canvas; spinId = id; spinRaf = requestAnimationFrame(spinTick);
+}
 function demo(canvas, id) {
   if (iRig) iRig.g.visible = true; // a mini-cena do helicoptero esconde o boneco ao entrar
   if (BDEMO.includes(id)) return demoB(canvas, id);
+  if (NDEMO.includes(id)) return demoN(canvas, id);
   if (ZDEMO.includes(id)) return demoZ(canvas, id);
   demoFn = null;
   if (!DEMO[id]) return spin(canvas, id);
@@ -1020,6 +1176,7 @@ function pick(cx, cy) {
   }
   if (!pf) for (const h of G.houses) for (const d of h.doors || []) { const m = Math.max(0, 0.5 - Math.min(d.w, d.h)) / 2; test(d.x - m, 0, d.y - m, d.x + d.w + m, 2.0, d.y + d.h + m, 'door', d.id); }
   for (const d of G.drops || []) test(d.x - 0.3, 0, d.y - 0.3, d.x + 0.3, 0.5, d.y + 0.3, 'drop', d.id);
+  if (!pf) for (const n of G.npcs || []) test(n.x - 0.4, 0, n.y - 0.4, n.x + 0.4, 1.9, n.y + 0.4, 'npc', n.id);
   return best;
 }
 // sanidade p/ testes: matriz com NaN some da tela sem erro (bug dos zumbis com id texto); vale p/ zumbis, NPCs e tudo instanciado

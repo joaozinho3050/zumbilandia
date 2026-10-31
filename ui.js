@@ -117,6 +117,12 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
 #ui:has(#container:not(.hidden)) #hint{top:auto;bottom:max(8px,env(safe-area-inset-bottom));z-index:6}
 #container .top{display:flex;align-items:center;justify-content:flex-end;gap:var(--esp-2);padding:var(--esp-2);border-bottom:2px solid var(--borda)}
 #container .top .sp{flex:1}
+#container.trade .top [data-k=all]{display:none}
+#container .trows{display:flex;flex-direction:column;gap:var(--esp-2)}
+#container .trow{display:flex;align-items:center;gap:var(--esp-2);padding:var(--esp-2);border:2px solid var(--borda);border-radius:14px;background:var(--slot);min-height:48px;cursor:pointer;touch-action:manipulation}
+#container .trow:active{border-color:var(--texto)}
+#container .trow small{color:var(--texto);opacity:.7}
+#container .trow .arr{font-size:22px;padding:0 var(--esp-1)}
 #menu .pane.cols.on{display:flex;overflow:hidden;padding:0}
 .ip button{color:var(--texto);font-family:inherit;touch-action:pan-y}
 .ip .btn,#menu .btn{min-width:48px;min-height:48px;padding:0 var(--esp-4);border:2px solid var(--borda);border-radius:14px;background:var(--slot);font:14px 'Pixelify Sans',monospace}
@@ -179,7 +185,7 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
   // near.type -> [icone, rotulo <= 8 letras]
   const ACAO = {
     crate: ['search', 'BUSCAR'], tomb: ['hand', 'PEGAR'], enter: ['door', 'ENTRAR'], exit: ['exit', 'SAIR'],
-    trunk: ['trunk', 'MALA'], car: ['door', 'ENTRAR'], siphon: ['pump', 'SIFONAR'], pour: ['pump', 'DESPEJAR'], search: ['search', 'BUSCAR'], drop: ['hand', 'PEGAR'], fence: ['jump', 'PULAR'], cut: ['hand', 'CORTAR'], locked: ['door', 'TRANCADA'], tank: ['pump', 'SIFONAR']
+    trunk: ['trunk', 'MALA'], car: ['door', 'ENTRAR'], siphon: ['pump', 'SIFONAR'], pour: ['pump', 'DESPEJAR'], search: ['search', 'BUSCAR'], drop: ['hand', 'PEGAR'], npc: ['man', 'FALAR'], fence: ['jump', 'PULAR'], cut: ['hand', 'CORTAR'], locked: ['door', 'TRANCADA'], tank: ['pump', 'SIFONAR']
   };
   const acaoDe = (n) => (n.type === 'door' || n.type === 'crate') && n.locked ? (n.cut ? ACAO.cut : ACAO.locked) : n.act ? ACAO[n.act] : n.type === 'stairs' ? ['stairs', n.up ? 'SUBIR' : 'DESCER'] : n.type === 'door' ? (n.open ? ['door', 'FECHAR'] : ['door', 'ABRIR']) : ACAO[n.type] || ['hand', 'AÇÃO'];
   const NOME = { food: 'Comida', bandage: 'Bandagem', ammo: 'Munição', rag: 'Trapo', wire: 'Arame', bottle: 'Garrafa', hose: 'Mangueira', cutter: 'Alicate', gascan: 'Galão', key: 'Chave', pipe: 'Cano', pipe_r: 'Cano reforçado', food_bad: 'Comida estragada', pistol: 'Pistola', molotov: 'Molotov', helmet: 'Capacete', jacket: 'Jaqueta', shinguards: 'Caneleiras', bag_school: 'Mochila escolar', bag_hiking: 'Mochila de trilha', bag_military: 'Mochila militar' };
@@ -428,6 +434,7 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
     panes.settings.innerHTML = '<div class="ip"><h3>Modo desenvolvedor</h3><button class="btn" data-a="dv" data-v="back">Voltar</button> <span class="dim" id="dvmsg"></span>' +
       '<h3 class="dvh">Itens (toque +1, segure = pilha)</h3>' + grid(items) +
       '<h3 class="dvh">Zumbis</h3>' + DVB('z:walker', 'Andador') + DVB('z:runner', 'Corredor') + DVB('z:police', 'Policial') + DVB('z:jaleco', 'Jaleco') + DVB('z:macacao', 'Macacão') + DVB('z:crawl', 'Rastejante') + DVB('z:limp', 'Manco') + DVB('z:horde', 'Horda') +
+      '<h3 class="dvh">Sobreviventes</h3>' + DVB('npc:a', 'Amigo') + DVB('npc:ap', 'Amigo com pistola') + DVB('npc:h', 'Hostil (cano)') + DVB('npc:hp', 'Hostil com pistola') + DVB('npc:ba', 'Bando amigo') + DVB('npc:bh', 'Bando hostil') + DVB('npcinfo', 'Info no overlay' + on(d.npcInfo)) +
       '<h3 class="dvh">Cenário</h3>' + DVB('caral', 'Carro com alarme') + DVB('corpo', 'Corpo') + DVB('lata', 'Lata') +
       '<h3 class="dvh">Carro</h3>' + car + '<div>Militares (tanque cheio, vida cheia) ' + DVB('veh:jeep:10', 'Jipe') + DVB('veh:truck:10', 'Caminhão') + DVB('veh:apc:10', 'Blindado') + DVB('veh:jeep:0', 'Jipe seco') + DVB('veh:heli:20', 'Helicóptero (querosene cheio)') + DVB('veh:jet:20', 'Jato (use Teleporte: pista)') + DVB('kcan', 'Galão de querosene') + '</div>' +
       '<h3 class="dvh">Teleporte</h3>' + DVB('tp:pista', 'Pista da base') + DVB('tp:heliporto', 'Heliporto') + DVB('tp:market', 'Mercado') + DVB('tp:posto', 'Posto') + DVB('tp:delegacia', 'Delegacia') + DVB('tp:igreja', 'Igreja') + DVB('tp:hospital', 'Hospital') + DVB('tp:saude', 'Posto de saúde') + DVB('tp:farmacia', 'Farmácia') + DVB('tp:escola', 'Escola') + DVB('tp:oficina', 'Oficina') + DVB('tp:galpao', 'Galpão') + DVB('tp:cemiterio', 'Cemitério') + DVB('tp:locked', 'Casa trancada') + DVB('tp:sobrado', 'Sobrado') + DVB('tp:garagem', 'Garagem') + DVB('tp:base', 'Base militar (portão)') + DVB('tp:baseIn', 'Base: pátio') + DVB('tp:car', 'Carro') + DVB('tp:spawn', 'Início') + DVB('tp:far', '+10 chunks') +
@@ -438,6 +445,8 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
     if (k === 'back') { devOpen = false; return; }
     let r = true;
     if (k === 'z') d.spawnZ(a);
+    else if (k === 'npc') r = !!d.spawnNpc(a);
+    else if (k === 'npcinfo') d.npcInfo = !d.npcInfo;
     else if (k === 'car') r = !!d.spawnCar({ fuel: +a, hp: +b });
     else if (k === 'veh') r = !!d.spawnCar({ kind: a, fuel: +b, hp: 100 });
     else if (k === 'kcan') r = d.spawnItem('gascan', 1, 'kero');
@@ -460,13 +469,22 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
 
   // ---- CONTÊINER (M4.5): esquerda = contêiner, direita = mochila ----
   function contData(G, p) {
-    const o = p.open, e = o && (o.type === 'trunk' ? G.cars : G.crates).find((c) => c.id === o.id);
-    return e && { list: o.type === 'trunk' ? e.trunk : e.loot, name: CNOME[o.type === 'trunk' ? 'trunk' : e.tomb ? 'tomb' : e.kind] || 'Móvel', cap: o.type === 'trunk' ? ((G.VEH[e.kind || 'car'] || G.VEH.car).trunk) : e.tomb ? Infinity : e.kind === 'shelf' ? 8 : 6 };
+    const o = p.open;
+    if (o && o.type === 'npc') { const n = G.npcs.find((q) => q.id === o.id); return n && { trade: true, offers: G.offers(n), done: !!n.tr, list: [], name: 'Troca', cap: Infinity }; }
+    const e = o && (o.type === 'trunk' ? G.cars : G.crates).find((c) => c.id === o.id);
+    return e && { list: o.type === 'trunk' ? e.trunk : e.loot, name: e.body ? 'Corpo · some em ' + fmt(Math.max(0, e.expires - G.t)) : CNOME[o.type === 'trunk' ? 'trunk' : e.tomb ? 'tomb' : e.kind] || 'Móvel', cap: o.type === 'trunk' ? ((G.VEH[e.kind || 'car'] || G.VEH.car).trunk) : e.tomb ? Infinity : e.body ? 12 : e.kind === 'shelf' ? 8 : 6 };
   }
   function renderCont(G, p, c) {
     const cs = (list, n, side, ex) => { let g = ''; for (let i = 0; i < Math.max(n, list.length); i++) g += slotH(list[i], { a: 'data-s="' + side + '" data-i="' + i + '"', hold: true, sel: selC === side + ':' + i, ex: ex && i >= 8 }); return g; };
     const [sd, si] = selC.split(':'), sIt = selC && (sd === 'c' ? c.list : p.inv)[+si];
     if (selC && !sIt) selC = '';
+    contEl.classList.toggle('trade', !!c.trade);
+    if (c.trade) { // Troca: cada linha = o que voce da -> o que recebe; tocar a linha troca (1 vez por sobrevivente)
+      const rows = c.offers.map((t, i) => '<div class="trow" role="button" tabindex="0" data-t="' + i + '"><small>Dá</small>' + slotH({ id: t.give.id }, { tag: 'div', q: t.give.qty }) + '<span class="arr">→</span><small>Recebe</small>' + slotH({ id: t.get.id }, { tag: 'div', q: t.get.qty }) + '</div>').join('');
+      contEl.querySelector('.cols').innerHTML = col('Troca (1 vez): toque a linha', false, rows ? '<div class="trows">' + rows + '</div>' : '<div class="dim vazio">' + (c.done ? 'Troca feita. Boa sorte!' : 'Nada para trocar') + '</div>') + col('Mochila ' + p.inv.length + '/' + capTxt(p), p.inv.length >= cap(p), grid(cs(p.inv, cap(p), 'inv', true)));
+      contEl.querySelector('.info').innerHTML = '';
+      return;
+    }
     contEl.querySelector('.cols').innerHTML = col(c.name + ' ' + c.list.length + (c.cap === Infinity ? '' : '/' + c.cap), c.list.length >= c.cap, grid(cs(c.list, c.cap === Infinity ? 0 : c.cap, 'c')) + (c.list.length ? '' : '<div class="dim vazio">Vazio</div>')) +
       col('Mochila ' + p.inv.length + '/' + capTxt(p), p.inv.length >= cap(p), grid(cs(p.inv, cap(p), 'inv', true)));
     contEl.querySelector('.info').innerHTML = selC ? card(sIt) : '';
@@ -476,7 +494,8 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
     contEl = el('div', 'container', root, '<div class="top"><button class="btn" data-k="all">Pegar tudo</button><button class="btn" data-k="x" aria-label="Fechar">✕</button></div><div class="cols"></div><div class="info"></div>', 'hidden ip');
     const G = () => window.G;
     contEl.addEventListener('pointerdown', (e) => {
-      const k = e.target.closest('[data-k]'), b = e.target.closest('[data-s]');
+      const k = e.target.closest('[data-k]'), b = e.target.closest('[data-s]'), tr = e.target.closest('[data-t]');
+      if (tr) { G().trade(+tr.dataset.t); return; }
       if (k) { if (k.dataset.k === 'x') G().closeC(); else G().takeAll(); return; }
       if (!b) { if (selC) { selC = ''; contSig = ''; } return; } // tocar no vazio fecha o cartao
       if (hp) return;
@@ -504,7 +523,7 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
       if (on) { held.atk = held.act = false; intT = 0; UI.paused = true; } else { holdEnd(); if (menuEl.classList.contains('hidden')) UI.paused = false; }
     }
     if (!on) return;
-    const sig = JSON.stringify([c.list, p.inv, cap(p), selC]);
+    const sig = JSON.stringify([c.list, p.inv, cap(p), selC, c.offers, c.done]);
     if (sig !== contSig) { contSig = sig; holdEnd(); renderCont(G, p, c); }
   }
 
@@ -794,7 +813,7 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
       else if (ev.type === 'hint') { if (hintQ.length < 3) hintQ.push(ev); } // fila FIFO (max 3): duas dicas no mesmo quadro nao se perdem
       else if (ev.type === 'miss') pop('Errou', ev.x, ev.y, now);
       else if (ev.type === 'headshot' || ev.type === 'legshot') { // retorno do tiro: texto pequeno sobre o zumbi atingido (dono: em cima dele, sem atrapalhar)
-        const z = G.zombies.find((q) => q.id === ev.id) || (G.dying || []).find((q) => q.id === ev.id);
+        const z = G.zombies.find((q) => q.id === ev.id) || (G.dying || []).find((q) => q.id === ev.id) || (ev.x !== undefined ? ev : null);
         if (z) pop(ev.type === 'headshot' ? 'CABEÇA!' : ev.crawl ? 'Rastejando!' : 'Manco!', z.x, z.y, now);
       }
     }
@@ -804,7 +823,7 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
 
     const nk = p.near ? p.near.type + p.near.id : '';
     if (hintUntil && (now > hintUntil || (nk !== hintNear && now - hintAt >= 1500))) hintUntil = 0; // troca de alvo so fecha dica ja mostrada >= 1,5 s
-    if (!hintUntil && hintQ.length) { const h = hintQ.shift(); E.hint.firstChild.textContent = h.text; E.hint.classList.toggle('g', !!h.guia); hintGuia = h.guia || ''; hintAt = now; hintUntil = now + 4000; hintNear = nk; }
+    if (!hintUntil && hintQ.length) { const h = hintQ.shift(); E.hint.firstChild.textContent = h.text; E.hint.classList.toggle('g', !!h.guia); hintGuia = h.guia || ''; hintAt = now; hintUntil = now + (h.ms || 4000); hintNear = nk; }
     put('hint', hintUntil > 0, (v) => E.hint.classList.toggle('hidden', !v));
     put('toast', now < toastUntil, (v) => E.toast.classList.toggle('hidden', !v));
     put('flash', now < flashUntil, (v) => E.flash.classList.toggle('hidden', !v));

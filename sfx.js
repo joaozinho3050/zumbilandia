@@ -167,6 +167,7 @@
     return (k) => out.gain.setTargetAtTime(0.7 * k, ctx.currentTime, 0.1);
   }
 
+  const npcSt = new Map(); // passos de NPC: ultima posicao e instante por id
   let moanAt = -1e9, dragAt = -1e9; // hordeMoan: 1 voz por vez; drag: >= 1,5 s entre arrastos
   let dmgAt = -1e9; // carDmg: no máximo 1 lata a cada 150 ms
   const SND = {
@@ -208,6 +209,16 @@
       osc(n, 'square', 175, 175, t + 0.18, 0.12, 0.1);
     }),
     hint: () => voice(0.2, (t, n) => osc(n, 'sine', 880, 880, t, 0.18, 0.12)),
+    npcStep: (vol) => voice(0.07, (t, n) => noise(n, t, 0.06, typeof vol === 'number' ? Math.max(0.01, vol) : 0.12, 'lowpass', 320, 0.5)), // passo de sobrevivente: mais grave e baixo que o seu
+    npcAim: () => voice(0.08, (t, n) => { osc(n, 'square', 2000, 2000, t, 0.02, 0.08); osc(n, 'square', 1500, 1500, t + 0.03, 0.02, 0.06); }), // clique da arma sendo armada: aviso de 0,8 s
+    npcShot: () => voice(0.22, (t, n) => { noise(n, t, 0.08, 0.5, 'bandpass', 1100, 0.6); osc(n, 'sawtooth', 220, 70, t, 0.2, 0.22); }), // tiro de sobrevivente: mais seco e grave que o seu (serra + estalo medio)
+    npcShout: () => voice(0.35, (t, n) => { osc(n, 'sawtooth', 150, 120, t, 0.3, 0.16); osc(n, 'square', 75, 60, t, 0.3, 0.07); noise(n, t, 0.2, 0.08, 'lowpass', 500, 0.7, 0.05); }), // "Sai daqui!": bip grave rouco
+    npcSwing: () => SND.swing(),
+    npcDie: () => voice(0.6, (t, n) => { osc(n, 'sine', 130, 40, t, 0.35, 0.5); noise(n, t + 0.1, 0.25, 0.2, 'lowpass', 350, 0.7, 0.04); osc(n, 'sawtooth', 190, 100, t + 0.05, 0.3, 0.1); }), // queda do corpo + gemido curto
+    npcTurn: () => voice(0.4, (t, n) => { osc(n, 'square', 440, 440, t, 0.1, 0.08); osc(n, 'square', 330, 330, t + 0.14, 0.12, 0.08); }), // o grupo virou hostil: dois tons descendo
+    npcTalk: () => voice(0.16, (t, n) => { osc(n, 'sine', 520, 560, t, 0.06, 0.12); osc(n, 'sine', 620, 600, t + 0.08, 0.06, 0.1); }), // fala: dois bips curtos
+    trade: () => voice(0.4, (t, n) => { [0, 0.09, 0.2].forEach((d, i) => osc(n, 'sine', 1800 + i * 500, 1800 + i * 500, t + d, 0.22, 0.1 / (i + 1))); noise(n, t, 0.04, 0.12, 'highpass', 3000, 0.7, 0.002); }), // troca feita: moedas tilintando
+    npcPick: () => voice(0.2, (t, n) => noise(n, t, 0.15, 0.2, 'bandpass', 1500, 1.2, 0.02)), // sobrevivente guardando um item
     step: (vol) => voice(0.06, (t, n) => noise(n, t, 0.05, vol || 0.25, 'lowpass', 400, 0.5)),
     pant: () => voice(0.5, (t, n) => noise(n, t, 0.5, 0.14, 'lowpass', 700, 0.6, 0.15)), // respiração ofegante: ruído filtrado suave
     crouch: () => voice(0.18, (t, n) => noise(n, t, 0.18, 0.12, 'bandpass', 2500, 0.8, 0.05)), // roçar de roupa
@@ -414,6 +425,12 @@
           if (moved && now - stepAt >= gap) { // volume pelo raio de ruído (3/6/12 m): agachado quase mudo
             stepAt = now; const k = Math.min(1, (p.noise || 0) / 12); SND.step(Math.max(0.01, k * k));
           }
+          for (const n of G.npcs || []) { // passos de sobrevivente na tela (volume pela distancia)
+            const d = Math.hypot(n.x - p.x, n.y - p.y), q = npcSt.get(n.id) || { x: n.x, y: n.y, t: 0 };
+            if (d <= (G.viewR || 7) && Math.hypot(n.x - q.x, n.y - q.y) > 0.002 && now - q.t >= (n.st === 'flee' ? 0.3 : 0.5)) { q.t = now; SND.npcStep(0.14 * (1 - d / 9)); }
+            q.x = n.x; q.y = n.y; npcSt.set(n.id, q);
+          }
+          if (npcSt.size > 40) npcSt.clear();
           if (p.stamina != null && p.stamina < 15 && now - breathAt >= 1.2) { breathAt = now; SND.pant(); }
           if (now - groanAt >= 3 && G.zombies) {
             for (const z of G.zombies) {

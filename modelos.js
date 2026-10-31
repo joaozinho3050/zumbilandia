@@ -108,6 +108,26 @@ export function makeZombieParts(opts = {}) {
   return out;
 }
 
+// ---------- sobrevivente (NPC, M5; ESTILO.md "Sobreviventes") ----------
+// mesmo humanoide do jogador; camisa e cabelo nascem em placeholders que o render tinge por instancia. Partes com origem na articulacao:
+// body (tronco+cabeca+cabelo, pivo y=0.55 no mundo), arm (simetrico: dois por NPC, ombro y=1.1, x=+-0.42), leg (dois por NPC, quadril y=0.55, x=+-0.15)
+export const NPC_SHIRT = 0xff8c69, NPC_HAIR = 0x6e4422, NPC_SHIRTS = [0xff8c69, 0x5b7bd5, 0x78a865, 0xf2d16b, 0xe6f7ff, 0xcfe8f5], NPC_HAIRS = [0x2f2a35, 0x6e4422, 0x9b6a3c, 0xeab26a, 0xd8c9a0, 0xc9705f];
+export function makeNpcParts() {
+  const m = makePlayer({}), hr = 0.24 * STYLES[FINAL.player].head, body = m.getObjectByName('body'), head = m.getObjectByName('head'), out = {};
+  const hair = add(head, new THREE.SphereGeometry(hr * 1.1, 10, 6, 0, Math.PI * 2, 0, Math.PI / 2), NPC_HAIR, 0, hr * 1.22, -hr * 0.12, -0.25, 0, 0); // cabelo: meia esfera que deixa a testa e os olhos livres
+  outline(hair);
+  const arm = m.getObjectByName('armL'); arm.children[0].rotation.z = 0; // sem o balanco de 7 graus: o mesmo braco serve nos dois lados
+  for (const [n, o] of [['body', body], ['arm', arm], ['leg', m.getObjectByName('legL')]]) { o.removeFromParent(); o.position.set(0, 0, 0); out[n] = o; }
+  return out;
+}
+// arma na mao: eixo ao longo do braco (-y local); empunhadura para baixo (-z quando o braco esta esticado a frente)
+export function makeNpcWeapon(id) {
+  const c = STYLES[FINAL.items].pal, g = new THREE.Group();
+  if (id === 'pistol') { add(g, Box(0.06, 0.28, 0.07), c.metal, 0, -0.2, 0); add(g, Box(0.06, 0.06, 0.15), c.grip, 0, -0.1, -0.08); }
+  else { add(g, Cyl(0.05, 0.05, 0.8, 10), c.metal, 0, -0.25, 0); for (const y of [0.15, -0.65]) add(g, Cyl(0.065, 0.065, 0.06, 10), c.metal, 0, y, 0); }
+  return done(g);
+}
+
 // ---------- carro (I, 'slim') ----------
 // parts:true = pivôs nomeados (M4 §3). body: tudo que fica na suspensão; wheelFL/FR (dianteiras, x>0) e
 // wheelRL/RR giram em x (eixo), as dianteiras viram em y; trunkLid: dobradiça em (-0.6, 0.58), abre com rotation.z = -π/3;

@@ -424,6 +424,7 @@
       const dr = G.houses.flatMap(h => h.doors || []).find(d => d.id === t.id);
       return dr && dBox(dr, p.x, p.y) <= 2.5 && sees(dr.x + dr.w / 2, dr.y + dr.h / 2, dr) ? { near: { type: 'door', id: dr.id, open: dr.open, locked: !!dr.locked }, dr } : null;
     }
+    if (t.type === 'npc') { const n = G.npcs.find(q => q.id === t.id); return n && n.fac === 'a' && n.hp > 0 && dist(n, p) <= 2.5 && !p.floor ? { near: { type: 'npc', id: n.id } } : null; } // toque no amigo = FALAR
     const l = t.type === 'drop' ? G.drops : t.type === 'crate' || t.type === 'tomb' ? G.crates : null, e = l && l.find(c => c.id === t.id);
     if (!e || e.scenery || (t.type === 'tomb') !== !!e.tomb) return null;
     return (e.w ? dBox(cbox(e), p.x, p.y) : dist(e, p)) <= 2.5 && sees(e.x, e.y) ? { near: e.locked ? { type: 'crate', id: e.id, locked: true } : { type: t.type, id: e.id } } : null;
@@ -450,6 +451,10 @@
       const d = dist(z, p);
       if (z.hp > 0 && d <= R && d < bd && (z.floor || 0) === (p.floor || 0) && angDiff(Math.atan2(z.y - p.y, z.x - p.x), p.dir) <= A && !blocked(p.x, p.y, z.x, z.y, undefined, p.floor || 0)) { b = z; bd = d; }
     }
+    for (const z of G.npcs) { // NPC hostil entra na mira assistida; amigo nunca e auto-mirado
+      const d = dist(z, p);
+      if (z.fac === 'h' && z.hp > 0 && d <= R && d < bd && !(p.floor || 0) && angDiff(Math.atan2(z.y - p.y, z.x - p.x), p.dir) <= A && !blocked(p.x, p.y, z.x, z.y)) { b = z; bd = d; }
+    }
     return b;
   }
   // golpe nas costas (dono): jogador fora do cone da frente do zumbi = dano x2 e chance de matar na hora (50 % se nao tinha notado, 25 % se ja perseguia)
@@ -465,6 +470,7 @@
   // erro do tiro (dono): base 20 %, +15 % andando, +30 % correndo, +2 %/m alem de 4 m, -10 % agachado ou parado; 5-70 %. 1 rng(): v < miss erra; senao v renormalizado decide cabeca/perna
   const missOf = (p, d) => { const mv = hypot2(p.input.mx, p.input.my) > 0.01; return Math.max(0.05, Math.min(0.7, 0.2 + (p.running ? 0.3 : mv ? 0.15 : 0) + 0.02 * Math.max(0, d - 4) - (p.crouch || !mv ? 0.1 : 0))); };
   function shotFx(z, p) {
+    if (z.fac !== undefined) return shotNpc(z, p); // NPC: mesma regra, outro alvo
     const hs = 0.1 + (dist(z, p) <= 4 && hypot2(p.input.mx, p.input.my) <= 0.01 ? 0.1 : 0), ms = G.dev.noMiss ? 0 : missOf(p, dist(z, p)), r = rng();
     if (r < ms) { // errou: a bala passa e levanta poeira atras do alvo
       const a = Math.atan2(z.y - p.y, z.x - p.x), d = dist(z, p) + 2;
@@ -495,6 +501,10 @@
         if (dist(z, p) > 1.7 || (z.floor || 0) !== (p.floor || 0) || blocked(p.x, p.y, z.x, z.y, undefined, p.floor || 0) || angDiff(Math.atan2(z.y - p.y, z.x - p.x), p.dir) > Math.PI / 4) return;
         strike(z, p.weapon === 'pipe_r' ? 35 : 25, p);
       });
+      for (const n of G.npcs.slice()) { // NPC no cone do golpe (amigo tambem: acertar vira o grupo hostil)
+        if (n.hp <= 0 || p.floor || dist(n, p) > 1.7 || blocked(p.x, p.y, n.x, n.y) || angDiff(Math.atan2(n.y - p.y, n.x - p.x), p.dir) > Math.PI / 4) continue;
+        strikeNpc(n, p.weapon === 'pipe_r' ? 35 : 25, p);
+      }
     } else {
       const am = p.inv.find(i => i.id === 'ammo');
       if (!am) return;
@@ -504,6 +514,7 @@
       G.events.push({ type: 'shot', x: p.x, y: p.y, dir: p.dir }); noise(p.x, p.y, 5);
       if (best) shotFx(best, p);
       G.zombies.forEach(z => { if (z.hp > 0 && dist(z, p) <= Math.min(5, G.viewR)) { z.alert = 6; z.state = 'chase'; } }); // dono: o tiro alerta so a 5 m, e so quem esta na tela
+      for (const n of G.npcs) if (n.fac === 'h' && dist(n, p) <= Math.min(NPC_SEE, G.viewR)) rtOf(n).heard = 3; // NPC hostil ouve o tiro no mesmo raio
     }
   }
   // molotov: alvo = zumbi mais perto entre 3,5 e 12 m no cone de 60 graus sem parede; senao 6 m a frente. Voo 0,5 s, depois dano 35 (2,5 m) e fogo
@@ -620,6 +631,7 @@
     const d = dist(z, p), fl = z.floor || 0, fd = fl !== (p.floor || 0); // fd: andar diferente (nao ataca; vai a escada)
     z.alert = Math.max(0, z.alert - dt);
     const za = z.anim || (z.anim = { move: 'idle', act: null, t: 0 }); za.t += dt;
+    if (G.npcs.length && zombieNpc(z, p, dt, za)) return; // alvo = NPC (J2.5)
     const hS = fd ? G.houses.find(q => q.stairs && inBox(q, fl ? z.x : p.x, fl ? z.y : p.y, 0.3)) : null, S = hS && hS.stairs;
     const tg = S && inBox(hS, z.x, z.y, 0.3) ? { x: fl ? S.lx1 : S.lx0, y: fl ? S.ly1 : S.ly0 } : p; // alvo: o jogador, ou o pe da escada quando ele esta em outro andar
     let h = null; // casa no caminho (parede/porta fechada), em cache 0,25 s por zumbi
@@ -721,6 +733,294 @@
     }
   }
 
+  // ---- NPCs: runtime (M5). Estado de IA em n.rt (nunca salvo); n.anim/n.aim/n.at/n.st/n.cd/n.way ficam fora do diff (strip). NPC preso ao chunk de origem (n.ch fixo) ----
+  const idh = id => { let h = 0; for (let i = 0; i < id.length; i++) h = Math.imul(h ^ id.charCodeAt(i), 0x9E3779B1) >>> 0; return h; };
+  const rtOf = n => n.rt || (n.rt = { ai: idPhase(n.id), pt: idPhase(n.id), pl: 0, stuck: 0, aim: 0, sr: 0, wu: 0, wait: 0, lt: 0, fu: 0, h: idh(String(n.id)) });
+  const nrnd = (n, k) => hash(G.seed ^ rtOf(n).h, Math.floor(G.t * 10), k, 9500) / 4294967296; // sorteio por NPC sem tocar o rng() do jogo
+  const nf = n => n.face !== undefined ? n.face : (n.face = n.dir || 0);
+  const nfront = (n, p) => angDiff(Math.atan2(p.y - n.y, p.x - n.x), nf(n)) <= Math.PI / 3; // alvo no cone de 120 graus da frente
+  const nArmed = n => (n.w === 'pistol' && n.am > 0) || n.w === 'pipe';
+  const missNpc = (n, d) => Math.max(0.05, Math.min(0.7, 0.2 + (rtOf(n).mv ? 0.15 : -0.1) + 0.02 * Math.max(0, d - 4))); // mesma regra do tiro do jogador: andando erra mais, longe erra mais
+  const nSpeed = (n, v) => v * (n.limp ? 0.6 : 1);
+  function setN(n, act, dur) { const a = n.anim || (n.anim = { move: 'idle', act: null, t: 0 }); if (a.act === 'dead') return; a.act = act; a.t = 0; a.dur = dur; }
+  const chb = n => { const rt = rtOf(n); if (!rt.b) { const [cx, cy] = parse(n.ch); rt.b = [cx * CH + 1, cx * CH + CH - 1, cy * CH + 1, cy * CH + CH - 1]; } return rt.b; }; // caixa do chunk de origem, 1 m de margem
+  function npcStep(n, a, s) { // anda s m no rumo a (desliza ao encostar); a caixa do chunk de origem e o limite
+    const rt = rtOf(n), b = chb(n);
+    const go = ang => { const x = n.x + Math.cos(ang) * s, y = n.y + Math.sin(ang) * s; if (x < b[0] || x > b[1] || y < b[2] || y > b[3] || !free(x, y)) return false; n.x = x; n.y = y; return true; };
+    const sd = rt.h & 1 ? 1 : -1;
+    return go(a) || go(a + sd * 0.8) || go(a - sd * 0.8) || go(a + sd * 1.57) || go(a - sd * 1.57);
+  }
+  // vai ate (tx,ty) com velocidade v; devolve a distancia que sobra. Casa no caminho: pelo vao/porta (abre porta comum, porta trancada = desiste); preso: grade (BFS) no orcamento do zumbi (G._pn)
+  function npcGo(n, tx, ty, v, dt) {
+    const rt = rtOf(n), d = hypot2(tx - n.x, ty - n.y);
+    if (d < 0.25) return d;
+    if (!(G.t < rt.ht)) { rt.ht = G.t + 0.25 + idPhase(n.id) * 0.1; rt.hc = G.houses.find(h => blocked(n.x, n.y, tx, ty, [h])) || null; }
+    let a = Math.atan2(ty - n.y, tx - n.x);
+    if (rt.hc) {
+      if (!(G.t < rt.wt) || !n.way) { rt.wt = G.t + 0.25; n.way = navWay(n, { x: tx, y: ty }, rt.hc); }
+      const w = n.way;
+      if (w) {
+        a = Math.atan2(w.y - n.y, w.x - n.x);
+        if (w.dr && dBox(w.dr, n.x, n.y) < 0.9) {
+          if (w.dr.locked) rt.stuck += 9; // cadeado: NPC nao tem alicate
+          else if (!w.dr.open) { w.dr.open = true; if (dist(n, G.player) <= G.viewR + 3) G.events.push({ type: 'door', id: w.dr.id, open: true, gate: !!w.dr.gate, base: !!w.dr.base }); }
+          n.way = null;
+        }
+      }
+    } else n.way = null;
+    if (rt.pw && rt.pw.t > G.t) a = Math.atan2(rt.pw.y - n.y, rt.pw.x - n.x);
+    const ox = n.x, oy = n.y;
+    npcStep(n, a, Math.min(v * dt, d));
+    const mvd = hypot2(n.x - ox, n.y - oy);
+    rt.mv = mvd > v * dt * 0.3;
+    if (mvd < v * dt * 0.4) {
+      rt.stuck += dt;
+      if (rt.stuck > 0.6 && G._pn < 1 && !(rt.pw && rt.pw.t > G.t)) { G._pn++; const g = n.way && !n.way.dr ? n.way : { x: tx, y: ty }, q = pathTo(n, g.x, g.y); if (q) rt.pw = { x: q.x, y: q.y, t: G.t + 0.9 }; }
+    } else { rt.stuck = Math.max(0, rt.stuck - dt * 2); n.face = Math.atan2(n.y - oy, n.x - ox); }
+    return hypot2(tx - n.x, ty - n.y);
+  }
+  function turnHostile(n) { // acertar um amigo: o grupo inteiro (mora num chunk so) vira hostil
+    let any = false;
+    for (const m of G.npcs) if (m.gid === n.gid && m.fac !== 'h') { m.fac = 'h'; rtOf(m).pl = 6; any = true; }
+    if (any) { G.events.push({ type: 'npcTurn', id: n.id, x: n.x, y: n.y }); hint('npcTurno', 'Você atacou um sobrevivente: o grupo todo virou hostil', 'sobreviventes'); }
+  }
+  function killNpc(n) { // morte: corpo saqueavel (crate body) com o que sobrou; o NPC nunca volta (some da lista => null no diff)
+    const loot = n.inv.map(i => Object.assign({}, i));
+    if (n.w) loot.push({ id: n.w, qty: 1 });
+    if (n.am > 0) loot.push({ id: 'ammo', qty: n.am });
+    G.crates.push({ id: n.id + ':b', ch: n.ch, x: n.x, y: n.y, opened: false, body: 1, tomb: false, loot, expires: G.t + 300 });
+    G.npcs.splice(G.npcs.indexOf(n), 1);
+    G.events.push({ type: 'npcDie', id: n.id, x: n.x, y: n.y });
+    if (n.lead) { // lider morto: quem tem mais vida assume; se ele tinha arma, o bando se assusta e foge 6 s
+      const mates = G.npcs.filter(m => m.gid === n.gid && m.hp > 0).sort((a, b) => b.hp - a.hp);
+      if (mates.length) { mates[0].lead = 1; if (n.w) for (const m of mates) { const r = rtOf(m); r.fu = G.t + 6; r.fx = G.player.x; r.fy = G.player.y; } }
+    }
+    if (dist(n, G.player) <= G.viewR) hint('npcCorpo', 'Saqueie o corpo antes que suma (5 min)', 'corponpc');
+  }
+  function hurtNpc(n, dmg, src) { // src: 'p' (jogador), zumbi ou 'n'; 'hit' reaproveita som/efeito do golpe
+    if (n.hp <= 0) return;
+    const rt = rtOf(n);
+    n.hp -= dmg; G.events.push({ type: 'hit', x: n.x, y: n.y }, { type: 'npcHit', id: n.id });
+    if (!n.anim || !n.anim.act) setN(n, 'hurt', 0.3);
+    if (src === 'p') { rt.pl = 6; if (n.fac === 'a') turnHostile(n); }
+    if (n.hp <= 0) killNpc(n);
+  }
+  function strikeNpc(n, dmg, p) { // golpe do jogador: de frente ou ja alertado = dano normal; pelas costas = x2 ou morte (50 % se nao notou, 25 % se notou)
+    if (n.hp <= 0) return;
+    const rt = rtOf(n);
+    if (nfront(n, p) || rt.pl > 0) { hurtNpc(n, dmg, 'p'); return; }
+    const kill = rng() < 0.5;
+    G.events.push({ type: 'backstab', id: n.id, kill });
+    if (kill) { hurtNpc(n, n.hp, 'p'); G.events.push({ type: 'stealthKill', id: n.id }); } else hurtNpc(n, dmg * 2, 'p');
+    hint('furtivo2', 'Golpe pelas costas: dano dobrado e chance de derrubar na hora', 'furtivo');
+  }
+  function shotNpc(n, p) { // tiro do jogador em NPC: mesma regra do zumbi (erra, cabeca mata, perna = manco); NPC nao rasteja
+    const d = dist(n, p), hs = 0.1 + (d <= 4 && hypot2(p.input.mx, p.input.my) <= 0.01 ? 0.1 : 0), ms = G.dev.noMiss ? 0 : missOf(p, d), r = rng();
+    if (r < ms) {
+      const a = Math.atan2(n.y - p.y, n.x - p.x), dd = d + 2;
+      G.events.push({ type: 'miss', x: p.x + Math.cos(a) * dd, y: p.y + Math.sin(a) * dd });
+      hint('errou', 'Tiro de longe ou andando erra mais — pare e agache para mirar melhor', 'tiro');
+      return;
+    }
+    const v = ms ? (r - ms) / (1 - ms) : r;
+    if (v < hs) { G.events.push({ type: 'headshot', id: n.id, x: n.x, y: n.y }); hurtNpc(n, n.hp, 'p'); return; }
+    strikeNpc(n, 50, p);
+    if (n.hp <= 0 || v >= hs + 0.25) return;
+    n.limp = 1; G.events.push({ type: 'legshot', id: n.id, limp: true, x: n.x, y: n.y });
+  }
+  function npcFire(n, tg, p) {
+    const rt = rtOf(n), a = Math.atan2(tg.y - n.y, tg.x - n.x), d = dist(n, tg);
+    n.am--; n.cd = 1.5; rt.aim = 0; n.aim = 0; setN(n, 'shot', 0.15); if (rt.cs === 'peek') { rt.cs = 'go'; }
+    G.events.push({ type: 'npcShot', id: n.id, x: n.x, y: n.y, dir: a }); noise(n.x, n.y, 5);
+    for (const z of G.zombies) if (z.hp > 0 && dist(z, n) <= 5 && dist(z, p) <= G.viewR) z.alert = Math.max(z.alert, 4); // o tiro chama zumbis a 5 m dele, so na tela
+    if (nrnd(n, 1) < missNpc(n, d)) { G.events.push({ type: 'miss', x: n.x + Math.cos(a) * (d + 2), y: n.y + Math.sin(a) * (d + 2) }); return; }
+    if (tg === p) { hurtPlayer(10); G.events.push({ type: 'hurt', id: n.id, d: 10, npc: 1 }); } else hurt(tg, 50);
+  }
+  // zumbi com NPC de alvo (J2.5): troca o alvo so se o NPC esta na tela, mais perto que o jogador e a < 5 m dele; recalcula a 4 Hz. true = o zumbi cuidou de si (nao usa o resto do updateZombie)
+  function zombieNpc(z, p, dt, za) {
+    const fl = z.floor || 0;
+    if (!(G.t < z.nt)) {
+      z.nt = G.t + 0.25 + idPhase(z.id) * 0.1; z.tg = null;
+      if (!fl) { // (horda tambem: mesma regra) o mais perto
+        let bd = 5; const dp = dist(z, p);
+        for (const n of G.npcs) { const dd = dist(z, n); if (dd < bd && dd < dp && dist(n, p) <= G.viewR && !blocked(z.x, z.y, n.x, n.y)) { z.tg = n; bd = dd; } }
+      }
+    }
+    const n = z.tg;
+    if (!n) return false;
+    if (n.hp <= 0) { z.tg = null; return false; }
+    const d = dist(z, n), cw = !!z.crawl, rA = cw ? 0.8 : 1.1, rW = cw ? 0.9 : 1.2, rC = cw ? 1.0 : 1.2;
+    z.zc = Math.max(0, (z.zc || 0) - dt);
+    if (z.wu > 0 && d > rC) z.wu = 0;
+    if (z.wu > 0) { if ((z.wu -= dt) <= 1e-9) { z.wu = 0; z.zc = 1.8; hurtNpc(n, 15, z); } }
+    else if (d <= rW && z.zc <= 0) { z.wu = cw ? 1.2 : 1.0; G.events.push({ type: 'windup', id: z.id }); }
+    z.state = d <= rA ? 'attack' : 'chase';
+    const ac = z.wu > 0 ? 'windup' : z.zc > 1.5 ? 'hit' : null; za.move = z.state === 'chase' ? 'walk' : 'idle'; if (za.act !== ac && za.act !== 'climb') { za.act = ac; za.t = 0; }
+    const a = Math.atan2(n.y - z.y, n.x - z.x); z.face = a;
+    if (z.state === 'chase') {
+      const s = (cw ? 0.8 : (z.runner ? 4 : 2.2) * (z.limp ? 0.6 : 1)) * dt, sd = idh(String(z.id)) & 1 ? 1 : -1;
+      for (const ang of [a, a + sd * 0.8, a - sd * 0.8, a + sd * 1.57]) { const nx = z.x + Math.cos(ang) * s, ny = z.y + Math.sin(ang) * s; if (free(nx, ny) && lsAt(nx, ny)) { z.x = nx; z.y = ny; break; } }
+    }
+    return true;
+  }
+  // cobertura (J5.3): ponto do anel a 0,9 m das paredes de uma casa (a <= 8 m, no chunk) de onde o jogador nao e visto (blocked), mais um ponto de tiro no mesmo anel (1,4-4,5 m dali) com linha livre e no alcance do tiro (5,4 m); recalcula a 2 Hz
+  function coverThink(n, p) {
+    const rt = rtOf(n);
+    if (rt.cs && hypot2(p.x - rt.cpx, p.y - rt.cpy) < 6) return;
+    if (G.t < rt.ct) return;
+    rt.ct = G.t + 0.5; rt.cs = null;
+    const b = chb(n); let best = null, bd = 8;
+    const ok = (x, y) => x >= b[0] && x <= b[1] && y >= b[2] && y <= b[3] && free(x, y);
+    for (const h of G.houses) {
+      if (!h.parts || h.ch !== n.ch || Math.abs(h.x + h.w / 2 - n.x) > 12 + h.w / 2 || Math.abs(h.y + h.h / 2 - n.y) > 12 + h.h / 2) continue;
+      const ring = [], m = 0.9;
+      for (let x = h.x - m; x <= h.x + h.w + m + 1e-6; x += 1) { ring.push([x, h.y - m], [x, h.y + h.h + m]); }
+      for (let y = h.y - m + 1; y < h.y + h.h + m - 1e-6; y += 1) { ring.push([h.x - m, y], [h.x + h.w + m, y]); }
+      const vis = ring.map(([x, y]) => ok(x, y) && !blocked(x, y, p.x, p.y) && hypot2(x - p.x, y - p.y) <= 5.4);
+      ring.forEach(([cx, cy], i) => {
+        const d = hypot2(cx - n.x, cy - n.y);
+        if (d >= bd || vis[i] || !ok(cx, cy) || [[0, 0], [0.25, 0], [-0.25, 0], [0, 0.25], [0, -0.25]].some(([ox, oy]) => !blocked(cx + ox, cy + oy, p.x, p.y))) return; // escondido com folga de 0,25 m
+        let pk = null;
+        ring.forEach(([qx, qy], j) => { const e = hypot2(qx - cx, qy - cy); if (vis[j] && e >= 1.4 && e <= 4.5 && (!pk || e < pk[2])) pk = [qx, qy, e]; });
+        if (pk) { best = { hx: cx, hy: cy, px: pk[0], py: pk[1] }; bd = d; }
+      });
+    }
+    if (best) { rt.cv = best; rt.cs = 'go'; rt.cpx = p.x; rt.cpy = p.y; }
+  }
+  // decisao a 10 Hz: ameacas, percepcao (hostil: cone de 120 graus, <= 5 m, 2 m agachado, linha livre, so na tela; ouve tiro <= min(5, viewR)), estado
+  function thinkNpc(n, p, d, scr) {
+    const rt = rtOf(n), fl = p.floor || 0;
+    let z3 = 0, zt = null, zd = 5;
+    for (const z of G.zombies) {
+      if (z.hp <= 0 || z.floor) continue;
+      const dx = z.x - n.x, dy = z.y - n.y, q = dx * dx + dy * dy;
+      if (q > 25) continue;
+      if (q <= 9) z3++;
+      const dd = Math.sqrt(q); if (dd < zd) { zd = dd; zt = z; }
+    }
+    let pl = rt.pl;
+    if (n.fac === 'h' && !p.car && !fl && !G._al && !G.dead) {
+      if ((rt.pt -= 0.1) <= 0) { rt.pt = 0.25; rt.see = scr && d <= (p.crouch ? 2 : NPC_SEE) && nfront(n, p) && !blocked(n.x, n.y, p.x, p.y); }
+      const heard = rt.heard > 0 && scr && d <= Math.min(NPC_SEE, G.viewR);
+      if (rt.see || heard) { if (pl <= 0 && !rt.sh) { rt.sh = 1; G.events.push({ type: 'npcShout', id: n.id }, { type: 'hint', id: 'npcShout', text: 'Sobrevivente: "Sai daqui!"' }); } pl = Math.max(pl, 2); }
+      else pl -= 0.1;
+      if (d > NPC_SEE + 0.5 || !scr) pl = 0; // perde o alvo a > 5 m (ou fora da tela)
+      if (pl <= 0 && scr && !n.lead) for (const m of G.npcs) if (m !== n && m.gid === n.gid && m.rt && m.rt.pl > 0 && dist(m, n) <= 8) { pl = m.rt.pl; break; } // alvo compartilhado no bando: o seguidor acompanha o alarme do lider
+    } else pl = 0;
+    if (rt.cs && n.st === 'fight' && n.fac === 'h' && d <= 12) pl = Math.max(pl, 1); // atras da cobertura nao ve o jogador, mas segue na luta (ate 12 m; so atira na tela)
+    rt.pl = pl; if (rt.heard > 0) rt.heard -= 0.1;
+    const tracking = pl > 0, armed = nArmed(n);
+    if (n.hp < 30 && (zt || tracking) || (!armed && (zt && zd <= 4 || tracking)) || z3 >= 2) { rt.fu = G.t + 4; rt.fx = tracking && (!zt || d <= zd) ? p.x : zt ? zt.x : p.x; rt.fy = tracking && (!zt || d <= zd) ? p.y : zt ? zt.y : p.y; }
+    let st;
+    if (G.t < rt.fu) st = 'flee';
+    else if (armed && (tracking || zt)) { st = 'fight'; rt.tg = tracking && (!zt || d <= zd) ? 'p' : zt; const tg = rt.tg === 'p' ? p : rt.tg; rt.los = !blocked(n.x, n.y, tg.x, tg.y); if (n.w === 'pistol' && rt.tg === 'p') coverThink(n, p); }
+    else if (n.st === 'loot' && rt.lc && G.crates.includes(rt.lc) && !rt.lc.opened) st = 'loot';
+    else if (!n.lead && (rt.ld = G.npcs.find(m => m.gid === n.gid && m.lead === 1 && m.hp > 0 && m !== n))) st = 'follow'; // seguidor: acompanha o lider a 2-3 m
+    else {
+      st = 'patrol';
+      if (G.t >= rt.lt && n.inv.length < 6) {
+        rt.lt = G.t + 15; let bd = 8, bc = null;
+        for (const c of G.crates) { if (c.ch !== n.ch || !c.w || c.scenery || c.tomb || c.body || c.opened || c.locked || c.floor || !c.loot.some(i => NPC_LOOT.has(i.id))) continue; const dd = dist(c, n); if (dd < bd) { bd = dd; bc = c; } }
+        if (bc) { rt.lc = bc; st = 'loot'; rt.sr = 0; }
+      }
+    }
+    n.st = st;
+  }
+  function updateNpc(n, p, dt) {
+    const rt = rtOf(n), an = n.anim || (n.anim = { move: 'idle', act: null, t: 0 }), d = dist(n, p), scr = d <= G.viewR;
+    an.t += dt; n.cd = Math.max(0, (n.cd || 0) - dt);
+    if (an.act && an.dur !== undefined && an.t >= an.dur) an.act = null;
+    if (!rt.home) rt.home = { x: n.x, y: n.y };
+    if ((rt.ai -= dt) <= 0) { rt.ai = 0.1; thinkNpc(n, p, d, scr); }
+    if (scr) hint('npc', 'Sobrevivente: losango verde = AMIGO, vermelho = HOSTIL — chegue devagar', 'sobreviventes');
+    const st = n.st || 'patrol'; let mv = false, run = false;
+    rt.mv = false;
+    if (st === 'flee') {
+      run = true;
+      if (!(G.t < rt.fre) || rt.gx === undefined) { // foge para longe da ameaca, dentro do chunk
+        const a = Math.atan2(n.y - (rt.fy === undefined ? p.y : rt.fy), n.x - (rt.fx === undefined ? p.x : rt.fx)), b = chb(n);
+        rt.gx = Math.max(b[0] + 1, Math.min(b[1] - 1, n.x + Math.cos(a) * 8)); rt.gy = Math.max(b[2] + 1, Math.min(b[3] - 1, n.y + Math.sin(a) * 8)); rt.fre = G.t + 1;
+      }
+      npcGo(n, rt.gx, rt.gy, nSpeed(n, 3.8), dt); mv = rt.mv;
+      if (scr && n.hp < 30) hint('npcFoge', 'Ferido, ele foge', 'sobreviventes');
+    } else if (st === 'fight') {
+      const tg = rt.tg === 'p' ? p : rt.tg;
+      if (!tg || (tg !== p && tg.hp <= 0)) n.st = 'patrol';
+      else {
+        const dd = dist(n, tg), a = Math.atan2(tg.y - n.y, tg.x - n.x);
+        n.face = a;
+        const cv = rt.cs && tg === p ? rt.cv : null;
+        if (cv) { // cobertura: vai ao canto, agacha 1-2,2 s, sai ate o ponto de tiro, mira/atira 1 vez e volta
+          if (scr) hint('cobertura', 'Ele se esconde atrás de casas — flanqueie', 'bandos');
+          if (rt.cs === 'go') { if (npcGo(n, cv.hx, cv.hy, nSpeed(n, 1.8), dt) < 0.3) { rt.cs = 'hide'; rt.cst = G.t + 1 + nrnd(n, 3) * 1.2; } mv = rt.mv; n.face = a; }
+          else if (rt.cs === 'hide') { if (G.t >= rt.cst) { rt.cs = 'peek'; rt.cst = G.t + 3; } }
+          else if (rt.cs === 'peek') { npcGo(n, cv.px, cv.py, nSpeed(n, 1.5), dt); mv = rt.mv; n.face = a; if (G.t >= rt.cst) rt.cs = 'go'; }
+        }
+        if (n.w === 'pistol') {
+          if (cv) { /* na cobertura nao mantem distancia */ }
+          else if (dd < 3.5) { const o = n.x + n.y; npcStep(n, a + Math.PI, nSpeed(n, 1.2) * dt); mv = n.x + n.y !== o; } // mantem 3,5-5 m
+          else if (dd > 5) { npcGo(n, tg.x, tg.y, nSpeed(n, 1.2), dt); mv = rt.mv; n.face = a; }
+          rt.mv = mv; if (cv && rt.cs === 'hide') n.face = a;
+          if (scr && dd <= 5.5 && rt.los && n.cd <= 0.8) { // mira telegrafada 0,8 s (pose, clique, traco), tiro a cada 1,5 s; nunca atira de fora da tela
+            if (rt.aim === 0) { G.events.push({ type: 'npcAim', id: n.id, x: n.x, y: n.y }); if (tg === p) hint('npcHostil', 'Hostil mirando! Saia da linha ou se abrigue atrás de uma casa', 'sobreviventes'); setN(n, 'aim'); }
+            rt.aim += dt; n.aim = rt.aim; n.at = [tg.x, tg.y];
+            if (rt.aim >= 0.8 && n.cd <= 0) npcFire(n, tg, p);
+          } else { rt.aim = 0; n.aim = 0; }
+        } else { // cano: encosta, windup 0,6 s, dano 10, alcance 1,2 m, cadencia 1,2 s
+          if (dd > 1.1) { npcGo(n, tg.x, tg.y, nSpeed(n, 1.5), dt); mv = rt.mv; n.face = a; }
+          if (dd <= 1.3 && n.cd <= 0 && rt.wu <= 0) { rt.wu = 0.6; setN(n, 'windup', 0.6); }
+          if (rt.wu > 0 && (rt.wu -= dt) <= 0) {
+            rt.wu = 0; n.cd = 1.2; setN(n, 'swing', 0.25); G.events.push({ type: 'npcSwing', id: n.id });
+            if (dist(n, tg) <= 1.4 && !blocked(n.x, n.y, tg.x, tg.y)) { if (tg === p) { hurtPlayer(10); G.events.push({ type: 'hurt', id: n.id, d: 10, npc: 1 }); } else hurt(tg, 25); }
+          }
+        }
+      }
+    } else if (st === 'follow') {
+      const l = rt.ld;
+      if (!l || l.hp <= 0) n.st = 'patrol';
+      else if (dist(n, l) > 3) { npcGo(n, l.x, l.y, nSpeed(n, 1.4), dt); mv = rt.mv; }
+      else if (dist(n, l) < 1.4) { npcStep(n, Math.atan2(n.y - l.y, n.x - l.x), nSpeed(n, 0.8) * dt); mv = true; } // nao cola no lider
+      else n.face = n.fac === 'a' && d <= 4 && scr ? Math.atan2(p.y - n.y, p.x - n.x) : nf(l);
+      if (scr && l && G.npcs.some(m => m !== n && m.gid === n.gid)) hint('bando', 'Bando: mate o líder (com arma) e os outros fogem', 'bandos');
+    } else if (st === 'loot') {
+      const c = rt.lc;
+      if (!c) n.st = 'patrol';
+      else if (dBox(cbox(c), n.x, n.y) > 0.9) { npcGo(n, c.x, c.y, nSpeed(n, 1.2), dt); mv = rt.mv; if (rt.stuck > 3) { rt.lc = null; rt.stuck = 0; n.st = 'patrol'; rt.lt = G.t + 15; } }
+      else {
+        if (an.act !== 'search') setN(n, 'search');
+        n.face = Math.atan2(c.y - n.y, c.x - n.x);
+        if ((rt.sr += dt) >= 1) { // 1 s remexendo; pega 1 item da lista segura e marca o movel como vasculhado
+          const i = c.loot.findIndex(it => NPC_LOOT.has(it.id));
+          if (i >= 0 && n.inv.length < 6) { const it = c.loot.splice(i, 1)[0]; put(n.inv, 6, it, it.qty || 1); G.events.push({ type: 'npcPick', id: n.id, x: n.x, y: n.y }); }
+          c.opened = true; rt.sr = 0; rt.lc = null; n.st = 'patrol'; if (an.act === 'search') an.act = null;
+        }
+      }
+    }
+    if ((n.st || 'patrol') === 'patrol') {
+      if (n.fac === 'a' && scr && d <= 4 && !(p.floor)) { n.face = Math.atan2(p.y - n.y, p.x - n.x); if (an.act === null && d <= 2) setN(n, 'talk', 1); } // amigo para e vira para o jogador
+      else if (rt.wait > 0) rt.wait -= dt;
+      else {
+        if (!rt.pg) { // novo ponto a ate 10 m da origem, dentro do chunk (os 2-3 pontos nascem da hora/id)
+          const b = chb(n), k = Math.floor(G.t / 7);
+          rt.gx = Math.max(b[0], Math.min(b[1], rt.home.x + (nrnd(n, 2 + k % 3) - 0.5) * 20)); rt.gy = Math.max(b[2], Math.min(b[3], rt.home.y + (nrnd(n, 7 + k % 3) - 0.5) * 20)); rt.pg = true; rt.stuck = 0;
+        }
+        const left = npcGo(n, rt.gx, rt.gy, nSpeed(n, 1.2), dt); mv = rt.mv;
+        if (left < 0.4 || rt.stuck > 2) { rt.pg = false; rt.wait = 2 + nrnd(n, 11) * 3; rt.stuck = 0; mv = false; }
+      }
+    }
+    if (n.st !== 'patrol') rt.pg = false;
+    if (n.st !== 'fight') rt.cs = null;
+    an.crouch = rt.cs === 'hide';
+    if (an.act === 'aim' && !(rt.aim > 0)) an.act = null;
+    if (an.act === 'search' && n.st !== 'loot') an.act = null;
+    an.move = mv ? (run ? 'run' : 'walk') : 'idle';
+  }
+  function npcTick(p, dt) {
+    let l = G.npcs.filter(n => G._ls.has(n.ch));
+    if (l.length > NPC_CAP) { l.sort((a, b) => dist(a, p) - dist(b, p)); l.length = NPC_CAP; } // teto de ativos: os mais perto; o resto dorme no diff
+    for (const n of l) updateNpc(n, p, dt);
+  }
+
   // latas no chao (gv>=2): passar a <= 0,6 m chuta a lata (rola 1 m, 1 vez). Correndo/carro: barulho de 3 m; andando: 1 m; agachado: mudo. So alerta quem esta na tela
   function cans() { if (G._cs !== G.props || G._cn !== G.props.length) { G._cs = G.props; G._cn = G.props.length; G._cl = G.props.filter(q => q.kind === 'can'); } return G._cl; }
   function kickCans(p, car) {
@@ -780,15 +1080,21 @@
     if (countOf(p, 'bottle') && countOf(p, 'rag') && canFuel(p, { id: 'gascan', fuel: 2 })) hint('molotov', 'Garrafa + trapo + 2 L do galão: fabrique o molotov no MENU', 'molotov');
     if (countOf(p, 'molotov')) hint('molotov2', 'Molotov: troque para a arma MOLOTOV e toque ATACAR (o fogo também queima você)', 'molotov');
     G.drops = G.drops.filter(d => d.expires > G.t);
+    for (let i = G.crates.length - 1; i >= 0; i--) { const c = G.crates[i]; if (c.expires <= G.t && !(p.open && p.open.id === c.id)) G.crates.splice(i, 1); } // J5.1: caixa com expires (corpo de sobrevivente) some; a tumba nao tem expires; painel aberto segura ate fechar
 
     // alvo mais proximo (<1,5 m) com linha livre: movel/tumba, porta
     p.near = null;
     let bd = 1.5, nd = null;
+    if (!car && !p.floor) for (const n of G.npcs) { // amigo a <= 2 m: FALAR (hostil: so ATACAR)
+      if (n.fac !== 'a' || n.hp <= 0) continue;
+      const d = dist(n, p);
+      if (d < 2 && d < bd + 0.5 && !blocked(p.x, p.y, n.x, n.y)) { bd = d; p.near = { type: 'npc', id: n.id }; hint('npcAmigo', 'Amigo — não ataque, ou o grupo vira hostil', 'sobreviventes'); }
+    }
     if (!car) G.crates.forEach(c => {
       if (c.scenery) return; // cenario (cama, sofa, mesa, vaso, pia, caixa): so colide
       if (Math.abs(c.x - p.x) > 3.5 || Math.abs(c.y - p.y) > 3.5) return; // longe: nem calcula a caixa
       const d = c.w ? dBox(cbox(c), p.x, p.y) : dist(c, p);
-      if (d < bd && (c.floor || 0) === (p.floor || 0) && !blocked(p.x, p.y, c.x, c.y, undefined, p.floor || 0)) { bd = d; p.near = c.locked ? { type: 'crate', id: c.id, locked: true } : { type: c.tomb ? 'tomb' : 'crate', id: c.id }; if (c.kind === 'corpse') hint('corpo', 'Corpo: às vezes tem algo — e às vezes não', 'corpo'); }
+      if (d < bd && (c.floor || 0) === (p.floor || 0) && !blocked(p.x, p.y, c.x, c.y, undefined, p.floor || 0)) { bd = d; p.near = c.locked ? { type: 'crate', id: c.id, locked: true } : { type: c.tomb ? 'tomb' : 'crate', id: c.id }; if (c.kind === 'corpse') hint('corpo', 'Corpo: às vezes tem algo — e às vezes não', 'corpo'); if (c.body) hint('npcCorpo', 'Saqueie o corpo antes que suma (5 min)', 'corponpc'); }
     });
     if (!car && !p.floor) G.tanks.forEach(t => { // tampa do tanque do posto: SIFONAR com mangueira + galao
       const d = dBox(cbox(t), p.x, p.y);
@@ -879,6 +1185,7 @@
       if (car) exitCar(p, car, car.burn > 0);
       else if (n && !p.action) {
         if (n.type === 'fence') { /* PULAR trata a cerca */ }
+        else if (n.type === 'npc') G.talk(n.id);
         else if (n.type === 'stairs') { p.action = { type: 'stairs', id: n.id, t: 0 }; setAct(p, 'stairs'); G.events.push({ type: 'stairs', id: n.id, p: 0 }); }
         else if (n.type === 'door') {
           const dr = G.houses.flatMap(h => h.doors || []).find(d => d.id === n.id);
@@ -922,6 +1229,7 @@
     updateSiphon(p, car, len, dt);
 
     G.zombies.forEach(z => { if (G._ls.has(z.ch)) updateZombie(z, p, dt); }); // so simula chunk carregado
+    if (G.npcs.length) npcTick(p, dt);
     for (const z of G.zombies) if (z.hp <= 0 && z.hg && hz(z)) { const e = G.hordes[z.hg] || (G.hordes[z.hg] = { k: 0, m: 0 }); e.k++; e.m = Math.floor(G.t / 60); } // morte de membro: o grupo nao volta inteiro antes de 60 min
     for (const z of G.zombies) if (z.hp <= 0 && z.police) { // tabela do policial: 1 rng()
       const v = rng() * 100, it = v < 60 ? { id: 'ammo', qty: 3 + Math.floor(v / 15) } : { id: v < 85 ? 'pistol' : v < 95 ? 'bandage' : 'helmet', qty: 1 };
@@ -1437,6 +1745,11 @@
   const TRUNK = [['rag', 12], ['wire', 8], ['food', 6], ['bottle', 6], ['hose', 6], ['gascan', 5], ['pipe', 5], ['bag_hiking', 2], ['cutter', 3], [null, 47]]; // porta-malas (soma 100), RNG proprio
   const RB = { s: new Uint8Array(6400), b: new Uint8Array(6400), q: new Int32Array(6400) }; // 80x80 celulas: casa de ate 17 m
   const UNIQUE_SPAWN = new Set(['key', 'gascan', 'hose']);
+  // ---- NPCs (M5, gv>=4; Tribunal #16 + remedios do verificador de coerencia) ----
+  const NPC_TAB = [['food', 12], ['rag', 20], ['wire', 10], ['bandage', 4], ['bottle', 8], [null, 46]]; // 2 sorteios por NPC (soma 100): ~0,24 comida = o que 2 casas dariam
+  const NPC_LOOT = new Set(['food', 'rag', 'wire', 'bottle', 'bandage']); // unico que NPC pega de movel (nunca UNIQUE_SPAWN, drop, tumba, mala, corpo)
+  const TRADES = [{ give: { id: 'food', qty: 2 }, get: { id: 'bandage', qty: 1 } }, { give: { id: 'rag', qty: 6 }, get: { id: 'food', qty: 1 } }, { give: { id: 'ammo', qty: 3 }, get: { id: 'bandage', qty: 1 } }]; // 1 troca por NPC; so oferece o que tem
+  const NPC_CAP = 8, NPC_SEE = 5; // ativos ao mesmo tempo; percepcao (m, dono)
   const REPO_OK = new Set(['rag', 'wire', 'bottle']); // unico material que a reposicao devolve
   const P_TB = 0.12; // chance de caixa de ferramentas por casa (rara, calibrada)
   const zv = id => { let h = 0; for (let i = 0; i < id.length; i++) h = Math.imul(h ^ id.charCodeAt(i), 0x9E3779B1) >>> 0; h = Math.imul(h ^ (h >>> 15), 0x85EBCA6B) >>> 0; return { look: h % 8, size: 0.9 + ((h >>> 8) % 201) / 1000, face: ((h >>> 16) % 628) / 100 }; }; // face: para onde olha parado (rad) // variacao visual do zumbi, por id
@@ -1941,9 +2254,29 @@
       }
     }
     if (G.gv >= 3) { const B = baseOfChunk(cx, cy); if (B) baseChunk(o, B, cx, cy); } // bloco FINAL gv:3 (base militar): RNG/ids proprios, mundo gv 0-2 intocado
+    if (G.gv >= 4) { // bloco FINAL gv:4 (NPCs): RNG hash(seed,cx,cy,94xx), ids ch:n:k; so le o resultado do gen, nunca toca r()/nid; mundo gv 0-3 intocado
+      o.npcs = [];
+      if (hs.length && !(Math.abs(cx) <= 1 && Math.abs(cy) <= 1) && !baseOfChunk(cx, cy) && !mk && !o.houses.some(h => h.kind === 'delegacia' || /^mercado/.test(h.kind)) && hash(G.seed, cx, cy, 9400) / 4294967296 < 0.06 * (infestAt(ox + 20, oy + 20) >= 2 ? 0.5 : 1)) {
+        const cnt = hash(G.seed, cx, cy, 9401) % 10 < 4 ? 2 + hash(G.seed, cx, cy, 9402) % 2 : 1, fac = hash(G.seed, cx, cy, 9403) / 4294967296 < 0.35 ? 'a' : 'h', lead = [0, 0];
+        for (let k = 0; k < cnt; k++) {
+          const r = mulberry32(hash(G.seed, cx, cy, 9410 + k));
+          let pos = null;
+          for (let t = 0; t < 40 && !pos; t++) {
+            const x = k ? lead[0] + (r() - 0.5) * (t < 20 ? 6 : 14) : 2 + r() * 36, y = k ? lead[1] + (r() - 0.5) * (t < 20 ? 6 : 14) : 2 + r() * 36;
+            if (okP(x, y, 1.2) && !o.cars.some(c => inBox(carBox(c), x, y, 1.2)) && o.npcs.every(q => hypot2(q.x - x, q.y - y) > 1)) pos = [x, y];
+          }
+          if (!pos) continue; // sem lugar livre: este membro nao nasce (determinístico)
+          if (!k) { lead[0] = pos[0]; lead[1] = pos[1]; }
+          const w = k === 0 && r() < (cnt > 1 ? 0.2 : 0.05) ? 'pistol' : r() < 0.7 ? 'pipe' : null, inv = [];
+          for (let j = 0; j < 2; j++) { const id = pick(r, NPC_TAB); if (!id) continue; const q = inv.find(i => i.id === id); if (q && STACK[id]) q.qty++; else inv.push(mkItem(r, id)); }
+          const a = r() * 6.28;
+          o.npcs.push({ id: ch + ':n:' + k, ch, x: pos[0], y: pos[1], dir: a, face: a, hp: 100, fac, gid: ch, lead: k === 0 ? 1 : 0, w, am: w === 'pistol' ? 2 + Math.floor(r() * 3) : 0, inv, tr: 0, tk: 0 });
+        }
+      }
+    }
     // local -> mundo (roads ja nascem em mundo)
     const sh = e => { e.x += ox; e.y += oy; return e; };
-    [o.houses, o.crates, o.zombies, o.trees, o.fences, o.props, o.tanks].forEach(l => l.forEach(sh));
+    [o.houses, o.crates, o.zombies, o.trees, o.fences, o.props, o.tanks, o.npcs || []].forEach(l => l.forEach(sh));
     o.houses.forEach(h => h.rooms.forEach(m => { m.x0 += ox; m.x1 += ox; m.y0 += oy; m.y1 += oy; }));
     o.houses.forEach(h => [h.parts, h.gaps, h.doors].forEach(l => l.forEach(sh)));
     o.houses.forEach(h => { for (const v of [h.main, h.wing]) if (v) { v.x += ox; v.y += oy; } });
@@ -1957,10 +2290,10 @@
   }
 
   // ---- chunks: referencia com histerese, fila, load/unload com diff ----
-  const LISTS = ['houses', 'crates', 'zombies', 'cars', 'roads', 'ways', 'trees', 'fences', 'drops', 'props', 'spills', 'tanks'];
+  const LISTS = ['houses', 'crates', 'zombies', 'cars', 'roads', 'ways', 'trees', 'fences', 'drops', 'props', 'spills', 'tanks', 'npcs'];
   const parse = k => k.split(',').map(Number);
   const drivenIds = () => G.players.map(p => p.car).filter(Boolean); // so protege o unload; o diff grava o carro no chunk onde esta
-  const strip = e => { const c = Object.assign({}, e); delete c.ch; delete c.way; delete c.side; delete c.rc; delete c.bang; delete c.last; delete c.pw; delete c.ck; delete c.fl; delete c.anim; for (const k of ['wu', 'zc', 'climb', 'fc', 'fct', '_hitBy', 'burn', 'hc', 'ht', 'sc', 'lg', 'alarmT', '_an', 'alt', 'vz', 'stall', '_ld']) delete c[k]; return c; };
+  const strip = e => { const c = Object.assign({}, e); delete c.ch; delete c.way; delete c.side; delete c.rc; delete c.bang; delete c.last; delete c.pw; delete c.ck; delete c.fl; delete c.anim; for (const k of ['rt', 'st', 'tg', 'nt', 'aim', 'at', 'cd', 'wu', 'zc', 'climb', 'fc', 'fct', '_hitBy', 'burn', 'hc', 'ht', 'sc', 'lg', 'alarmT', '_an', 'alt', 'vz', 'stall', '_ld']) delete c[k]; return c; };
   const same = (a, b) => a === b || (Array.isArray(a) && Array.isArray(b) && a.length !== b.length ? false : JSON.stringify(a) === JSON.stringify(b)); // tamanho diferente: nem serializa
   function syncCh() { for (const l of [G.zombies, G.cars]) for (const e of l) e.ch = chOf(e); for (const c of G.cars) if (c.hp === undefined) c.hp = veh(c).hp; } // carro de save antigo: vida cheia
   function want(rx, ry) { const w = []; for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) w.push((rx + dx) + ',' + (ry + dy)); return w; }
@@ -1991,7 +2324,7 @@
   function load(key, pre) {
     const [cx, cy] = parse(key), g = pre || gen(cx, cy), d = G.chunks[key] || {};
     G._gb.set(key, typeof structuredClone === 'function' ? structuredClone(g) : JSON.parse(JSON.stringify(g))); // base intocada para diffOf (gen custa 4-14 ms)
-    const ob = v => v && typeof v === 'object' && !Array.isArray(v) ? v : {}, dd0 = ob(d.doors), dc = ob(d.crates), dz = ob(d.zombies), dk = ob(d.cars); // save adulterado: so objetos
+    const ob = v => v && typeof v === 'object' && !Array.isArray(v) ? v : {}, dd0 = ob(d.doors), dc = ob(d.crates), dz = ob(d.zombies), dk = ob(d.cars), dn = ob(d.npcs); // save adulterado: so objetos
     const has = (l, id) => l.some(e => e.id === id);
     if (d.visit !== undefined && Math.floor(G.t / 60) - d.visit >= 60) { // reposicao: bau aberto comum volta com 1 item; zumbis mortos renascem
       const r = mulberry32(hash(G.seed, cx, cy, d.visit));
@@ -2006,30 +2339,38 @@
     G.houses.push(...g.houses);
     g.tanks.forEach(t => { t.ch = key; const v = (d.tanks || {})[t.id]; if (v) Object.assign(t, v); G.tanks.push(t); });
     g.crates.forEach(c => { if (dc[c.id]) Object.assign(c, dc[c.id]); if (!Array.isArray(c.loot)) c.loot = []; c.loot = c.loot.filter(i => i && ITEM_IDS.includes(i.id)); G.crates.push(c); });
-    for (const id in dc) if (dc[id] && Number.isFinite(dc[id].x) && Array.isArray(dc[id].loot) && !g.crates.some(c => c.id === id)) G.crates.push(Object.assign({ id, ch: key }, dc[id])); // tumbas
+    for (const id in dc) if (dc[id] && Number.isFinite(dc[id].x) && Array.isArray(dc[id].loot) && !(dc[id].expires <= G.t) && !g.crates.some(c => c.id === id)) G.crates.push(Object.assign({ id, ch: key }, dc[id])); // tumbas
     g.zombies.forEach(z => { if (dz[z.id] === null || has(G.zombies, z.id)) return; G.zombies.push(Object.assign(z, dz[z.id])); });
     g.cars.forEach(c => { if (dk[c.id] === null || has(G.cars, c.id)) return; G.cars.push(Object.assign(c, dk[c.id])); });
-    for (const [dd, l, b, def] of [[dz, G.zombies, g.zombies, { state: 'idle', alert: 0, atk: 0 }], [dk, G.cars, g.cars, { speed: 0 }]]) // estrangeiras
+    (g.npcs || []).forEach(n => { if (dn[n.id] === null || has(G.npcs, n.id)) return; G.npcs.push(Object.assign(n, dn[n.id])); }); // null = morto: nunca volta (a reposicao so mexe em zumbis)
+    for (const [dd, l, b, def] of [[dz, G.zombies, g.zombies, { state: 'idle', alert: 0, atk: 0 }], [dk, G.cars, g.cars, { speed: 0 }], [dn, G.npcs, g.npcs || [], { hp: 100, inv: [], tr: 0, tk: 0, fac: 'h', gid: key, lead: 1, w: null, am: 0 }]]) // estrangeiras
       for (const id in dd) if (dd[id] && typeof dd[id] === 'object' && Number.isFinite(dd[id].x) && Number.isFinite(dd[id].y) && !(l === G.zombies && id.startsWith('h:')) && !b.some(e => e.id === id) && !has(l, id)) l.push(Object.assign({}, def, dd[id], { id, ch: key })); // id = chave (save sem id nao quebra zv)
     for (const id in ob(d.drops)) if (d.drops[id] && ITEM_IDS.includes((d.drops[id].item || {}).id) && d.drops[id].expires > G.t) G.drops.push(Object.assign({ id, ch: key }, d.drops[id]));
     for (const id in (d.spills || {})) if (d.spills[id].expires > G.t) G.spills.push(Object.assign({ id, ch: key, r: 2.5 }, d.spills[id]));
     G.zombies.forEach(z => { if (z.look === undefined) Object.assign(z, zv(z.id)); }); // saves antigos
+    G.npcs.forEach(n => { // save adulterado: NPC so com campos validos
+      if (n.ch !== key) return;
+      n.inv = Array.isArray(n.inv) ? n.inv.filter(i => i && ITEM_IDS.includes(i.id)).slice(0, 6) : []; n.fac = n.fac === 'a' ? 'a' : 'h'; n.w = n.w === 'pistol' || n.w === 'pipe' ? n.w : null; n.am = n.w === 'pistol' && n.am > 0 ? Math.min(24, n.am | 0) : 0;
+      if (!Number.isFinite(n.hp)) n.hp = 100;
+      if (!Number.isFinite(n.x) || !Number.isFinite(n.y)) { const b = (g.npcs || []).find(q => q.id === n.id); n.x = b ? b.x : 20 + parse(key)[0] * CH; n.y = b ? b.y : 20 + parse(key)[1] * CH; }
+    });
     G.events.push({ type: 'chunkLoad', key });
   }
   // diff do chunk (sem descarregar); null se igual ao gen
   function diffOf(key) {
-    const [cx, cy] = parse(key), g = G._gb.get(key) || gen(cx, cy), d = { crates: {}, cars: {}, zombies: {}, doors: {}, drops: {}, spills: {}, tanks: {} };
+    const [cx, cy] = parse(key), g = G._gb.get(key) || gen(cx, cy), d = { crates: {}, cars: {}, zombies: {}, doors: {}, drops: {}, spills: {}, tanks: {}, npcs: {} };
     G.houses.forEach(h => { if (h.ch === key) h.doors.forEach(dr => { const b = g.houses.find(q => q.id === h.id).doors.find(q => q.id === dr.id); if (dr.open !== b.open || !!dr.locked !== !!b.locked || dr.hp !== b.hp || !!dr.broken) d.doors[dr.id] = { open: dr.open, locked: !!dr.locked, hp: dr.hp, broken: !!dr.broken }; }); });
     G.tanks.forEach(t => { const b = t.ch === key && g.tanks.find(q => q.id === t.id); if (b && b.fuel !== t.fuel) d.tanks[t.id] = { fuel: t.fuel }; }); // tanque sifonado
     G.crates.forEach(c => {
       if (c.ch !== key) return;
       const b = g.crates.find(q => q.id === c.id);
+      if (!b && c.expires <= G.t) return; // J5.1: vencida nao vai ao save
       if (!b) d.crates[c.id] = c.tomb && !c.loot.length ? null : strip(c); // tumba esvaziada: null
       else if (!same(c.loot, b.loot) || !!c.locked !== !!b.locked || !!c.opened !== !!b.opened) d.crates[c.id] = { opened: c.opened, loot: c.loot, locked: !!c.locked }; // locked: cadeado cortado
     });
     G.drops.forEach(e => { if (e.ch === key) d.drops[e.id] = { x: e.x, y: e.y, item: e.item, expires: e.expires }; });
     G.spills.forEach(e => { if (e.ch === key) d.spills[e.id] = { x: e.x, y: e.y, expires: e.expires }; });
-    for (const [l, b, o, f] of [[G.zombies, g.zombies, d.zombies, ['x', 'y', 'hp', 'floor', 'limp', 'crawl']], [G.cars, g.cars, d.cars, ['x', 'y', 'dir', 'fuel', 'trunk', 'hp', 'burnt', 'alarm']]]) {
+    for (const [l, b, o, f] of [[G.zombies, g.zombies, d.zombies, ['x', 'y', 'hp', 'floor', 'limp', 'crawl']], [G.cars, g.cars, d.cars, ['x', 'y', 'dir', 'fuel', 'trunk', 'hp', 'burnt', 'alarm']], [G.npcs, g.npcs || [], d.npcs, ['x', 'y', 'hp', 'inv', 'fac', 'w', 'am', 'limp', 'tr', 'tk', 'lead']]]) {
       l.forEach(e => {
         if (e.ch !== key || (l === G.zombies && hz(e))) return; // membros de horda (h:) nunca vao ao diff
         if (e.burn > 0) e = Object.assign({}, e, { burnt: true, fuel: 0, trunk: [] }); // descarregou/salvou em chamas: vira carcaca, sem explosao
@@ -2039,7 +2380,7 @@
       });
       b.forEach(q => { if (!l.some(e => e.id === q.id && e.ch === key)) o[q.id] = null; }); // morto ou saiu
     }
-    for (const k of ['crates', 'cars', 'zombies', 'doors', 'drops', 'spills', 'tanks']) if (!Object.keys(d[k]).length) delete d[k];
+    for (const k of ['crates', 'cars', 'zombies', 'doors', 'drops', 'spills', 'tanks', 'npcs']) if (!Object.keys(d[k]).length) delete d[k];
     if (!Object.keys(d).length) return null;
     d.visit = Math.floor(G.t / 60);
     return d;
@@ -2118,7 +2459,7 @@
 
   // novo mundo (st undefined) ou estado salvo
   function start(seed, slot, st) {
-    G.gv = st ? (st.gv || 0) : 3; // gv:1 = densidade/rastejantes; gv:2 = auditoria (tanque seco, saqueadas, alarme, corpo, lata, pichacao, janelas); gv:3 = base militar; mundo salvo mantem o seu gv (gen antigo intocado)
+    G.gv = st ? (st.gv || 0) : 4; // gv:4 = NPCs sobreviventes; gv:1 = densidade/rastejantes; gv:2 = auditoria (tanque seco, saqueadas, alarme, corpo, lata, pichacao, janelas); gv:3 = base militar; mundo salvo mantem o seu gv (gen antigo intocado)
     HMEMO.clear();
     st = st || {};
     MEMO.cen.clear(); MEMO.edge.clear(); MEMO.sq.clear(); MEMO.lm.clear(); MEMO.base.clear();
@@ -2216,7 +2557,7 @@
     g('alarme', 'Alarme de carro', ['alarme', 'carro', 'buzina', 'bater', 'porta-malas', 'barulho', 'zumbis'], [], ['Cerca de 1 em 4 carros parados tem alarme.', 'Bater nele (mesmo devagar) ou vasculhar o porta-malas dispara 10 s de buzina e faróis piscando.', 'Zumbis a até 15 m do carro e na sua tela vêm atrás do barulho. Afaste-se; cada carro só dispara uma vez.'], 'run'),
     g('saqueada', 'Casa saqueada', ['saqueada', 'saquear', 'revirada', 'vazia', 'gaveta', 'casa', 'sem comida'], [], ['Cerca de 15 % das casas já foram saqueadas: móveis abertos, marcador verde e uma gaveta caída no chão.', 'Não têm loot — mas o carro e a chave de uma casa nunca somem.', 'Se a pichação "SEM COMIDA" está na parede, é verdade: siga em frente.'], 'search'),
     g('pichacao', 'Pichações', ['pichacao', 'pichar', 'aviso', 'parede', 'recado', 'sobrevivente', 'posto seco', 'sem comida', 'nao entre', 'socorro'], [], ['Sobreviventes deixam avisos nas paredes das casas.', '"POSTO SECO": o tanque daquele posto está vazio. "SEM COMIDA": a casa foi saqueada.', '"NÃO ENTRE — MORTOS": região infestada. "SOCORRO" é só enfeite.'], 'run'),
-    g('corpo', 'Corpos', ['corpo', 'cadaver', 'morto', 'revistar', 'pano', 'bandagem'], [{ item: 'rag', onde: 'corpos nas ruas (às vezes)' }, { item: 'bandage', onde: 'corpos nas ruas (muito raro)' }], ['Corpos caídos nas ruas não levantam: não são zumbis.', 'Toque BUSCAR e fique parado 1 s, como num móvel.', 'Na maioria das vezes não há nada; nunca há arma nem munição.'], 'search'),
+    g('corpo', 'Corpos', ['corpo', 'cadaver', 'morto', 'revistar', 'pano', 'bandagem'], [{ item: 'rag', onde: 'corpos nas ruas (às vezes)' }, { item: 'bandage', onde: 'corpos nas ruas (muito raro)' }], ['Corpos caídos nas ruas não levantam: não são zumbis.', 'Toque BUSCAR e fique parado 1 s, como num móvel.', 'Na maioria das vezes não há nada. Corpo de sobrevivente pode ter arma e munição; corpo caído na rua nunca tem.'], 'search'),
     g('barulho', 'Barulho', ['barulho', 'ruido', 'anel', 'lata', 'latas', 'silencio', 'furtivo', 'tiro'], [], ['Tiro, motor, alarme, corte de cadeado e explosão fazem barulho: um anel no chão mostra o raio que chama zumbis.', 'Só zumbis que estão na sua tela ouvem.', 'Latas no chão: correndo (ou de carro) o barulho é de 3 m; andando, 1 m; agachado, nenhum.'], 'crouch'),
     g('bairro', 'Bairros', ['bairro', 'nome', 'cidade', 'centro', 'mapa', 'vila', 'jardim'], [], ['Cada cidade tem bairros com nome: o Centro e mais 8 em volta.', 'O nome aparece ao entrar e no Mapa, para você achar o caminho de volta à tumba ou ao carro.'], 'run'),
     g('galpao', 'Galpão', ['galpao', 'deposito', 'caixa', 'van', 'portao', 'sala de controle', 'chave', 'mangueira', 'galao'], [{ item: 'hose', onde: 'caixas do galpão' }, { item: 'gascan', onde: 'caixas do galpão (vazio)' }, { item: 'key', onde: 'gaveta da sala de controle (se há van)' }], ['O portão de 3 m nunca tem cadeado: toque AÇÃO para abrir.', 'Caixas de depósito: arame, mangueira, galão vazio e, raro, alicate.', 'A sala de controle guarda a gaveta com a chave da van.'], 'search'),
@@ -2225,13 +2566,17 @@
     g('jato', 'Jato', ['jato', 'aviao', 'pista', 'decolar', 'decolagem', 'pouso', 'pousar', 'voar', 'turbina', 'querosene', 'estol'], [{ item: 'key', onde: 'gaveta da guarita da base militar (a segunda)' }, { lugar: 'a pista da base', onde: 'decola e pousa só na pista da base ou numa rua reta' }, { lugar: 'querosene', onde: 'tanques da base militar' }], ['Entre no jato na pista da base e empurre o joystick para a frente em linha reta: aos 25 m/s ele decola sozinho. Fora da pista ele não passa de 20 m/s.', 'No ar ele nunca fica abaixo de 25 m/s (solto, mantém o rumo) e gasta 1 L de querosene a cada 10 s.', 'Para pousar, alinhe com a pista (ou uma rua reta, até 20°) e use DESCER: pousar fora é queda, com dano pesado e risco de explosão.', 'Sem querosene a turbina apaga e ele plana (PERDENDO ALTITUDE): mire numa pista ou rua reta.'], 'jato'),
     g('militares', 'Veículos militares', ['jipe', 'caminhao', 'blindado', 'militar', 'veiculo', 'dirigir', 'chave', 'consumo'], [{ item: 'key', onde: 'gaveta da guarita da base militar' }, { item: 'gascan', onde: 'loja do posto, galpões e porta-malas' }], ['Jipe (mais rápido), caminhão (mala de 16 espaços) e blindado (muito forte): sem armas, só locomoção.', 'Dirigem como o carro, mas gastam mais gasolina (jipe 1,2×, caminhão 1,6×, blindado 2×).', 'Bater rápido também estraga: acima de 18 km/h. Nascem com pouca gasolina (0–4 L): sifone de outro veículo.'], 'militar'),
     g('querosene', 'Querosene', ['querosene', 'aviacao', 'tanque', 'galao', 'mangueira', 'sifao', 'aeronave', 'combustivel'], [{ item: 'hose', onde: 'loja do posto, galpões e porta-malas' }, { item: 'gascan', onde: 'loja do posto, galpões e porta-malas' }, { lugar: 'tanque de querosene', onde: 'só na base militar (2 tanques de 20 L, não repõem)' }], ['Chegue na tampa do tanque da base e segure SIFONAR com mangueira + galão vazio.', 'Gasolina e querosene não se misturam: o galão guarda o tipo e só esvaziando ele fica livre.', 'Querosene é combustível do helicóptero e do jato (1 L a cada 20 s e a cada 10 s de voo); carro e molotov não usam.', 'É finito: 2 tanques de 20 L por base, sem reposição. Aeronaves já nascem com 2–5 L.'], 'kero'),
+    g('sobreviventes', 'Sobreviventes', ['sobrevivente', 'npc', 'gente', 'amigo', 'hostil', 'losango', 'pistola', 'atirar', 'mira', 'fugir', 'bando'], [{ lugar: 'sobreviventes', onde: 'raros, a pé, perto de casas; sozinhos ou em bando' }], ['Um losango sobre a cabeça diz quem é: verde = AMIGO, vermelho = HOSTIL.', 'Hostil só percebe você a 5 m, de frente (2 m se você estiver agachado) e na sua tela. Com pistola ele mira 0,8 s (traço vermelho no chão) antes de atirar: saia da linha ou fique atrás de uma casa.', 'Ele erra mais quando você corre ou está longe. Ferido (menos de 30 de vida) ou sem arma, ele foge.', 'Amigo não luta por você: se você acertá-lo, o grupo inteiro vira hostil. Zumbis atacam sobreviventes, e eles atiram nos zumbis.'], 'npc'),
+    g('bandos', 'Bandos e cobertura', ['bando', 'bandos', 'lider', 'seguidor', 'cobertura', 'esconder', 'flanquear', 'casa', 'agachar', 'sobrevivente'], [], ['Sobreviventes andam sozinhos ou em bando de 2 a 3: o líder (o único que pode ter pistola) e os seguidores com cano ou de mãos vazias.', 'Os seguidores acompanham o líder e dividem o alvo dele. Mate o líder armado e os outros fogem por 6 s; quem tem mais vida vira o novo líder.', 'Hostil com pistola se esconde atrás de um canto de casa, agacha e sai só para mirar (0,8 s). Contorne a casa pelo outro lado (flanquear) para acertá-lo.'], 'bando'),
+    g('troca', 'Falar e trocar', ['troca', 'trocar', 'falar', 'conversar', 'amigo', 'escambo', 'preco', 'bandagem', 'comida', 'sobrevivente'], [{ item: 'rag', onde: '6 trapos por 1 comida' }, { item: 'food', onde: '2 comidas por 1 bandagem' }, { item: 'ammo', onde: '3 munições por 1 bandagem' }], ['Chegue a 2 m de um AMIGO (losango verde) e toque FALAR: ele diz 1 frase verdadeira (horda perto, base militar ou um móvel com loot).', 'Se ele tem algo para trocar, abre a tela dividida: à esquerda a oferta e o preço, à direita sua mochila. Toque a linha para trocar.', 'Cada sobrevivente troca uma única vez, e só oferece o que carrega.'], 'troca'),
+    g('corponpc', 'Corpos de sobreviventes', ['corpo', 'sobrevivente', 'saquear', 'saque', 'loot', 'cadaver', 'morto', 'pistola', 'municao'], [{ item: 'ammo', onde: 'corpo de sobrevivente armado (raro)' }, { item: 'food', onde: 'corpo de sobrevivente (raro)' }], ['Sobrevivente morto cai e vira um corpo saqueável: toque BUSCAR e fique parado 1 s.', 'O corpo tem só o que o sobrevivente carregava (e sobrou de munição), em tela dividida com a mochila.', 'O corpo some em 5 minutos de jogo e o sobrevivente nunca volta.'], 'npcCorpo'),
   ];
   const ITEM_DESC = { food: 'Comida enlatada ou embalada. Mata a fome.', food_bad: 'Lata de geladeira sem energia, já passada. Mata pouca fome e pode enjoar.', bandage: 'Pano limpo para estancar ferimentos. Cura vida.', rag: 'Pedaço de pano velho. Serve de pavio e para fabricar.', wire: 'Rolo de arame. Reforça o cano.', ammo: 'Munição de pistola. Cada tiro gasta uma.', bottle: 'Garrafa de vidro vazia. Base do molotov.', jacket: 'Jaqueta grossa que protege o tronco. Gasta ao levar dano.', helmet: 'Capacete que protege a cabeça. Gasta ao levar dano.', shinguards: 'Caneleiras que protegem as pernas. Gastam ao levar dano.', bag_school: 'Mochila escolar de costas: poucos espaços extras.', bag_hiking: 'Mochila de trilha: mais espaços extras.', pistol: 'Arma de fogo. Acerta de longe, mas o tiro chama zumbis a 5 m.', cutter: 'Alicate corta-cadeado. Abre porta trancada; quebra após alguns usos.', pipe: 'Cano de ferro. Arma corpo a corpo de curto alcance.', hose: 'Mangueira de borracha. Com um galão, sifona gasolina de carros.', gascan: 'Galão para gasolina. Mostra quanto combustível carrega.', pipe_r: 'Cano reforçado com arame. Bate mais forte.', molotov: 'Garrafa incendiária. Fogo em área; queima você também.', key: 'Chave de um carro específico. Sem ela o carro não liga.', bag_military: 'Mochila militar: o maior espaço extra de costas.' };
   const ITEM_IDS = [...new Set([...Object.keys(STACK), ...Object.values(FURN).flatMap(t => t.map(x => x[0]).filter(Boolean)), ...RECIPES.map(r => r.out), 'pipe', 'pistol', 'key', 'hose', 'gascan', 'cutter', 'molotov', 'pipe_r', 'helmet', 'jacket', 'shinguards', 'bag_school', 'bag_hiking', 'bag_military'])];
 
   const G = window.G = {
     t: 0, map: { chunk: CH }, nextId: 0, ref: [0, 0], chunkGen: 0, _ls: new Set(), _pk: '',
-    chunks: {}, loaded: [], queue: [], fires: [], spills: [], flights: [], _gb: new Map(), _gp: {}, explored: [], roads: [], cars: [], trees: [], fences: [], drops: [], props: [], tanks: [], _pc: [], recipes: RECIPES, guide: GUIDE, ITEM_IDS, ITEM_DESC, HOLD_MS: 400, capOf, DUR, bairroAt, fridge2: FRIDGE2, graf: GRAF, hurtPlayer, gen, infestAt, hordePos, loot: FURN, free, ways: [], onRoad: (x, y, m) => onRoadIn(G.roads, G.ways, x, y, m), zone, layout: layoutOf, center, cityAt, cityLM, _plans: { PLANS, lpRot }, _memo: MEMO,
+    chunks: {}, loaded: [], queue: [], fires: [], spills: [], flights: [], npcs: [], _gb: new Map(), _gp: {}, explored: [], roads: [], cars: [], trees: [], fences: [], drops: [], props: [], tanks: [], _pc: [], recipes: RECIPES, guide: GUIDE, ITEM_IDS, ITEM_DESC, HOLD_MS: 400, capOf, DUR, bairroAt, fridge2: FRIDGE2, graf: GRAF, hurtPlayer, gen, infestAt, hordePos, loot: FURN, free, ways: [], onRoad: (x, y, m) => onRoadIn(G.roads, G.ways, x, y, m), zone, layout: layoutOf, center, cityAt, cityLM, _plans: { PLANS, lpRot }, _memo: MEMO,
     // dev (fora do save): so existe na memoria; UI liga com 7 toques na versao
     dev: {
       on: false, god: false, noclip: false, noMiss: false, speed: 1,
@@ -2245,6 +2590,17 @@
           const h = kind === 'horde', zid = (h ? 'h:dev:' : 'p:') + G.nextId++;
           G.zombies.push({ id: zid, ch: chOf({ x, y }), x, y, hp: 60, state: h ? 'chase' : 'idle', alert: h ? 6 : 0, atk: 0, runner: kind === 'runner', police: kind === 'police', ...zv(zid), ...(kind === 'jaleco' || kind === 'macacao' ? { look: kind } : {}), ...(kind === 'crawl' ? { crawl: true } : {}), ...(kind === 'limp' ? { limp: true } : {}) }); break;
         }
+      },
+      spawnNpc(kind) { // 'a' amigo | 'h' hostil (+ 'p' = com pistola e 3 balas) | 'ba'/'bh' = bando de 3 (lider com pistola, 2 seguidores com cano / sem arma); 6-9 m a frente, preso ao chunk onde nasce
+        const p = G.player, band = kind[0] === 'b', fac = kind[band ? 1 : 0] === 'a' ? 'a' : 'h', gun = kind.includes('p');
+        for (let t = 0; t < 30; t++) {
+          const a = p.dir + (t % 5 - 2) * 0.25, d = 6 + t * 0.15, x = p.x + Math.cos(a) * d, y = p.y + Math.sin(a) * d;
+          if (!free(x, y, 1) || houseAt({ x, y }) || !lsAt(x, y)) continue;
+          const ch = chOf({ x, y }), gid = ch + ':n:d' + G.nextId++, mk = (k, dx, dy, w, am) => { const q = nearFree(x + dx, y + dy), id = band ? gid + '.' + k : gid, n = { id, ch: chOf(q), x: q.x, y: q.y, dir: a + Math.PI, face: a + Math.PI, hp: 100, fac, gid, lead: k === 0 ? 1 : 0, w, am, inv: [{ id: 'rag', qty: 1 }], tr: 0, tk: 0 }; G.npcs.push(n); return n; };
+          if (!band) return mk(0, 0, 0, gun ? 'pistol' : 'pipe', gun ? 3 : 0);
+          const l = mk(0, 0, 0, 'pistol', 6); mk(1, -1.6, 1.2, 'pipe', 0); mk(2, -1.6, -1.2, null, 0); return l;
+        }
+        return null;
       },
       spawnCorpse() { // corpo de cenario a 2 m a frente (loot da tabela CORPSE)
         const p = G.player, x = p.x + Math.cos(p.dir) * 2, y = p.y + Math.sin(p.dir) * 2; if (!free(x, y, 0.5) || !lsAt(x, y)) return false;
@@ -2289,11 +2645,51 @@
       },
       fill() { const p = G.player; p.hp = p.hunger = p.stamina = 100; },
     },
-    VEH, baseAt, baseOfChunk, aloft, runwayOk, seed: 0, gv: 1, viewR: 7, hordes: {}, hordeNear: null, players: [], input: null, target: null, // compat 0.1: alias de players[0].input
+    VEH, NPC_TAB, TRADES, NPC_LOOT, baseAt, baseOfChunk, aloft, runwayOk, seed: 0, gv: 1, viewR: 7, hordes: {}, hordeNear: null, players: [], input: null, target: null, // compat 0.1: alias de players[0].input
     player: null, dying: [], zombies: [], crates: [], houses: [], events: [],
     dead: false, slot: 1, hints: {}, _as: 0, _dead: 0, cd: 0, _hunger: 0, _starve: 0, _spawn: 0,
 
     init(seed, slot) { start(seed ?? Date.now(), slot || 1); },
+
+    // FALAR (amigo a <= 2 m): 1 frase VERDADEIRA por NPC (depois "Boa sorte."); se ele tem algo para trocar e ainda nao trocou, abre a Troca na tela dividida
+    talk(id) {
+      const n = G.npcs.find(q => q.id === id), p = G.player;
+      if (!n || n.fac !== 'a' || n.hp <= 0 || G.dead || p.open || dist(n, p) > 2.6) return false;
+      const dir = (x, y) => ['leste', 'sudeste', 'sul', 'sudoeste', 'oeste', 'noroeste', 'norte', 'nordeste'][((Math.round(Math.atan2(y - p.y, x - p.x) / (Math.PI / 4)) % 8) + 8) % 8];
+      let text = 'Boa sorte.';
+      if (!n.tk) {
+        n.tk = 1;
+        const hn = G.hordeNear;
+        if (hn) text = 'Horda perto, a ' + dir(p.x + Math.cos(hn.a), p.y + Math.sin(hn.a)) + '.';
+        else {
+          let bb = null; // base militar: a mais perto nas celulas de 25x25 chunks ao redor (baseAt so existe em gv >= 3)
+          if (G.gv >= 3) { const cx = Math.floor(p.x / CH / BC), cy = Math.floor(p.y / CH / BC); for (let j = -1; j <= 1; j++) for (let i = -1; i <= 1; i++) { const B = baseAt(cx + i, cy + j); if (B) { const dd = hypot2(B.x0 + 60 - p.x, B.y0 + 60 - p.y); if (!bb || dd < bb.d) bb = { d: dd, x: B.x0 + 60, y: B.y0 + 60 }; } } }
+          let mv = null; // movel nao vasculhado com loot de verdade, nos chunks carregados
+          for (const c of G.crates) if (!c.opened && !c.scenery && !c.tomb && !c.body && c.loot.length && !c.floor) { const dd = dist(c, p); if (!mv || dd < mv.d) mv = { d: dd, x: c.x, y: c.y }; }
+          if (bb) text = 'Tem uma base militar a ' + dir(bb.x, bb.y) + ', uns ' + Math.round(bb.d / 100) * 100 + ' m.';
+          else if (mv) text = 'Tem algo num móvel a ' + dir(mv.x, mv.y) + '.';
+          else text = 'Não sei de nada. Boa sorte.';
+        }
+      }
+      setN(n, 'talk', 1); n.face = Math.atan2(p.y - n.y, p.x - n.x);
+      G.events.push({ type: 'npcTalk', id: n.id, text }, { type: 'hint', id: 'npcFala', text: 'Sobrevivente: ' + text, ms: 6000 });
+      hint('falar', 'Toque FALAR: ele conta o que sabe', 'bandos');
+      if (!n.tr && G.offers(n).length) { p.open = { type: 'npc', id: n.id }; p.action = null; setAct(p, 'search'); G._pe = true; hint('troca', 'Ele troca 1 vez: veja o preço à esquerda', 'troca'); }
+      return true;
+    },
+    // ofertas da troca: so o que o NPC tem agora (inv) e so pares da tabela
+    offers(n) { return n.tr ? [] : TRADES.filter(t => n.inv.some(i => i.id === t.get.id && i.qty >= t.get.qty)); },
+    // troca o par idx (da lista G.offers): tira o preco da mochila, entrega o item do NPC; 1 vez por NPC; nunca cria item
+    trade(idx) {
+      const p = G.player, o = p.open, n = o && o.type === 'npc' && G.npcs.find(q => q.id === o.id), t = n && G.offers(n)[idx];
+      if (!t || G.dead || countOf(p, t.give.id) < t.give.qty) { if (t) G.events.push({ type: 'hint', id: 'semPreco', text: 'Falta o preço da troca' }); return false; }
+      const snap = JSON.stringify(p.inv);
+      take(p, t.give.id, t.give.qty);
+      if (!addItem({ id: t.get.id, qty: t.get.qty })) { p.inv.splice(0, p.inv.length, ...JSON.parse(snap)); return false; } // mochila cheia: addItem ja avisou
+      take(n, t.get.id, t.get.qty); put(n.inv, 6, { id: t.give.id }, t.give.qty); n.tr = 1; // o preco vai para o inventario dele (se nao couber, some)
+      G._pe = true; G.events.push({ type: 'trade', id: n.id, give: t.give.id, get: t.get.id });
+      return true;
+    },
 
     save() {
       const air = G.cars.filter(c => c.alt > 0), bk = air.map(c => [c, c.x, c.y, c.alt, c.vz, c.speed, c.ch]);

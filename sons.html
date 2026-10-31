@@ -107,6 +107,16 @@ input[type=range]{flex:1;min-height:var(--toque)}
     ['Combate', 'Tiro na perna', 'Quando o tiro acerta a perna (25 %): zumbi manco, e rastejante no segundo acerto.', 'Baque (seno 140 a 50 Hz + ruído passa-baixa) e gemido curto de serra.', { type: 'legshot', id: 'z1', limp: true, crawl: false }],
     ['Zumbis', 'Grito do zumbi', 'Quando um zumbi que persegue a menos de 5 m de você grita (a cada 3 s) e chama os vizinhos.', 'Serra caindo de 240 a 130 Hz + quadrada grave + ruído passa-faixa.', { type: 'scream', id: 'z1' }],
     ['Zumbis', 'Gemido de horda', 'A cada 4 a 6 s com uma horda a menos de 25 m; mais alto quanto mais perto.', 'Três serras graves (110, 82, 65 Hz) caindo + ruído passa-baixa; 1 voz, volume pela distância.', { type: 'hordeMoan', d: 8 }],
+    ['Sobreviventes', 'Passo de sobrevivente', 'Enquanto um sobrevivente anda na sua tela (mais baixo à distância).', 'Ruído passa-baixa (320 Hz) curto e mais grave que o seu passo.', { type: 'npcStep' }],
+    ['Sobreviventes', 'Gritar "Sai daqui!"', 'Quando um hostil percebe você (uma vez por sobrevivente).', 'Serra 150 → 120 Hz + quadrada 75 Hz + ruído passa-baixa: bip grave rouco.', { type: 'npcShout', id: 'n1' }],
+    ['Sobreviventes', 'Clique de mira', 'Quando um hostil com pistola começa a mirar em você (0,8 s antes do tiro).', 'Dois cliques de quadrada (2 kHz e 1,5 kHz) bem curtos.', { type: 'npcAim', id: 'n1' }],
+    ['Sobreviventes', 'Tiro de sobrevivente', 'Quando um sobrevivente atira (em você ou em zumbi).', 'Ruído passa-faixa (1,1 kHz) + serra caindo de 220 a 70 Hz: mais seco e grave que o seu tiro.', { type: 'npcShot', id: 'n1' }],
+    ['Sobreviventes', 'Golpe de cano', 'Quando um sobrevivente balança o cano.', 'O mesmo assobio de ar do seu golpe.', { type: 'npcSwing', id: 'n1' }],
+    ['Sobreviventes', 'Sobrevivente caindo', 'Quando um sobrevivente morre e vira corpo.', 'Seno grave caindo de 130 a 40 Hz + ruído abafado + gemido curto de serra.', { type: 'npcDie', id: 'n1' }],
+    ['Sobreviventes', 'Grupo hostil', 'Quando você acerta um amigo e o grupo todo vira hostil.', 'Dois tons de quadrada descendo (440 e 330 Hz).', { type: 'npcTurn', id: 'n1' }],
+    ['Sobreviventes', 'Guardando item', 'Quando um sobrevivente pega algo de um móvel.', 'Ruído passa-faixa (1,5 kHz) curto.', { type: 'npcPick', id: 'n1' }],
+    ['Sobreviventes', 'Fala', 'Ao tocar FALAR perto de um amigo.', 'Dois bips de seno curtos (520 e 620 Hz).', { type: 'npcTalk', id: 'n1' }],
+    ['Sobreviventes', 'Troca feita', 'Quando a troca com um amigo é concluída.', 'Três senos agudos tilintando (1,8, 2,3 e 2,8 kHz) + estalo de ruído passa-alta.', { type: 'trade', id: 'n1' }],
     ['Combate', 'Golpe furtivo', 'Quando você mata um zumbi pelas costas sem ele perceber.', 'Seno grave 90 a 40 Hz + ruído abafado curto.', { type: 'stealthKill', id: 'z1' }],
   ];
   // [secao, nome, quando, como, estado ligado, estado desligado, extra]
