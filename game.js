@@ -99,7 +99,7 @@
 
   function hint(id, text, guia) { if (!G.hints[id]) { G.hints[id] = 1; G.events.push(guia ? { type: 'hint', id, text, guia } : { type: 'hint', id, text }); } }
   // anim do jogador: act dura ACT[act] s (search dura enquanto p.action; dead ate renascer)
-  const ACT = { swing: 0.25, shot: 0.15, eat: 0.6, heal: 0.6, equip: 0.4, craft: 0.8, pick: 0.4, drop: 0.4, hurt: 0.3, windup: 0.7, jump: 0.6, climb: 2, throw: 0.4 };
+  const ACT = { swing: 0.25, shot: 0.15, eat: 0.6, heal: 0.6, equip: 0.4, craft: 0.8, pick: 0.4, drop: 0.4, hurt: 0.3, windup: 1.0, jump: 0.6, climb: 2, throw: 0.4 };
   function setAct(p, act) { if (p.anim.act === 'dead' && act !== 'dead') return; p.anim.act = act; p.anim.t = 0; }
   function setCrouch(p, on) { if (p.crouch !== on) { p.crouch = on; G.events.push({ type: 'crouch', on }); } }
 
@@ -356,9 +356,9 @@
     z.zc = Math.max(0, (z.zc || 0) - dt);
     if (z.wu > 0 && d > 1.2) z.wu = 0; // saiu do alcance: cancela, sem dano
     if (z.wu > 0) { // windup parado; ao fim fere se ainda no alcance
-      if ((z.wu -= dt) <= 1e-9) { z.wu = 0; z.zc = 1; const dm = p.car ? 8 : 15; hurtPlayer(dm); G.events.push({ type: 'hurt', id: z.id, d: dm }); }
-    } else if (d <= 1.1 && !h && z.zc <= 0) { z.wu = 0.7; G.events.push({ type: 'windup', id: z.id }); }
-    const mv = z.state === 'chase' ? 'walk' : 'idle', ac = z.wu > 0 ? 'windup' : z.zc > 0.7 ? 'hit' : null;
+      if ((z.wu -= dt) <= 1e-9) { z.wu = 0; z.zc = 1.8; const dm = p.car ? 8 : 15; hurtPlayer(dm); G.events.push({ type: 'hurt', id: z.id, d: dm }); }
+    } else if (d <= 1.2 && !h && z.zc <= 0) { z.wu = 1.0; G.events.push({ type: 'windup', id: z.id }); }
+    const mv = z.state === 'chase' ? 'walk' : 'idle', ac = z.wu > 0 ? 'windup' : z.zc > 1.5 ? 'hit' : null;
     za.move = mv; if (za.act !== ac && za.act !== 'climb') { za.act = ac; za.t = 0; }
     if (z.state === 'attack') return;
     if (z.state === 'chase') {

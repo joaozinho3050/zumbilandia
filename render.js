@@ -361,14 +361,15 @@ function draw(G) {
   // zumbis: 3 InstancedMesh (body, legL, legR) + contorno; so <=20 m recalcula a pose, os outros so a posicao
   let n = 0; const dt = dtm / 1000, seen = new Set(), cn = [0, 0];
   const poseZ = (id, x, y, anim, ang, sc, pol, run) => {
+    const k = +id || [...String(id)].reduce((h, c) => (h * 31 + c.charCodeAt(0)) % 9973, 7); // id 'p:12' (zumbi de spawn) em id*1.7 dava NaN: matriz do corpo NaN, so as pernas apareciam
     const S = pol ? zPs : zIMs, n = cn[pol ? 1 : 0]++;
-    let d = zData.get(id); if (!d) zData.set(id, d = { a: ang, ph: id * 1.7, sw: 0, ro: 0, ln: 0, fw: 0, f });
+    let d = zData.get(id); if (!d) zData.set(id, d = { a: ang, ph: k * 1.7, sw: 0, ro: 0, ln: 0, fw: 0, f });
     d.f = frame; const dd = (x - p.x) ** 2 + (y - p.y) ** 2, act = anim && anim.act, t = anim ? anim.t : 0;
     if (dd <= 400) {
       const w = anim && anim.move === 'walk';
       if (w) d.ph += dt * 3.2 * (run ? 1.6 : 1);
-      d.sw = w ? 0.45 * Math.sin(d.ph) * RM : 0; d.ro = (w ? 0.105 * Math.sin(d.ph * 0.5) : 0.02 * Math.sin(now / 700 + id)) * RM; d.ln = 0.15; d.fw = 0;
-      if (act === 'windup') { const e = Math.min(1, t / 0.7); if (e < 0.7) { const r = sm(e / 0.7); d.ln = 0.15 - 0.3 * r; d.fw = -0.12 * r; } else { const r = sm((e - 0.7) / 0.3); d.ln = -0.15 + 0.65 * r; d.fw = -0.12 + 0.37 * r; } }
+      d.sw = w ? 0.45 * Math.sin(d.ph) * RM : 0; d.ro = (w ? 0.105 * Math.sin(d.ph * 0.5) : 0.02 * Math.sin(now / 700 + k)) * RM; d.ln = 0.15; d.fw = 0;
+      if (act === 'windup') { const e = Math.min(1, t / 1.0); if (e < 0.7) { const r = sm(e / 0.7); d.ln = 0.15 - 0.3 * r; d.fw = -0.12 * r; } else { const r = sm((e - 0.7) / 0.3); d.ln = -0.15 + 0.65 * r; d.fw = -0.12 + 0.37 * r; } }
       else if (act === 'climb') { d.ln = 0.15 + 0.52 * 0.77; d.sw = 0.8 * Math.sin(t * 10); }
       else if (act === 'hit') { d.ln = 0.5; d.fw = 0.25 + 0.1 * Math.sin(t * 22); }
     }
