@@ -61,10 +61,10 @@ const SMOKE = new THREE.MeshBasicMaterial({ color: 0xbfc4cc }), BOOM = new THREE
 const hsh = s => { let h = 0; for (const ch of String(s)) h = (h * 31 + ch.charCodeAt(0)) | 0; return h; }; // ids podem ser texto
 const puff = (x, y, z, vx, vz, vy = 0.7, sc = 1, mat = SMOKE) => { const m = sPool.find(s => !s.visible); if (!m) return; m.material = mat; m.position.set(x, y, z); m.userData = { t: 0, vx, vz, vy, sc }; m.scale.setScalar(0.08); m.visible = true; };
 
-const EL = 0.96, VIEW_R = 17;
-function camDist() { // menor d tal que (±17,0) e (0,±17) do chao projetam em |ndc|<=1 (camera olhando de EL)
+const EL = 0.96, VIEW_R = 10;
+function camDist() { // menor d tal que (±R,0) e (0,±R) do chao projetam em |ndc|<=1 (camera olhando de EL)
   const c = camera, v = new THREE.Vector3();
-  for (let d = 12; d < 120; d += 0.5) {
+  for (let d = 6; d < 120; d += 0.5) {
     c.position.set(0, 0.5 + d * Math.sin(EL), d * Math.cos(EL)); c.lookAt(0, 0.5, 0); c.updateMatrixWorld(true);
     if ([[VIEW_R, 0], [-VIEW_R, 0], [0, VIEW_R], [0, -VIEW_R]].every(([x, z]) => { v.set(x, 0, z).project(c); return Math.abs(v.x) <= 1 && Math.abs(v.y) <= 1; })) return d;
   }
@@ -75,7 +75,7 @@ function size() {
   const a = innerWidth / innerHeight;
   camera.aspect = a;
   camera.updateProjectionMatrix();
-  camera.userData.d = camDist(); // raio minimo de 17 m no chao em qualquer direcao da tela (dono)
+  camera.userData.d = camDist(); // raio minimo de VIEW_R m no chao em qualquer direcao da tela (dono)
   scene.fog.near = camera.userData.d + 14; scene.fog.far = camera.userData.d + 34;
   camera.far = camera.userData.d + 70; camera.updateProjectionMatrix();
 }

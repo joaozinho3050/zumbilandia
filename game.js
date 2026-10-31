@@ -441,7 +441,7 @@
     const za = z.anim || (z.anim = { move: 'idle', act: null, t: 0 }); za.t += dt;
     const h = d < 12 ? G.houses.find(h => blocked(z.x, z.y, p.x, p.y, [h])) : null; // casa no caminho (parede/porta fechada)
     if (d <= 1.1 && !h) z.state = 'attack';
-    else if (d < (h && h.parts ? 3 : p.crouch ? 4 : 6) || d <= (p.noise || 0) || z.alert > 0 || (z.state === 'chase' && d < 10)) z.state = 'chase'; // abafado: 3 m; visao 6 (agachado 4), perde a 10 m (dono: viam de longe demais)
+    else if (d < (h && h.parts ? 3 : p.crouch ? 2.5 : 6) || d <= (p.noise || 0) || z.alert > 0 || (z.state === 'chase' && d < 10)) z.state = 'chase'; // abafado: 3 m; dono: percebe a 8 m correndo, 6 andando, 2,5 agachado; perde a 10 m
     else z.state = 'idle';
     if (z.police && d < 10) hint('police', 'Policial zumbi: pode soltar munição ou pistola', 'police');
     z.zc = Math.max(0, (z.zc || 0) - dt);
@@ -531,7 +531,7 @@
     else if (len > 0.01 && !(p.action && p.action.type === 'cut' && len <= 0.3)) { p.dir = Math.atan2(my, mx); move(p, mx * vel * dt, my * vel * dt); } // cortando: zona morta 0,3 do joystick
     const dm = Math.hypot(p.x - ox, p.y - oy), real = !car && dm > 0.5 * vel * dt; // deslocamento real (parado na parede nao conta)
     p.running = wantRun && real; G._rw = p.running;
-    p.noise = car ? (p._eng ? 15 + 2 * Math.abs(car.speed) : 0) : !real ? 0 : p.crouch ? 3 : p.running ? 10 : 5;
+    p.noise = car ? (p._eng ? 15 + 2 * Math.abs(car.speed) : 0) : !real ? 0 : p.crouch ? 2.5 : p.running ? 8 : 5;
     const sp = p.stamina;
     p.stamina = Math.max(0, Math.min(100, p.stamina + (p.running ? -28 : (real && !p.crouch ? 2 : 8) * (p.hunger < 25 ? 0.5 : 1)) * dt));
     if (sp >= 15 && p.stamina < 15) { G.events.push({ type: 'staminaLow' }); hint('folego', 'Sem fôlego — ande para recuperar', 'correr'); }
