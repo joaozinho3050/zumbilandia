@@ -1,5 +1,5 @@
 // Modelos 3D do jogo (funções puras: só criam Object3D). Estilo em ESTILO.md.
-import * as THREE from 'three';
+import * as THREE from './lib/three.module.min.js'; // caminho relativo: dispensa o importmap (iOS < 16.4)
 
 // 0.149 não convertia cor hex; 0.160 converte sRGB->linear. Desligado para as cores ficarem idênticas às de
 // modelos.html; o renderer deve usar outputColorSpace = THREE.LinearSRGBColorSpace (equivale ao 0.149).
@@ -174,6 +174,8 @@ const ITEMS = {
     for (const s of [-1, 1]) add(g, Cyl(0.075, 0.075, 0.06, 10), c.metal, -Math.sin(0.35) * s * 0.4, 0.45 + Math.cos(0.35) * s * 0.4, 0, 0, 0, 0.35); },
   food: (g, c) => { add(g, Cyl(0.15, 0.15, 0.24, 12), c.metal, 0, 0.12, 0);
     add(g, Cyl(0.16, 0.16, 0.14, 12), c.shirt, 0, 0.12, 0); },
+  food_bad: (g, c) => { add(g, Cyl(0.15, 0.15, 0.2, 10), 0x8a9a4a, 0.01, 0.1, 0); add(g, Cyl(0.16, 0.16, 0.1, 10), 0xfff3d6, 0.01, 0.1, 0); // lata amassada verde-oliva com rotulo, mancha e tampa torta
+    add(g, Sph(0.07, 6, 5), 0x4a5a2a, 0.12, 0.12, 0.05); add(g, Cyl(0.13, 0.13, 0.03, 10), c.metal, -0.01, 0.21, 0, 0.18, 0, 0.12); },
   bandage: (g, c) => { add(g, Cyl(0.16, 0.16, 0.14, 12), c.wall, 0, 0.07, 0);
     add(g, Box(0.16, 0.02, 0.05), c.can, 0, 0.15, 0); add(g, Box(0.05, 0.02, 0.16), c.can, 0, 0.15, 0); },
   ammo: (g, c) => { add(g, Box(0.36, 0.16, 0.22), c.wood, 0, 0.08, 0); add(g, Box(0.1, 0.18, 0.24), c.shirt, 0, 0.08, 0);
@@ -537,6 +539,15 @@ export function makeFurniture(kind, opts = {}) {
       add(g, Box(0.52, 0.05, 0.37), 0xf2d16b, 0, 0.7, 0);
       add(g, Cap(0.03, 0.4), 0x2f2a35, 0.3, 0.7, 0.05, 0, 0, 0.3); add(g, Box(0.1, 0.1, 0.06), 0x2f2a35, 0.34, 0.45, 0.05);
       break;
+    case 'corpse': { // corpo de cenario 1,7x0,7 deitado de costas, cabeca em +x: mesmo molde do zumbi, olhos fechados, mancha escura
+      const SH = [0xa77bd1, 0x5b7bd5, 0x9b6a3c, 0x78a865][(opts.look | 0) & 3], SK = 0x9ab56a;
+      add(g, Cyl(0.55, 0.55, 0.01, 10), 0x3a2430, 0.05, 0.006, 0.05);
+      add(g, Cap(0.17, 0.3), SH, 0.2, 0.18, 0, 0, 0, Math.PI / 2);                 // tronco
+      add(g, Sph(0.17, 10, 8), SK, 0.62, 0.19, 0.02);                              // cabeca
+      add(g, Box(0.03, 0.02, 0.06), 0x2f2a35, 0.76, 0.24, -0.06); add(g, Box(0.03, 0.02, 0.06), 0x2f2a35, 0.76, 0.24, 0.1); // olhos fechados
+      for (const z of [-0.09, 0.09]) add(g, Cap(0.085, 0.45), 0x5b7bd5, -0.4, 0.09, z, 0, 0.08 * Math.sign(z), Math.PI / 2); // pernas
+      add(g, Cap(0.065, 0.3), SK, 0.15, 0.08, -0.27, 0, 0.3, Math.PI / 2); add(g, Cap(0.065, 0.3), SK, 0.45, 0.07, 0.25, 0, -0.5, Math.PI / 2); // bracos soltos
+      break; }
     default: throw new Error('móvel desconhecido: ' + kind);
   }
   return done(g);
@@ -601,6 +612,20 @@ export function makeSlab(w, d, hole) {
   if (!hole) blk(-w / 2, w / 2, -d / 2, d / 2);
   else { blk(-w / 2, w / 2, -d / 2, hz0); blk(-w / 2, w / 2, hz1, d / 2); blk(-w / 2, hx0, hz0, hz1); blk(hx1, w / 2, hz0, hz1); }
   return done(g);
+}
+// pichacao: pixels 0,055 m da fonte 3x5 (so tokens: ff5c57 aviso, f2d16b enfeite), frente +z, a 1,1-1,6 m; N Ã tem til
+const GRAF = [['NÃO ENTRE', 'MORTOS'], ['POSTO', 'SECO'], ['SEM', 'COMIDA'], ['SOCORRO']];
+function grafiti(g, t, sm) {
+  const px = sm ? 0.038 : 0.055, col = t === 3 ? 0xf2d16b : 0xff5c57, L = GRAF[t];
+  L.forEach((txt, li) => {
+    const n = txt.length, y0 = 1.45 - li * 7 * px;
+    [...txt].forEach((ch, i) => {
+      if (ch === ' ') return;
+      const gl = LETRAS[ch === 'Ã' ? 'A' : ch], x0 = (i - (n - 1) / 2) * 4 * px;
+      gl.forEach((row, r) => { for (let c = 0; c < 3; c++) if (row[c] === '1') add(g, Box(px, px, 0.02), col, x0 + (c - 1) * px, y0 + (4 - r) * px, 0); });
+      if (ch === 'Ã') for (const c of [0, 2]) add(g, Box(px, px, 0.02), col, x0 + (c - 1) * px, y0 + 5.6 * px, 0);
+    });
+  });
 }
 export function makeProp(kind) {
   const g = new THREE.Group();
@@ -673,7 +698,15 @@ export function makeProp(kind) {
       add(g, Cyl(0.4, 0.4, 0.05, 12), 0x5e5b6b, 0, 0.025, 0); add(g, Cyl(0.32, 0.32, 0.06, 12), 0x9aa3b5, 0, 0.04, 0);
       add(g, Box(0.22, 0.03, 0.05), 0xf2d16b, 0, 0.09, 0);
       break;
-    default: throw new Error('prop desconhecido: ' + kind);
+    case 'can': // lata no chao (deitada, eixo x): corpo 9aa3b5 com faixa ff8c69
+      add(g, Cyl(0.055, 0.055, 0.17, 8), 0x9aa3b5, 0, 0.056, 0, 0, 0, Math.PI / 2); add(g, Cyl(0.058, 0.058, 0.06, 8), 0xff8c69, 0, 0.056, 0, 0, 0, Math.PI / 2);
+      break;
+    case 'dropped': // gaveta caida (saqueada): caixa eab26a virada, puxador 6e4422
+      add(g, softGeo(0.5, 0.14, 0.4, 0.03), 0xeab26a, 0, 0.09, 0, 0, 0, 0.12); add(g, Box(0.14, 0.04, 0.04), 0x6e4422, 0.1, 0.12, 0.21);
+      break;
+    default:
+      if (/^graf[0-3]s?$/.test(kind)) { grafiti(g, +kind[4], kind.length > 5); return g; } // sem contorno: decalque plano
+      throw new Error('prop desconhecido: ' + kind);
   }
   return done(g);
 }

@@ -45,12 +45,13 @@
     return o;
   }
   function noise(nodes, t, dur, vol, type, freq, q, att) {
+    dur = Math.min(dur, noiseBuf.duration - 0.05); // buffer de 1 s: nunca pede mais (offset negativo = RangeError que engolia o ruido da horda)
     const s = ctx.createBufferSource(), f = ctx.createBiquadFilter(), g = ctx.createGain();
     s.buffer = noiseBuf;
     f.type = type; f.frequency.value = freq; f.Q.value = q;
     env(g, t, dur, vol, att);
     s.connect(f).connect(g).connect(master);
-    s.start(t, Math.random() * (noiseBuf.duration - dur));
+    s.start(t, Math.random() * Math.max(0, noiseBuf.duration - dur));
     s.stop(t + dur);
     nodes.push(s, f, g);
   }
@@ -158,7 +159,13 @@
     death: () => voice(1.3, (t, n) => {
       [330, 262, 196].forEach((f, i) => osc(n, 'triangle', f, f * 0.7, t + i * 0.05, 1.2 - i * 0.05, 0.12));
     }),
-    crateOpen: () => voice(0.2, (t, n) => osc(n, 'sawtooth', 200, 600, t, 0.18, 0.12)),
+    enter: () => voice(0.2, (t, n) => { osc(n, 'triangle', 220, 150, t, 0.14, 0.18); noise(n, t, 0.06, 0.18, 'bandpass', 1800, 1.5, 0.003); osc(n, 'sine', 110, 55, t + 0.12, 0.08, 0.4); }), // porta de lata curta (entrar)
+    exit: () => voice(0.2, (t, n) => { osc(n, 'triangle', 260, 180, t, 0.14, 0.18); noise(n, t, 0.06, 0.18, 'bandpass', 2200, 1.5, 0.003); osc(n, 'sine', 130, 60, t + 0.12, 0.08, 0.4); }), // idem, mais aguda (sair)
+    alarm: () => voice(10.2, (t, n) => { for (let i = 0; i < 16; i++) { osc(n, 'square', 880, 880, t + i * 0.62, 0.22, 0.09); osc(n, 'square', 660, 660, t + i * 0.62 + 0.26, 0.22, 0.09); } }), // buzina de 2 tons, intermitente por 10 s
+    can: () => voice(0.5, (t, n) => [0, 0.07, 0.16, 0.3].forEach((d, i) => osc(n, 'triangle', 2400 - i * 250, 1800 - i * 200, t + d, 0.09, 0.14 / (i + 1)))), // lata tilintando
+    empty: () => voice(0.12, (t, n) => { osc(n, 'sine', 160, 90, t, 0.08, 0.45); noise(n, t, 0.03, 0.12, 'lowpass', 600, 0.8, 0.002); }), // toc seco: movel vazio
+    sick: () => voice(0.5, (t, n) => { osc(n, 'sawtooth', 190, 85, t, 0.4, 0.14); osc(n, 'sine', 95, 60, t + 0.05, 0.4, 0.2); noise(n, t, 0.3, 0.06, 'lowpass', 400, 0.8, 0.08); }), // enjoo: gemido curto
+    bairro: () => SND.hint(),
     doorOpen: () => voice(0.25, (t, n) => osc(n, 'triangle', 170, 380, t, 0.22, 0.2)),   // rangido curto subindo
     doorClose: () => voice(0.16, (t, n) => osc(n, 'sine', 120, 50, t, 0.15, 0.6)),       // batida grave curta
     stairs: (vol) => voice(0.85, (t, n) => [0, 0.2, 0.4, 0.6].forEach((d, i) => { // 4 passos de madeira subindo de tom
@@ -339,7 +346,7 @@
       else if (z && G.player && Math.hypot(z.x - G.player.x, z.y - G.player.y) < 12) SND.stairs(0.4);
       return;
     }
-    if (ev.type === 'open') return (ev.kind === 'trunk' ? SND.openTrunk : ev.kind === 'tomb' ? SND.openTomb : SND.openCrate)();
+    if (ev.type === 'open') { (ev.kind === 'trunk' ? SND.openTrunk : ev.kind === 'tomb' ? SND.openTomb : SND.openCrate)(); if (ev.empty) setTimeout(SND.empty, 120); return; }
     if (ev.type === 'move') return (ev.to === 'inv' ? SND.stowBag : SND.stowBox)();
     if (ev.type === 'close') return SND.closeBox();
     if (ev.type === 'windup') {
@@ -417,9 +424,8 @@
   // Primeiro toque/tecla cria o contexto; volta da aba retoma.
   function init() {
     if (!AC) return;
-    const unlock = () => ensure();
-    document.addEventListener('pointerdown', unlock, { once: true, capture: true });
-    document.addEventListener('keydown', unlock, { once: true, capture: true });
+    const unlock = () => { ensure(); if (ctx && ctx.state === 'running') for (const k of ['pointerdown', 'touchend', 'click', 'keydown']) document.removeEventListener(k, unlock, true); }; // iOS (Safari) so destrava em touchend/click: tenta a cada gesto ate rodar
+    for (const k of ['pointerdown', 'touchend', 'click', 'keydown']) document.addEventListener(k, unlock, { capture: true });
     document.addEventListener('visibilitychange', () => { if (!document.hidden && ctx) ensure(); });
   }
 

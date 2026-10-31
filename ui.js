@@ -16,6 +16,7 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
 .bar i{position:absolute;inset:0;border-radius:4px;transform-origin:left;background:currentColor}
 #hp,#hunger,#stamina,#armor{left:var(--ml)}
 #hp{top:var(--mt);color:var(--vida)}#hp .bar{width:140px}
+#sick{left:calc(var(--ml) + 150px);top:calc(var(--mt) + 44px);color:#8fd16a}#sick .bar{width:36px}
 #hunger{top:calc(var(--mt) + 44px);color:var(--fome)}#hunger .bar{width:100px}
 #stamina{top:calc(var(--mt) + 88px);color:var(--folego);height:28px}#stamina .bar{width:100px;height:6px}
 #armor{top:calc(var(--mt) + 132px);color:var(--armadura)}#armor .bar{width:60px}
@@ -139,6 +140,7 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
 
   const ICON = {
     heart: '<path d="M12 20s-7-4.5-7-10a4 4 0 0 1 7-2.5A4 4 0 0 1 19 10c0 5.5-7 10-7 10z"/>',
+    drop: '<path d="M12 4c3 4 6 7 6 10a6 6 0 0 1-12 0c0-3 3-6 6-10z"/>',
     apple: '<path d="M12 8c-3-2-7 0-6 5 .8 4 3 7 6 7s5.2-3 6-7c1-5-3-7-6-5z"/><path d="M12 8c0-2 1-3 3-4"/>',
     bolt: '<path d="M13 3L5 14h6l-1 7 8-11h-6z"/>',
     shield: '<path d="M12 3l7 3v6c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6z"/>',
@@ -173,11 +175,10 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
     trunk: ['trunk', 'MALA'], car: ['door', 'ENTRAR'], siphon: ['pump', 'SIFONAR'], pour: ['pump', 'DESPEJAR'], search: ['search', 'BUSCAR'], drop: ['hand', 'PEGAR'], fence: ['jump', 'PULAR'], cut: ['hand', 'CORTAR'], locked: ['door', 'TRANCADA'], tank: ['pump', 'SIFONAR']
   };
   const acaoDe = (n) => (n.type === 'door' || n.type === 'crate') && n.locked ? (n.cut ? ACAO.cut : ACAO.locked) : n.act ? ACAO[n.act] : n.type === 'stairs' ? ['stairs', n.up ? 'SUBIR' : 'DESCER'] : n.type === 'door' ? (n.open ? ['door', 'FECHAR'] : ['door', 'ABRIR']) : ACAO[n.type] || ['hand', 'AÇÃO'];
-  const NOME = { food: 'Comida', bandage: 'Bandagem', ammo: 'Munição', rag: 'Trapo', wire: 'Arame', bottle: 'Garrafa', hose: 'Mangueira', cutter: 'Alicate', gascan: 'Galão', key: 'Chave', pipe: 'Cano', pipe_r: 'Cano reforçado', bat: 'Taco', pistol: 'Pistola', molotov: 'Molotov', helmet: 'Capacete', jacket: 'Jaqueta', shinguards: 'Caneleiras', bag_school: 'Mochila escolar', bag_hiking: 'Mochila de trilha', bag_military: 'Mochila militar' };
-  const BAG = { bag_school: 4, bag_hiking: 8, bag_military: 12 };
-  const CNOME = { fridge: 'Geladeira', cabinet: 'Armário', wardrobe: 'Guarda-roupa', drawer: 'Gaveta', shelf: 'Gôndola', box: 'Caixa', box_mercado: 'Caixa', box_posto: 'Caixa', box_galpao: 'Caixa', toolbox: 'Caixa de ferramentas', toolbox_oficina: 'Bancada', pshelf: 'Prateleira', medcart: 'Carrinho', medcab: 'Armarinho', gunlocker: 'Armário de armas', desk: 'Recepção', locker: 'Armário', sacristy: 'Armário da sacristia', trunk: 'Porta-malas', tomb: 'Tumba' };
-  const ARMA = { pipe: 'CANO', pipe_r: 'CANO+', bat: 'TACO', pistol: 'PISTOLA', molotov: 'MOLOTOV' };
-  const DUR = { helmet: 20, jacket: 20, shinguards: 10, cutter: 4 };
+  const NOME = { food: 'Comida', bandage: 'Bandagem', ammo: 'Munição', rag: 'Trapo', wire: 'Arame', bottle: 'Garrafa', hose: 'Mangueira', cutter: 'Alicate', gascan: 'Galão', key: 'Chave', pipe: 'Cano', pipe_r: 'Cano reforçado', food_bad: 'Comida estragada', pistol: 'Pistola', molotov: 'Molotov', helmet: 'Capacete', jacket: 'Jaqueta', shinguards: 'Caneleiras', bag_school: 'Mochila escolar', bag_hiking: 'Mochila de trilha', bag_military: 'Mochila militar' };
+  const CNOME = { fridge: 'Geladeira', cabinet: 'Armário', wardrobe: 'Guarda-roupa', drawer: 'Gaveta', shelf: 'Gôndola', box: 'Caixa', box_mercado: 'Caixa', box_posto: 'Caixa', box_galpao: 'Caixa', toolbox: 'Caixa de ferramentas', toolbox_oficina: 'Bancada', pshelf: 'Prateleira', medcart: 'Carrinho', medcab: 'Armarinho', gunlocker: 'Armário de armas', desk: 'Recepção', locker: 'Armário', sacristy: 'Armário da sacristia', trunk: 'Porta-malas', tomb: 'Tumba', corpse: 'Corpo' };
+  const ARMA = { pipe: 'CANO', pipe_r: 'CANO+', pistol: 'PISTOLA', molotov: 'MOLOTOV' };
+  const durMax = (id) => id === 'cutter' ? 4 : ((window.G && G.DUR) || {})[id]; // durabilidade cheia: G.DUR (+ alicate, que nao e armadura)
 
   const held = { atk: false, act: false }, keys = new Set(), last = {}, E = {};
   const joy = { id: null, cx: 0, cy: 0, mx: 0, my: 0, run: false };
@@ -192,6 +193,7 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
     parent.appendChild(e);
     return e;
   };
+  const fmtH = (t) => { const m = Math.floor((t || 0) / 60); return m >= 60 ? Math.floor(m / 60) + ' h ' + (m % 60) + ' min' : m + ' min'; };
   const fmt = (t) => { const s = Math.floor(t || 0); return String(Math.floor(s / 60)).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0'); };
   const pill = (id, icon, w, cls, hud) => el('div', id, hud, svg(icon) + '<div class="bar"><i></i></div>', 'pill hidden' + (cls || ''));
   const fill = (e, f) => { e.querySelector('i').style.transform = 'scaleX(' + Math.max(0, Math.min(1, f)) + ')'; };
@@ -219,7 +221,7 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
   // ---- MENU (U3) ----
   const ABAS = [['pack', 'Mochila', 'inv'], ['man', 'Equipar', 'equip'], ['craft', 'Fabricar', 'craft'], ['map', 'Mapa', 'map'], ['book', 'Guia', 'guide'], ['gear', 'Ajustes', 'settings']];
   const sem = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
-  const nm = (id) => NOME[id] || id;
+  const nm = (id) => NOME[id] || '?'; // so nomes conhecidos (id vindo de save adulterado nunca vai ao innerHTML)
   const ico = (id) => {
     let src = null;
     try { src = window.R && R.icon ? R.icon(id) : null; } catch (e) {}
@@ -257,14 +259,14 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
     if (!it) return '';
     const st = [];
     if (DANO[it.id]) st.push('Dano ' + DANO[it.id]);
-    if (it.dur != null) st.push('Durabilidade ' + it.dur + '/' + (DUR[it.id] || it.dur));
+    if (it.dur != null) st.push('Durabilidade ' + it.dur + '/' + (durMax(it.id) || it.dur));
     if (it.id === 'gascan' && it.fuel != null) st.push('Gasolina ' + Math.round(it.fuel / 10 * 100) + '%');
     if (it.qty > 1) st.push('Quantidade ' + it.qty);
     return '<div class="icard"><b>' + nm(it.id) + '</b><p>' + ((window.G.ITEM_DESC || {})[it.id] || '') + '</p>' + (st.length ? '<small>' + st.join(' · ') + '</small>' : '') + '</div>';
   }
   const col = (t, full, body) => '<div class="col"><h3' + (full ? ' class="full"' : '') + '>' + t + '</h3>' + body + '</div>';
   const grid = (h) => '<div class="grid">' + h + '</div>';
-  const durOf = (it) => it.dur == null ? null : it.dur / (DUR[it.id] || it.dur || 1);
+  const durOf = (it) => it.dur == null ? null : it.dur / (durMax(it.id) || it.dur || 1);
 
   const cap = (p) => window.G.capOf ? window.G.capOf(p) : 8;
   const capTxt = (p) => cap(p) > 8 ? '8+' + (cap(p) - 8) : '8';
@@ -274,7 +276,7 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
     for (let i = 0; i < Math.max(cap(p), inv.length); i++) g += slotH(inv[i], Object.assign({ ex: i >= 8 }, inv[i] && f(inv[i], i)));
     return col('Mochila ' + inv.length + '/' + capTxt(p), inv.length >= cap(p), grid(g));
   };
-  const equipavel = (id) => !!(DUR[id] || BAG[id]);
+  const equipavel = (id) => !!((durMax(id) && id !== 'cutter') || /^bag_/.test(id));
 
   function renderInv() {
     const p = window.G.player, inv = p.inv || [], it = inv[selInv];
@@ -356,6 +358,7 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
     }
     const w2p = (wx, wy) => [(wx - (pcx - h) * 40) * MS, (wy - (pcy - h) * 40) * MS];
     for (let j = 0; j < MN; j++) for (let i = 0; i < MN; i++) { const c = mapCache.get((pcx - h + i) + ',' + (pcy - h + j)); if (c && ex.has((pcx - h + i) + ',' + (pcy - h + j))) for (const m of c.lm || []) { const [a, b] = w2p(m.x, m.y); const col = MK[m.kind]; if (!col) continue; x.fillStyle = col; x.strokeStyle = '#15121a'; x.lineWidth = 1.5; x.fillRect(a - 4, b - 4, 8, 8); x.strokeRect(a - 4, b - 4, 8, 8); } } // 1 marcador por tipo (paleta); escola, oficina, galpao e cemiterio ficam so no guia
+    x.fillStyle = '#fff1e0'; x.font = '14px "Pixelify Sans", sans-serif'; x.fillText(G.bairro || 'Campo', 10, 20); // nome do bairro onde voce esta
     x.fillStyle = '#ff5c57';
     const tombs = (G.crates || []).filter((c) => c.tomb);
     for (const k in G.chunks) for (const id in (G.chunks[k].crates || {})) { const c = G.chunks[k].crates[id]; if (c && c.tomb && c.x != null) tombs.push(c); }
@@ -418,6 +421,7 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
     panes.settings.innerHTML = '<div class="ip"><h3>Modo desenvolvedor</h3><button class="btn" data-a="dv" data-v="back">Voltar</button> <span class="dim" id="dvmsg"></span>' +
       '<h3 class="dvh">Itens (toque +1, segure = pilha)</h3>' + grid(items) +
       '<h3 class="dvh">Zumbis</h3>' + DVB('z:walker', 'Andador') + DVB('z:runner', 'Corredor') + DVB('z:police', 'Policial') + DVB('z:jaleco', 'Jaleco') + DVB('z:macacao', 'Macacão') + DVB('z:crawl', 'Rastejante') + DVB('z:limp', 'Manco') + DVB('z:horde', 'Horda') +
+      '<h3 class="dvh">Cenário</h3>' + DVB('caral', 'Carro com alarme') + DVB('corpo', 'Corpo') + DVB('lata', 'Lata') +
       '<h3 class="dvh">Carro</h3>' + car +
       '<h3 class="dvh">Teleporte</h3>' + DVB('tp:market', 'Mercado') + DVB('tp:posto', 'Posto') + DVB('tp:delegacia', 'Delegacia') + DVB('tp:igreja', 'Igreja') + DVB('tp:hospital', 'Hospital') + DVB('tp:saude', 'Posto de saúde') + DVB('tp:farmacia', 'Farmácia') + DVB('tp:escola', 'Escola') + DVB('tp:oficina', 'Oficina') + DVB('tp:galpao', 'Galpão') + DVB('tp:cemiterio', 'Cemitério') + DVB('tp:locked', 'Casa trancada') + DVB('tp:sobrado', 'Sobrado') + DVB('tp:garagem', 'Garagem') + DVB('tp:car', 'Carro') + DVB('tp:spawn', 'Início') + DVB('tp:far', '+10 chunks') +
       '<h3 class="dvh">Chaves</h3>' + DVB('god', 'Imortal' + on(d.god)) + DVB('nomiss', 'Tiro certeiro' + on(d.noMiss)) + DVB('noclip', 'Atravessar paredes' + on(d.noclip)) + DVB('t:1', 'Tempo ×1' + on(d.speed === 1)) + DVB('t:4', '×4' + on(d.speed === 4)) + DVB('t:16', '×16' + on(d.speed === 16)) + DVB('fill', 'Encher status') + DVB('ov', 'Overlay' + on(d.ov)) + '</div>';
@@ -428,6 +432,9 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
     let r = true;
     if (k === 'z') d.spawnZ(a);
     else if (k === 'car') r = !!d.spawnCar({ fuel: +a, hp: +b });
+    else if (k === 'caral') r = !!d.spawnCar({ fuel: 5, hp: 100, alarm: 1 });
+    else if (k === 'corpo') r = d.spawnCorpse();
+    else if (k === 'lata') r = d.spawnCan();
     else if (k === 'tp') r = d.tp(a);
     else if (k === 'god' || k === 'noclip') d[k] = !d[k];
     else if (k === 'nomiss') d.noMiss = !d.noMiss;
@@ -451,7 +458,7 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
     const cs = (list, n, side, ex) => { let g = ''; for (let i = 0; i < Math.max(n, list.length); i++) g += slotH(list[i], { a: 'data-s="' + side + '" data-i="' + i + '"', hold: true, sel: selC === side + ':' + i, ex: ex && i >= 8 }); return g; };
     const [sd, si] = selC.split(':'), sIt = selC && (sd === 'c' ? c.list : p.inv)[+si];
     if (selC && !sIt) selC = '';
-    contEl.querySelector('.cols').innerHTML = col(c.name + ' ' + c.list.length + (c.cap === Infinity ? '' : '/' + c.cap), c.list.length >= c.cap, grid(cs(c.list, c.cap === Infinity ? 0 : c.cap, 'c'))) +
+    contEl.querySelector('.cols').innerHTML = col(c.name + ' ' + c.list.length + (c.cap === Infinity ? '' : '/' + c.cap), c.list.length >= c.cap, grid(cs(c.list, c.cap === Infinity ? 0 : c.cap, 'c')) + (c.list.length ? '' : '<div class="dim vazio">Vazio</div>')) +
       col('Mochila ' + p.inv.length + '/' + capTxt(p), p.inv.length >= cap(p), grid(cs(p.inv, cap(p), 'inv', true)));
     contEl.querySelector('.info').innerHTML = selC ? card(sIt) : '';
   }
@@ -561,7 +568,7 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
     startEl.querySelector('.cards').innerHTML = [0, 1, 2].map((i) => {
       const s = sl[i];
       return '<div class="card" role="button" tabindex="0" data-i="' + i + '">' + (s
-        ? '<b>' + fmt(s.t) + '</b><span>Seed ' + (s.seed >>> 0).toString(36).slice(-5).toUpperCase() + '</span><button class="del" data-del="' + i + '" aria-label="Apagar">' + TRASH + '</button>'
+        ? '<b>' + fmt(s.t) + '</b><span>Vivo há ' + fmtH(s.alive) + ' · recorde ' + fmtH(s.best) + '</span><span>Seed ' + (s.seed >>> 0).toString(36).slice(-5).toUpperCase() + '</span><button class="del" data-del="' + i + '" aria-label="Apagar">' + TRASH + '</button>'
         : G.slotOld(i + 1) ? '<b>Novo mundo</b><span>Mundo de versão antiga — comece um novo</span><button class="del" data-del="' + i + '" aria-label="Apagar">' + TRASH + '</button>'
         : '<b>Novo mundo</b><span>Slot ' + (i + 1) + '</span>') + '</div>';
     }).join('');
@@ -569,8 +576,11 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
   }
   function play(i) {
     const G = window.G;
-    if (!(G.slots()[i] && G.load(i + 1))) G.init(Date.now(), i + 1);
+    let ok = false, bad = false;
+    try { ok = !!(G.slots()[i] && G.load(i + 1)); } catch (e) { bad = true; } // save corrompido: nao trava o cartao
+    if (!ok) G.init(Date.now(), i + 1);
     hide(startEl, true); UI.paused = false;
+    if (bad) { E.toast.textContent = 'Save danificado — mundo novo neste slot'; toastUntil = performance.now() + 4000; }
     if (!lsGet('zl1.tour')) tourGo(0);
   }
   function buildStart() {
@@ -596,7 +606,7 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
     deadEl = el('div', 'dead', root, '<h1>Você morreu</h1><p class="t"></p><p>Seus itens ficaram na tumba (marcada no mapa)</p><button class="big">RENASCER</button>', 'hidden');
     deadEl.querySelector('button').addEventListener('click', () => {
       try { window.G.respawn(); } catch (e) {}
-      hide(deadEl, true); document.getElementById('ui').classList.remove('morto');
+      UI.paused = false; hide(deadEl, true); document.getElementById('ui').classList.remove('morto');
     });
   }
   const PASSOS = [['#joy', 'Arraste o joystick para andar. Empurre até a borda para correr.'], ['#btn-attack', 'Toque ATACAR para bater nos zumbis.'], ['#btn-action', 'Perto de um móvel, toque BUSCAR e fique parado.'], ['#btn-menu', 'Abra o MENU e veja sua mochila.'], ['#btn-menu', 'No MENU, abra a aba Mapa.']];
@@ -623,14 +633,15 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
     const t = tourStep, ev = G.events;
     const ok = t === 0 ? Math.hypot(p.x - tourPos[0], p.y - tourPos[1]) > 3
       : t === 1 ? ev.some((e) => e.type === 'swing' || e.type === 'shot')
-      : t === 2 ? ev.some((e) => e.type === 'crateOpen')
+      : t === 2 ? ev.some((e) => e.type === 'open')
       : t === 3 ? UI.paused
       : UI.paused && curTab === 'map';
     if (ok) tourGo(t + 1);
   }
   function deadTick(G) {
     if (!G.dead || !startEl.classList.contains('hidden') || !deadEl.classList.contains('hidden')) return;
-    deadEl.querySelector('.t').textContent = 'sobreviveu ' + fmt(G.t);
+    deadEl.querySelector('.t').textContent = 'Sobreviveu ' + fmtH(G.lastLife) + (G.best <= G.lastLife ? ' — novo recorde!' : ' · recorde ' + fmtH(G.best));
+    UI.paused = true; // o mundo para atras da tela de morte; RENASCER volta
     hide(deadEl, false); document.getElementById('ui').classList.add('morto');
   }
 
@@ -642,6 +653,7 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
     const hud = el('div', 'hud', root);
     E.hp = el('div', 'hp', hud, svg('heart') + '<div class="bar"><i></i></div>', 'pill');
     E.hunger = pill('hunger', 'apple', 0, 0, hud);
+    E.sick = pill('sick', 'drop', 0, 0, hud);
     E.stamina = el('div', 'stamina', hud, '<div class="bar"><i></i></div>', 'pill hidden');
     E.armor = pill('armor', 'shield', 0, 0, hud);
     E.time = el('div', 'time', hud, '00:00');
@@ -749,7 +761,9 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
     const fence = p.near && p.near.type === 'fence';
     if (fence && pend && !pz) inp.jump = true; // pulso: o game consome
     if (tapT && !pz) inp.target = tapT; // tocar para vasculhar: pulso
-    inp.interact = !!(tapT && !pz) || !pz && !fence && !inp.hold && (pend || (intT > 0 && now - intT > 350)); // com act, segurar = hold, nao interact
+    const late = !pz && !fence && !inp.hold && intT > 0 && now - intT > 350; if (late) intT = 0; // segurar AÇÃO dispara UMA vez (antes: a cada quadro => entra/sai do carro, porta piscando)
+    inp.interact = !!(tapT && !pz) || !pz && !fence && !inp.hold && (pend || late); // com act, segurar = hold, nao interact
+    if (pend && (p.near || car)) intT = 0; // o toque ja agiu num alvo (ou saiu do carro): segurar nao repete (senao entra e sai do carro)
     pend = false; tapT = null;
 
     // eventos (G empurra; UI limpa por ultimo)
@@ -758,7 +772,8 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
         flashUntil = now + 150; armorUntil = now + 3000;
         try { navigator.vibrate && navigator.vibrate(60); } catch (e) {}
       } else if (ev.type === 'equip') armorUntil = now + 3000;
-      else if (ev.type === 'crateOpen') { E.toast.textContent = ev.item ? 'Encontrou: ' + (NOME[ev.item] || ev.item) : 'Vazio'; toastUntil = now + 2000; }
+      else if (ev.type === 'open') { if (ev.empty) { E.toast.textContent = 'Vazio'; toastUntil = now + 2000; } }
+      else if (ev.type === 'bairro') { E.toast.textContent = ev.name; toastUntil = now + 2500; }
       else if (ev.type === 'full') { E.toast.textContent = 'Mochila cheia'; toastUntil = now + 2000; }
       else if (ev.type === 'hint') { if (hintQ.length < 3) hintQ.push(ev); } // fila FIFO (max 3): duas dicas no mesmo quadro nao se perdem
       else if (ev.type === 'miss') pop('Errou', ev.x, ev.y, now);
@@ -789,12 +804,13 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
 
     const hp = Math.round(p.hp || 0), hu = Math.round(p.hunger || 0);
     put('hp', hp, (v) => { fill(E.hp, v / 100); E.hp.classList.toggle('pulse', v < 30); });
+    put('sick', p.sick > 0 ? Math.round(p.sick) : -1, (v) => { E.sick.classList.toggle('hidden', v < 0); if (v >= 0) fill(E.sick, v / 30); }); // enjoo
     put('hu', hu < 50 ? hu : -1, (v) => { E.hunger.classList.toggle('hidden', v < 0); if (v >= 0) { fill(E.hunger, v / 100); E.hunger.classList.toggle('pulse', v < 20); } });
     const st = p.stamina == null ? 100 : Math.round(p.stamina);
     put('st', st < 100 ? st : -1, (v) => { E.stamina.classList.toggle('hidden', v < 0); if (v >= 0) fill(E.stamina, v / 100); });
 
     let cur = 0, mx = 0, low = false;
-    for (const s of ['head', 'torso', 'legs']) { const it = p.equip && p.equip[s]; if (it) { cur += it.dur; mx += DUR[it.id] || it.dur || 1; } }
+    for (const s of ['head', 'torso', 'legs']) { const it = p.equip && p.equip[s]; if (it) { cur += it.dur; mx += durMax(it.id) || it.dur || 1; } }
     low = mx > 0 && cur / mx < 0.3;
     put('arm', mx > 0 && (low || now < armorUntil) ? Math.round(cur / mx * 100) : -1, (v) => {
       E.armor.classList.toggle('hidden', v < 0);
@@ -834,7 +850,7 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
     put('wpn', w + '|' + am, () => {
       E.atk.innerHTML = svg(w === 'molotov' ? 'fire' : 'hit') + (w === 'molotov' ? 'JOGAR' : 'ATACAR');
       const src = window.R && R.icon ? R.icon(w) : null;
-      E.wpn.innerHTML = (src ? '<img src="' + src + '" alt="">' : ARMA[w] || w) + (ranged ? '<b' + (am ? '' : ' class="vazio"') + '>' + am + '</b>' : '');
+      E.wpn.innerHTML = (src ? '<img src="' + src + '" alt="">' : ARMA[w] || '') + (ranged ? '<b' + (am ? '' : ' class="vazio"') + '>' + am + '</b>' : '');
     });
     put('mute', !!(window.SFX && SFX.muted && SFX.muted()), (v) => { E.mute.classList.toggle('m', v); E.mute.innerHTML = svg(v ? 'muted' : 'sound'); });
     put('run', !!p.running, (v) => E.joy.classList.toggle('run', v));

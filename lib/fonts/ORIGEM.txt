@@ -1,0 +1,4 @@
+Fontes locais (SIL Open Font License 1.1), subconjunto "latin" (inclui Ç e acentos) baixado de fonts.gstatic.com (Google Fonts) em 31/10/2026:
+- AtkinsonHyperlegible-Regular.woff2: Atkinson Hyperlegible (Braille Institute of America) v12
+- PixelifySans-Regular.woff2: Pixelify Sans (Stefie Justprince) v3
+O jogo nao carrega nada do Google: as fontes saem de lib/fonts/ e entram no cache offline (sw.js).

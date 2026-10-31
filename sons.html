@@ -1,7 +1,8 @@
 <title>Sons do Zumbilândia</title>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=Pixelify+Sans:wght@500;700&display=swap');
+@font-face{font-family:'Atkinson Hyperlegible';font-weight:400 700;font-display:swap;src:url(lib/fonts/AtkinsonHyperlegible-Regular.woff2) format('woff2')}
+@font-face{font-family:'Pixelify Sans';font-weight:400 700;font-display:swap;src:url(lib/fonts/PixelifySans-Regular.woff2) format('woff2')}
 :root{--fundo:#2b2236;--slot:#3d3150;--borda:#5d4a78;--texto:#fff1e0;--acento:#ff8c69;--raio:14px;--toque:48px;--sombra:0 2px 8px rgba(21,18,26,.45)}
 *{box-sizing:border-box}
 body{margin:0;background:var(--fundo);color:var(--texto);font:16px/1.4 'Atkinson Hyperlegible',system-ui,sans-serif;padding:16px;max-width:1100px;margin-inline:auto}
@@ -53,7 +54,7 @@ input[type=range]{flex:1;min-height:var(--toque)}
     ['Combate', 'Queimando', 'Quando alguém leva dano do fogo.', 'Chiado curto: ruído passa-alta (2 kHz).', { type: 'burn' }],
     ['Combate', 'Armadura quebrando', 'Quando uma armadura chega a zero de durabilidade.', 'Estalo de ruído passa-alta + dois senos agudos (2,2 e 2,9 kHz) tilintando.', { type: 'armorBreak' }],
     ['Zumbis', 'Zumbi se preparando', 'Quando um zumbi a menos de 12 m arma o ataque.', 'Serra grave (90 a 60 Hz) + ruído passa-baixa: rosnado curto.', { type: 'windup', id: 'z1' }, 'z'],
-    ['Casa e itens', 'Abrir baú', 'Ao abrir baú, móvel ou porta-malas.', 'Serra subindo de 200 a 600 Hz, curta.', { type: 'crateOpen' }],
+    ['Casa e itens', 'Abrir baú', 'Ao abrir baú, móvel ou porta-malas.', 'Serra subindo de 200 a 600 Hz, curta.', { type: 'open', kind: 'crate' }],
     ['Casa e itens', 'Abrir porta', 'Ao abrir uma porta.', 'Triângulo subindo de 170 a 380 Hz: rangido curto.', { type: 'door', open: true }],
     ['Casa e itens', 'Fechar porta', 'Ao fechar uma porta.', 'Seno grave caindo de 120 a 50 Hz: batida.', { type: 'door', open: false }],
     ['Casa e itens', 'Vasculhar', 'No início de vasculhar um móvel.', 'Três estalos de ruído passa-faixa (1,4 kHz), como remexer.', { type: 'search', id: 'm1', p: 0 }, 's'],
@@ -81,6 +82,13 @@ input[type=range]{flex:1;min-height:var(--toque)}
     ['Dano de carro e fogo', 'Carro pegando fogo', 'Quando o carro começa a queimar.', 'Ruído passa-baixa (900 Hz) de whoosh, mais longo (1 s) que o fogo do molotov.', { type: 'carFire', id: 'c1' }],
     ['Dano de carro e fogo', 'Explosão', 'Quando o carro explode ou um molotov/explosão atinge a área.', 'Seno grave caindo de 120 a 35 Hz + ruído passa-baixa: boom.', { type: 'blast', x: 0, y: 0, r: 5 }],
     ['Dano de carro e fogo', 'Gasolina vazando', 'Quando o tanque vaza e cai uma poça.', 'Dois pingos curtos: seno caindo de 900 a 400 Hz.', { type: 'spill', x: 0, y: 0 }],
+    ['Auditoria', 'Entrar no carro', 'Ao entrar num carro com a chave.', 'Porta de lata curta: triângulo 220→150 Hz, estalo de ruído e baque grave.', { type: 'enter', id: 'c1' }],
+    ['Auditoria', 'Sair do carro', 'Ao sair do carro.', 'Igual a entrar, mais aguda (260→180 Hz).', { type: 'exit', id: 'c1' }],
+    ['Auditoria', 'Alarme de carro', 'Ao bater num carro com alarme ou abrir o porta-malas dele.', 'Buzina de 2 tons (880/660 Hz, quadrada) intermitente por 10 s.', { type: 'alarm', id: 'c1' }],
+    ['Auditoria', 'Lata chutada', 'Ao passar por uma lata no chão.', 'Quatro tilintares de triângulo agudo (2,4 kHz descendo).', { type: 'can' }],
+    ['Auditoria', 'Móvel vazio', 'Ao abrir um móvel sem nada.', 'Toc seco: seno 160→90 Hz e um sopro de ruído grave.', { type: 'open', kind: 'crate', empty: true }],
+    ['Auditoria', 'Enjoo', 'Ao comer comida estragada e passar mal.', 'Gemido curto: serra 190→85 Hz + seno grave.', { type: 'sick' }],
+    ['Auditoria', 'Novo bairro', 'Ao entrar num bairro com nome.', 'O mesmo som da dica (seno de 880 Hz).', { type: 'bairro', name: 'Centro' }],
     ['Dano de carro e fogo', 'Motor engasgando', 'Quando o motor do carro morre de vez (vida zero).', 'Três trancos de serra (110 a 60 Hz) + ruído passa-faixa grave.', { type: 'carDead', id: 'c1' }],
     ['Combate', 'Golpe nas costas', 'Qualquer acerto em um zumbi que não está de frente para você (dano x2).', 'Estalo de ruído agudo + serra caindo de 320 a 90 Hz.', { type: 'backstab', id: 'z1', kill: false }],
     ['Combate', 'Tiro na cabeça', 'Quando o tiro de pistola acerta a cabeça (10 %, 20 % parado a 4 m): morte na hora.', 'Estalo de ruído passa-alta + quadrada caindo de 900 a 300 Hz + seno grave de queda.', { type: 'headshot', id: 'z1' }],

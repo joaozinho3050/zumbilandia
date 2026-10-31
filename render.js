@@ -1,5 +1,5 @@
 // Render do Zumbilandia (fase 0.2): three.js pixelado, cenario fundido por chunk. So le G, nunca muta.
-import * as THREE from 'three';
+import * as THREE from './lib/three.module.min.js'; // relativo: dispensa o importmap (iOS < 16.4)
 import { makePlayer, makeZombieParts, makeCar, makeTree, makeFence, makeHouse, makeItem, makeWallSeg, makeRoof, makeMarketRoof, makeDoor, makeFurniture, makeFloor, makeDoorFrame, makeDoorstep, makePadlock, makeProp, makeStairs, makeGate, makeSlab, outline } from './modelos.js';
 
 const ROTY = [0, Math.PI / 2, Math.PI, -Math.PI / 2], CH = 40, INK = 0x15121a, SIDES = ['n', 's', 'w', 'e'], LOOKS = [0xa77bd1, 0x5b7bd5, 0x9b6a3c, 0x78a865, 0xd6cfc4, 0xff8c69, 0x4a5266, 0x2f3a6b, 0xe6f7ff, 0x5b7bd5]; // 8 jaleco, 9 macacao (roupa por lugar; sem call nova)
@@ -47,7 +47,7 @@ const pair = (b) => [new THREE.Mesh(b.body, BODY), new THREE.Mesh(b.ink, LINE)];
 let renderer, scene, camera, playerG, f = 0.75, lastT = 0, slowT = 0, slowN = 0, fastT = 0, fastN = 0;
 const chunks = new Map(); // 'cx,cy' -> { group, sig }
 const WALL = [0xf0e2c4, 0xfff3d6, 0xcfe8f5]; // parede das paletas A/B/C
-let lastBake = { verts: 0, ms: 0 };
+let sickBend = false, lastBake = { verts: 0, ms: 0 }, bakes = 0, canIM, canIK, bdIM, cuIM, nzRings = [], canRoll = new Map();
 let ground; const mkRoof = new Map(); // id do mercado -> [corpo, contorno]
 let zIM, zIK, zParts, plP, zPs = [], eqSig = '000', dPool = [], dCache = new Map(), ring, brk = [], demoRig = null, plRig, tIM, tIK, tSig = '', tList = [], bt = 0, pPh = 0, pPx = 0, pPy = 0, pV = 0, RM = 1, zIMs = [],
    carIM, carIK, crIM = [], roofIM = [], doorIM, roofSig = '', doorA = new Map(), lastDraw = 0, playerPivot, zData = new Map(), frame = 0,
@@ -183,12 +183,12 @@ function buildChunk(cx, cy, src) {
   const P = [[], []], C = []; collect(g, P, C);
   for (const [wc, L, x, z, ry, gt] of dst) { stamp(P, C, 'fr' + wc + L, () => makeDoorFrame(L, 2.0, wc), x, 0, z, ry); if (!gt) stamp(P, C, 'st' + L, () => makeDoorstep(L), x, 0, z, ry); }
   for (const h of src.houses) if (h.stairs) { const S = h.stairs; stamp(P, C, 'stairs', makeStairs, S.x + S.w / 2, 0, S.y + S.h / 2, stairRy(S)); } // escada do sobrado (o topo encosta na laje do andar 1)
-  for (const q of src.props) { const k = q.kind === 'pole' ? 'lamp' : q.kind === 'canteiro' && q.balao ? 'canteiro_g' : q.kind; try { stamp(P, C, 'p' + k, () => makeProp(k), q.x, 0, q.y, q.a || 0); } catch (_) {} }
+  for (const q of src.props) { if (q.kind === 'can') continue; /* lata e dinamica (canIM) */ const k = q.kind === 'pole' ? 'lamp' : q.kind === 'canteiro' && q.balao ? 'canteiro_g' : q.kind === 'graf' ? 'graf' + q.t + (q.sm ? 's' : '') : q.kind; try { stamp(P, C, 'p' + k, () => makeProp(k), q.x, 0, q.y, q.a || 0); } catch (_) {} }
   for (const t of src.tanks) stamp(P, C, 'ptank', () => makeProp('tank'), t.x, 0, t.y, 0); // tampa do tanque do posto
   for (const c of src.crates) { // moveis (cache por kind+estado); frente aponta para o centro do lote
     if (!c.w || c.floor) continue; // andar 1: so no mesh preguicoso
     const op = !!c.opened && !c.scenery && c.kind !== 'register'; // cenario e caixa registradora nunca aparecem vasculhados
-    stamp(P, C, c.kind + (op ? '+' : c.locked ? 'L' : '-'), () => furn(c.kind, { open: op, locked: !!c.locked }), c.x, 0, c.y, furnRy(c, src.houses));
+    stamp(P, C, c.kind + (c.kind === 'corpse' ? c.look | 0 : '') + (op ? '+' : c.locked ? 'L' : '-'), () => furn(c.kind, { open: op, locked: !!c.locked, look: c.look }), c.x, 0, c.y, furnRy(c, src.houses));
   }
   const b = geoms(P, C), [bm, im] = pair(b);
   lastBake.verts = (b.body.attributes.position.count + b.ink.attributes.position.count);
@@ -202,24 +202,27 @@ let seenGen = -1, queue = [];
 function mkChunk(G, k, sig) {
   const t0 = performance.now(), [cx, cy] = k.split(',').map(Number);
   const group = buildChunk(cx, cy, { zone: G.zone(cx * CH + 20, cy * CH + 20).zona, ways: only(G.ways, k), roads: only(G.roads, k), houses: only(G.houses, k), trees: only(G.trees, k), fences: only(G.fences, k), crates: only(G.crates, k), props: only(G.props || [], k), tanks: only(G.tanks, k), lots: G.layout(cx, cy).lots });
-  lastBake.ms = performance.now() - t0;
+  lastBake.ms = performance.now() - t0; bakes++;
   scene.add(group); chunks.set(k, { group, sig });
 }
+// assinatura do chunk = so os cadeados de movel ainda fechados; abrir movel NAO refaz o bake (o marcador verde e o seenIM)
+const lockSig = (G, k) => { let s = ''; for (const c of G.crates) if (c.ch === k && c.w && c.locked) s += c.id; return s; };
+let seenEp = -1;
 function syncChunks(G) {
+  if (G._ep !== seenEp) { seenEp = G._ep; for (const c of chunks.values()) free(c); chunks.clear(); seenGen = -1; queue = []; } // mundo novo (G.init/load): descarta o bake do mundo antigo, mesmo com as mesmas chaves de chunk
   if (G.chunkGen !== seenGen) {
     seenGen = G.chunkGen;
     const want = new Set(G.loaded);
     for (const [k, c] of chunks) if (!want.has(k)) { free(c); chunks.delete(k); }
     queue = G.loaded.filter(k => !chunks.has(k));
   }
-  const op = {}; for (const c of G.crates) if (c.w && (c.opened || c.locked)) op[c.ch] = (op[c.ch] || 0) + c.id + (c.locked ? 'L' : 1); // vasculhado ou cadeado cortado: rebake
-  for (const [k, c] of chunks) if ((op[k] || 0) !== c.sig) { free(c); mkChunk(G, k, op[k] || 0); return; } // movel vasculhado: rebake do chunk
+  if (G.events.some(e => e.type === 'cut')) for (const [k, c] of chunks) if (lockSig(G, k) !== c.sig) { free(c); mkChunk(G, k, lockSig(G, k)); return; } // cadeado cortado: rebake so deste chunk
   if (!queue.length) return;
   const p = G.player, dist = k => { const [x, y] = k.split(',').map(Number); return (x * CH + CH / 2 - p.x) ** 2 + (y * CH + CH / 2 - p.y) ** 2; };
   let bi = 0; for (let i = 1; i < queue.length; i++) if (dist(queue[i]) < dist(queue[bi])) bi = i;
   const k = queue.splice(bi, 1)[0];
   if (chunks.has(k) || !G.loaded.includes(k)) return;
-  mkChunk(G, k, op[k] || 0);
+  mkChunk(G, k, lockSig(G, k));
 }
 
 // ---------- modelos instanciados ----------
@@ -279,6 +282,7 @@ function animPlayer(p, dt) {
   const an = p.anim || { move: 'idle', act: null, t: 0 };
   pV += (Math.hypot(p.x - pPx, p.y - pPy) / Math.max(dt, 0.001) - pV) * 0.3; pPx = p.x; pPy = p.y; // velocidade suavizada
   bt += dt; pPh += dt * Math.max(pV, 0.5) * (an.move === 'crouch' ? 3 : 2.6);
+  sickBend = !!(window.G && G.player && G.player.sick > 29.4);
   pose(plRig, an.move, an.act, an.t, Math.min(1, pV / 0.8));
 }
 function pose(rig, mv, act, t, k) {
@@ -299,7 +303,7 @@ function pose(rig, mv, act, t, k) {
   else if (act === 'throw') { const e = u(0.4); P.armR.rotation.x = e < 0.4 ? 0.8 * sm(e / 0.4) : 0.8 - 3.1 * sm((e - 0.4) / 0.6); P.body.rotation.y = e < 0.4 ? 0.3 * e : 0.12 - 0.5 * (e - 0.4); }
   else if (act === 'shot') P.armR.rotation.x = -1.45 + 0.25 * Math.max(0, 1 - t / 0.15);
   else if (act === 'search') { const w = Math.sin(t * 14); P.armL.rotation.x = -1 + 0.5 * w; P.armR.rotation.x = -1 - 0.5 * w; P.body.rotation.x = 0.15; }
-  else if (act === 'eat') P.armR.rotation.x = -2.3 * sm(u(0.2)) + 0.15 * Math.sin(t * 20);
+  else if (act === 'eat') { P.armR.rotation.x = -2.3 * sm(u(0.2)) + 0.15 * Math.sin(t * 20); if (sickBend) P.body.rotation.x = 0.7 * RM * Math.sin(Math.PI * u(0.6)); } // comida estragada com enjoo: curva o tronco
   else if (act === 'heal') { P.armL.rotation.x = -1.3 * sm(u(0.2)); P.armR.rotation.x = -1 * sm(u(0.2)) + 0.2 * Math.sin(t * 14); }
   else if (act === 'stairs') { const w = Math.sin(t * 14); P.legL.rotation.x = -0.9 * Math.max(0, w); P.legR.rotation.x = -0.9 * Math.max(0, -w); P.armL.rotation.x = 0.5 * w; P.armR.rotation.x = -0.5 * w; P.body.position.y += 0.05 * Math.abs(w); P.body.rotation.x = 0.12; }
   else if (act === 'equip') { const e = Math.sin(Math.PI * u(0.2)); playerG.scale.setScalar(1 + 0.1 * e); playerG.position.y = 0.12 * e; }
@@ -365,6 +369,11 @@ function init(canvas) {
   const rm = new THREE.MeshBasicMaterial({ color: 0xff5c57, transparent: true, opacity: 0.45, depthWrite: false, fog: false });
   ring = new THREE.Mesh(new THREE.RingGeometry(0.55, 0.75, 24).rotateX(-Math.PI / 2), rm); ring.visible = false; scene.add(ring);
   seenIM = new THREE.InstancedMesh(new THREE.OctahedronGeometry(0.11), new THREE.MeshBasicMaterial({ color: 0x8fd16a, fog: false }), 128); seenIM.frustumCulled = false; seenIM.count = 0; seenIM.visible = false; scene.add(seenIM); // 'visto': 1 draw call so quando ha movel vasculhado (grama 8fd16a)
+  [canIM, canIK] = instanced(makeProp('can'), 64); // latas no chao (dinamicas: o chute as move)
+  { const bd = new THREE.Group(); for (const a of [0.45, -0.45]) { const m = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.08, 0.03), new THREE.MeshLambertMaterial({ color: 0x9b6a3c, flatShading: true })); m.rotation.z = a; bd.add(m); } // tabuas cruzadas na janela
+    const cu = new THREE.Group(); { const cm2 = new THREE.Mesh(new THREE.BoxGeometry(0.72, 0.3, 0.03), new THREE.MeshLambertMaterial({ color: 0xffffff, flatShading: true })); cm2.position.set(0, 0.12, 0); cu.add(cm2); } // cortina: cor por instancia
+    bdIM = instanced(outline(bd), 256); cuIM = instanced(outline(cu), 256); for (const [a, b] of [bdIM, cuIM]) a.visible = b.visible = false; cuIM[0].setColorAt(0, new THREE.Color(1, 1, 1)); }
+  for (let i = 0; i < 3; i++) { const m = new THREE.Mesh(new THREE.RingGeometry(0.95, 1, 48).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0xfff1e0, transparent: true, opacity: 0.55, depthWrite: false, fog: false })); m.visible = false; m.userData = { t: 9, r: 1 }; scene.add(m); nzRings.push(m); } // anel de ruido (so visual)
   aimRing = new THREE.Mesh(new THREE.RingGeometry(0.62, 0.7, 28).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0xf2d16b, transparent: true, opacity: 0.7, depthWrite: false, fog: false })); aimRing.visible = false; scene.add(aimRing); // mira assistida: anel fino amarelo (maçaneta f2d16b) sob o alvo
   for (let i = 0; i < 8; i++) { const g = new THREE.Group(); g.add(new THREE.Mesh(undefined, BODY), new THREE.Mesh(undefined, LINE)); g.visible = false; scene.add(g); dPool.push(g); }
   const bg = new THREE.BoxGeometry(0.12, 0.12, 0.12);
@@ -423,7 +432,7 @@ function draw(G) {
   // A base 0,8 m fica (interior visivel sem sumir a parede sul); a porta e engrossada 3 cm para cobrir a faixa acima do vao.
   const rs = G.chunkGen + '|' + chunks.size + '|' + p.inside;
   if (rs !== roofSig) {
-    roofSig = rs; const rn = new Array(24).fill(0), keep = new Set(); let wn = 0; const wc = new THREE.Color();
+    roofSig = rs; const rn = new Array(24).fill(0), keep = new Set(); let wn = 0, bn = 0, cn2 = 0; const wc = new THREE.Color();
     const piece = (col, x0, x1, z0, z1, y0, hh) => { if (wn >= 256 || x1 - x0 < 0.01 || z1 - z0 < 0.01) return; place(wallIM, wn, (x0 + x1) / 2, y0, (z0 + z1) / 2, 0, x1 - x0, hh, z1 - z0); wallIM.setColorAt(wn++, wc.set(col)); };
     for (const h of G.houses) {
       if (!h.parts || h.open || !chunks.has(h.ch)) continue; // open: patio do posto, sem telhado
@@ -439,6 +448,18 @@ function draw(G) {
         const d = v.d, ax = d && d.w >= d.h, si = d ? (ax ? (d.y < v.y + v.h / 2 ? 0 : 1) : (d.x < v.x + v.w / 2 ? 2 : 3)) : { y1: 1, y0: 0, x1: 3, x0: 2 }[v.sh], ri = two + h.pal * 4 + si;
         if (rn[ri] >= (two ? 16 : 64)) continue;
         place((two ? roof2IM : roofIM)[h.pal][si][0], rn[ri]++, v.x + v.w / 2, 0, v.y + v.h / 2, 0, s * v.w / 6, s, s * v.h / 6);
+        if (s && h.fx !== undefined) { // gv>=2: janelas do andar terreo com tabuas (1/8) ou cortina (2/8); a fachada da porta nao tem janela
+          const fx = v === vols[0] ? h.fx : Math.imul(h.fx, 0x9E3779B1) >>> 0, cx0 = v.x + v.w / 2, cy0 = v.y + v.h / 2;
+          for (let f = 0; f < 4; f++) {
+            if (f === si) continue;
+            for (let i = 0; i < 2; i++) {
+              const q = (fx >>> (3 * (f * 2 + i))) & 7; if (q > 2) continue;
+              const u = (i ? 1 : -1) * 0.25, zf = f < 2, wx = zf ? cx0 + u * v.w : cx0 + (f === 3 ? 1 : -1) * (v.w / 2 + 0.05), wz = zf ? cy0 + (f === 1 ? 1 : -1) * (v.h / 2 + 0.05) : cy0 + u * v.h;
+              if (q === 0 && bn < 256) place(bdIM[0], bn++, wx, 1.5, wz, zf ? 0 : Math.PI / 2);
+              else if (q && cn2 < 256) { place(cuIM[0], cn2, wx, 1.5, wz, zf ? 0 : Math.PI / 2); cuIM[0].setColorAt(cn2++, wc.set(q === 1 ? 0xff8c69 : 0x5b7bd5)); }
+            }
+          }
+        }
         if (!s || !d) continue;
         const col = WALL[h.pal], t = Math.min(d.w, d.h);
         if (ax) { piece(col, v.x, d.x, d.y, d.y + t, 0.8, hh); piece(col, d.x + d.w, v.x + v.w, d.y, d.y + t, 0.8, hh); piece(col, d.x, d.x + d.w, d.y, d.y + t, 2.0, hh - 1.2); }
@@ -447,6 +468,7 @@ function draw(G) {
     }
     for (const [id, e] of mkRoof) if (!keep.has(id)) { scene.remove(...e); e[0].geometry.dispose(); e[1].geometry.dispose(); mkRoof.delete(id); }
     [roofIM, roof2IM].forEach((R2, j) => R2.forEach((r, pi) => r.forEach(([im, ik], si) => { const c = rn[j * 12 + pi * 4 + si]; im.count = ik.count = c; im.visible = ik.visible = c > 0; im.instanceMatrix.needsUpdate = true; ik.instanceMatrix = im.instanceMatrix; })));
+    for (const [im, ik, n] of [[bdIM[0], bdIM[1], bn], [cuIM[0], cuIM[1], cn2]]) { im.count = ik.count = n; im.visible = ik.visible = n > 0; im.instanceMatrix.needsUpdate = true; ik.instanceMatrix = im.instanceMatrix; if (im.instanceColor) im.instanceColor.needsUpdate = true; }
     wallBase = wn; wallIM.count = wn; wallIM.visible = wn > 0; wallIM.instanceMatrix.needsUpdate = true; if (wallIM.instanceColor) wallIM.instanceColor.needsUpdate = true;
   }
   // portas: pivo na dobradica, giram 90 graus PARA DENTRO da casa em 150 ms; cadeado dourado na altura da macaneta (pulsa a <6 m)
@@ -583,7 +605,8 @@ function draw(G) {
   for (const c of G.cars) {
     if (n >= 24) break; if (c === oc) continue;
     const hp = c.hp ?? 100, g = c.burnt ? 0.2 : hp < 25 ? 0.5 : hp < 50 ? 0.65 : hp < 75 ? 0.82 : 1;
-    carIM.setColorAt(n, wc0.setRGB(g, g, g)); place(carIM, n++, c.x, 0, c.y, -c.dir, 2, c.burnt ? 1.92 : 2, 2.1);
+    const bl = c.alarmT > 0 ? (RM === 1 ? (Math.floor(now / 250) & 1 ? 1.6 : 1) : 1.3) : 1; // alarme: carroceria/farois piscam (reduced-motion: acesa fixa)
+    carIM.setColorAt(n, wc0.setRGB(g * bl, g * bl, g * bl)); place(carIM, n++, c.x, 0, c.y, -c.dir, 2, c.burnt ? 1.92 : 2, 2.1);
   }
   carIM.count = carIK.count = n; carIM.instanceMatrix.needsUpdate = true; if (carIM.instanceColor) carIM.instanceColor.needsUpdate = true; carIK.instanceMatrix = carIM.instanceMatrix;
 
@@ -625,6 +648,14 @@ function draw(G) {
   { let sn = 0; // marcador de vasculhado no topo (so do andar atual, 1 InstancedMesh)
     for (const c of G.crates) if (c.opened && !c.scenery && c.kind !== 'register' && (c.floor || 0) === (p.floor || 0) && sn < 128) place(seenIM, sn++, c.x, FLH * (c.floor || 0) + (c.w ? FH[c.kind] || 1 : 0.6) + 0.28 + (RM === 1 ? 0.04 * Math.sin(now / 400 + sn) : 0), c.y, RM === 1 ? now / 700 : 0);
     seenIM.count = sn; seenIM.visible = sn > 0; seenIM.instanceMatrix.needsUpdate = true; }
+  { let cn = 0; // latas (max 64 a <= 14 m): chute = desliza 1 m em 0,6 s com um pulinho e rolando
+    for (const c of G.props) {
+      if (c.kind !== 'can' || cn >= 64 || Math.abs(c.x - p.x) > 14 || Math.abs(c.y - p.y) > 14) continue;
+      let x = c.x, y = c.y, hop = 0, roll = 0; const r = canRoll.get(c.id);
+      if (r) { const k = Math.min(1, (now - r.t0) / 600); x = r.x0 + (c.x - r.x0) * k; y = r.y0 + (c.y - r.y0) * k; if (RM === 1) { hop = 0.08 * Math.sin(Math.PI * k); roll = k * 9; } if (k >= 1) canRoll.delete(c.id); }
+      dummy.position.set(x, hop, y); dummy.rotation.order = 'YXZ'; dummy.rotation.set(roll, c.a || 0, 0); dummy.scale.set(1, 1, 1); dummy.updateMatrix(); canIM.setMatrixAt(cn++, dummy.matrix);
+    }
+    dummy.rotation.order = 'XYZ'; canIM.count = canIK.count = cn; canIM.visible = canIK.visible = cn > 0; canIM.instanceMatrix.needsUpdate = true; canIK.instanceMatrix = canIM.instanceMatrix; }
   crIM.forEach(([im, ik], k) => { im.count = ik.count = cnt[k]; im.instanceMatrix.needsUpdate = true; ik.instanceMatrix = im.instanceMatrix; });
 
   // drops: so os 8 mais proximos; geometria baked por id (cache), flutua e gira devagar
@@ -666,7 +697,9 @@ function draw(G) {
       const c = { head: 0xff5c57, torso: 0x9b6a3c, legs: 0x9aa3b5 }[ev.part] || 0x9aa3b5;
       for (let i = 0; i < 5; i++) { const m = brk.find(s => !s.visible) || brk[i]; m.material = cmat(c); m.position.set(p.x, 1, p.y); m.userData = { end: now + 300, vx: (Math.random() - 0.5) * 4, vy: 2 + Math.random() * 2, vz: (Math.random() - 0.5) * 4 }; m.visible = true; }
     } else if (ev.type === 'miss') { for (let i = 0; i < 3; i++) puff(ev.x + (Math.random() - 0.5) * 0.4, 0.1, ev.y + (Math.random() - 0.5) * 0.4, (Math.random() - 0.5) * 1.2, (Math.random() - 0.5) * 1.2, 0.5, 0.7); // poeira onde a bala bateu
-    } else if (ev.type === 'doorHit') doorSh.set(ev.id, now + 300);
+    } else if (ev.type === 'can') canRoll.set(ev.id, { t0: now, x0: ev.x, y0: ev.y });
+    else if (ev.type === 'noise') { const m = nzRings.find(q => !q.visible) || nzRings[0]; m.position.set(ev.x, 0.05, ev.y); m.userData = { t: 0, r: Math.min(ev.r, 12) }; m.scale.setScalar(RM === 1 ? 0.3 * m.userData.r : m.userData.r); m.material.opacity = 0.55; m.visible = true; }
+    else if (ev.type === 'doorHit') doorSh.set(ev.id, now + 300);
     else if (ev.type === 'cut') {
       const t = doorT.get(ev.id), g = padFall.find(q => !q.visible) || padFall[0];
       if (t) { const ax = Math.abs(Math.sin(t.a)) > 0.5 ? 0 : 1; g.position.set(t.x + (ax ? 1.1 : 0), 0.95, t.z + (ax ? 0 : 1.1)); g.userData = { t: 0, vy: 1.5, vx: (Math.random() - 0.5) * 1.2, vz: (Math.random() - 0.5) * 1.2 }; g.scale.setScalar(3.2); g.visible = true; }
@@ -683,6 +716,7 @@ function draw(G) {
   for (const g of padFall) if (g.visible) { const u = g.userData; u.t += dt; u.vy -= 14 * dt; g.position.x += u.vx * dt; g.position.z += u.vz * dt; g.position.y = Math.max(0.05, g.position.y + u.vy * dt); if (g.position.y <= 0.05) { u.vy = 0; u.vx *= 0.8; u.vz *= 0.8; } g.rotation.x += 9 * dt * (g.position.y > 0.06); g.rotation.z += 6 * dt * (g.position.y > 0.06); if (u.t > 1.6) g.visible = false; }
   for (const m of brk) if (m.visible) { const u = m.userData; if (now >= u.end) m.visible = false; else { u.vy -= 14 * dt; m.position.x += u.vx * dt; m.position.y = Math.max(0.05, m.position.y + u.vy * dt); m.position.z += u.vz * dt; m.rotation.x += 8 * dt; m.rotation.z += 6 * dt; } }
   if (flash.visible) { const u = flash.userData; u.t += dt; const k = u.t / 0.35; if (k >= 1) flash.visible = false; else { flash.scale.setScalar(u.r * (0.3 + 0.7 * k)); flash.material.opacity = 0.8 * (1 - k); } }
+  for (const m of nzRings) if (m.visible) { const u = m.userData; u.t += dt; const k = u.t / 0.6; if (k >= 1) m.visible = false; else { m.scale.setScalar(u.r * (RM === 1 ? 0.3 + 0.7 * k : 1)); m.material.opacity = 0.55 * (1 - k); } } // anel de ruido: cresce ate o raio e some em 0,6 s (reduced-motion: ja no raio)
   for (const o of shots) if (o.visible && now >= o.userData.end) o.visible = false;
   for (const o of hits) if (o.visible && now >= o.userData.end) { o.visible = false; o.scale.setScalar(1); }
 
@@ -837,7 +871,7 @@ function demo(canvas, id) {
 }
 
 // toque na tela -> {type,id}|null: raio da camera contra caixas por entidade (moveis, tumbas/baus, portas, drops) a <=2,5 m do jogador
-const FH = { fridge: 1.6, cabinet: 0.9, wardrobe: 1.8, drawer: 0.8, shelf: 1.4, box: 0.5, stove: 0.95, sink: 1.1, bed: 0.6, nightstand: 0.5, toilet: 0.9, medcab: 1.8, sofa: 0.85, bookshelf: 1.8, table: 0.78, box_mercado: 0.5, box_posto: 0.5, box_galpao: 0.5, toolbox_oficina: 0.2, pshelf: 1.5, medcart: 0.9, gunlocker: 1.8, desk: 1, locker: 1.8, sacristy: 1.6 };
+const FH = { corpse: 0.3, fridge: 1.6, cabinet: 0.9, wardrobe: 1.8, drawer: 0.8, shelf: 1.4, box: 0.5, stove: 0.95, sink: 1.1, bed: 0.6, nightstand: 0.5, toilet: 0.9, medcab: 1.8, sofa: 0.85, bookshelf: 1.8, table: 0.78, box_mercado: 0.5, box_posto: 0.5, box_galpao: 0.5, toolbox_oficina: 0.2, pshelf: 1.5, medcart: 0.9, gunlocker: 1.8, desk: 1, locker: 1.8, sacristy: 1.6 };
 function pick(cx, cy) {
   const G = window.G; if (!G || !renderer) return null;
   const r = renderer.domElement.getBoundingClientRect(), p = G.player, ray = new THREE.Raycaster();
@@ -867,5 +901,5 @@ function badMatrices() {
   });
   return bad;
 }
-window.R = { toScreen(x, y, z) { if (!camera || !renderer) return null; const v = new THREE.Vector3(x, y, z).project(camera); if (v.z > 1) return null; const b = renderer.domElement.getBoundingClientRect(); return { x: b.left + (v.x + 1) / 2 * b.width, y: b.top + (1 - v.y) / 2 * b.height }; }, seenN: () => (seenIM && seenIM.visible ? seenIM.count : 0), aimOn: () => !!aimRing && aimRing.visible, zoom(pct) { VIEW_R = 7 * Math.max(50, Math.min(170, +pct || 100)) / 100; if (camera) size(); }, init, draw, pick, icon, spin, demo, info: () => ({ calls: renderer.info.render.calls, verts: lastBake.verts, ms: lastBake.ms, up: lastBake.up }), mem: () => renderer.info.memory.geometries, chunks: () => chunks.size, badMatrices, devOverlay,
+window.R = { toScreen(x, y, z) { if (!camera || !renderer) return null; const v = new THREE.Vector3(x, y, z).project(camera); if (v.z > 1) return null; const b = renderer.domElement.getBoundingClientRect(); return { x: b.left + (v.x + 1) / 2 * b.width, y: b.top + (1 - v.y) / 2 * b.height }; }, seenN: () => (seenIM && seenIM.visible ? seenIM.count : 0), aimOn: () => !!aimRing && aimRing.visible, zoom(pct) { VIEW_R = 7 * Math.max(50, Math.min(170, +pct || 100)) / 100; if (camera) size(); }, init, draw, pick, icon, spin, demo, info: () => ({ bakes, calls: renderer.info.render.calls, verts: lastBake.verts, ms: lastBake.ms, up: lastBake.up }), mem: () => renderer.info.memory.geometries, chunks: () => chunks.size, badMatrices, devOverlay,
   view() { const c = camera, v = new THREE.Vector3(), d = c.userData.d; c.position.set(0, 0.5 + d * Math.sin(EL), d * Math.cos(EL)); c.lookAt(0, 0.5, 0); c.updateMatrixWorld(true); return [[VIEW_R, 0], [-VIEW_R, 0], [0, VIEW_R], [0, -VIEW_R]].map(([x, z]) => { v.set(x, 0, z).project(c); return Math.max(Math.abs(v.x), Math.abs(v.y)); }); } };

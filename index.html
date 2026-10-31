@@ -4,16 +4,16 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
 <title>Zumbilândia</title>
-<meta name="versao" content="7f2f9d1a94">
+<meta name="versao" content="1a51527056">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="icon-192.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#2b2236">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible&display=swap">
 <style>
+  @font-face{font-family:"Atkinson Hyperlegible";font-style:normal;font-weight:400;font-display:swap;src:url(lib/fonts/AtkinsonHyperlegible-Regular.woff2) format("woff2")}
+  @font-face{font-family:"Pixelify Sans";font-style:normal;font-weight:400 700;font-display:swap;src:url(lib/fonts/PixelifySans-Regular.woff2) format("woff2")}
   html,body{margin:0;height:100%;overflow:hidden;background:#000;touch-action:none;user-select:none;-webkit-user-select:none;font-family:monospace;color:#eee}
   #c{position:fixed;inset:0;width:100%;height:100%;image-rendering:pixelated;image-rendering:crisp-edges;touch-action:none}
   #ui{position:fixed;inset:0;padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)}
@@ -64,13 +64,16 @@ CONTRATO (ver PLANO.md):
     document.body.appendChild(errEl); setTimeout(() => errEl.remove(), 15000);
   }
   window.addEventListener('error', (ev) => erro(ev.error || ev));
+  const salva = () => { try { G.save(); } catch (e) {} }; // celular mata aba em segundo plano: salva ao sair
+  window.__salva = salva;
+  addEventListener('pagehide', salva);
   document.addEventListener('visibilitychange', () => {
-    if (document.hidden) { cancelAnimationFrame(raf); raf = 0; return; }
+    if (document.hidden) { salva(); cancelAnimationFrame(raf); raf = 0; return; }
     last = performance.now();
     if (!raf) raf = requestAnimationFrame(loop);
   });
   raf = requestAnimationFrame(loop);
 </script>
-<script>if ('serviceWorker' in navigator && location.protocol === 'https:') { const had = !!navigator.serviceWorker.controller; let rl = false; navigator.serviceWorker.addEventListener('controllerchange', () => { if (had && !rl) { rl = true; location.reload(); } }); navigator.serviceWorker.register('sw.js').then((r) => document.addEventListener('visibilitychange', () => { if (!document.hidden) r.update().catch(() => {}); })).catch(() => {}); }</script>
+<script>if ('serviceWorker' in navigator && location.protocol === 'https:') { const had = !!navigator.serviceWorker.controller; let rl = false; navigator.serviceWorker.addEventListener('controllerchange', () => { if (had && !rl) { rl = true; try { window.__salva && window.__salva(); } catch (e) {} location.reload(); } }); navigator.serviceWorker.register('sw.js').then((r) => document.addEventListener('visibilitychange', () => { if (!document.hidden) r.update().catch(() => {}); })).catch(() => {}); }</script>
 </body>
 </html>
