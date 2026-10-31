@@ -759,13 +759,14 @@
     // BFS em grade 0,25 m com raio 0,4 (mesma regra de free): cada comodo e cada movel alcancaveis a partir de fora da porta
     function reach(hh, st) { // mesma regra de hitHouse, sem alocacao no laco quente (era 70 % do gen)
       const S = 0.25, x0 = hh.x - 1.5, y0 = hh.y - 1.5, nx = Math.ceil((hh.w + 3) / S), ny = Math.ceil((hh.h + 3) / S), seen = new Uint8Array(nx * ny);
-      const sp = hh.parts.filter(q => !q.door), fb = hh.furn.filter(c => c.w).map(cbox), bl = sp.concat(fb);
+      const sp = hh.parts.filter(q => !q.door), fb = hh.furn.filter(c => c.w).map(cbox), bl = sp.concat(fb), blk = new Uint8Array(nx * ny);
+      for (const b of bl) { // pre-rasteriza os bloqueios: cada caixa so testa as celulas do seu retangulo
+        const i0 = Math.max(0, Math.floor((b.x - R - x0) / S) - 1), i1 = Math.min(nx - 1, Math.ceil((b.x + b.w + R - x0) / S)), j0 = Math.max(0, Math.floor((b.y - R - y0) / S) - 1), j1 = Math.min(ny - 1, Math.ceil((b.y + b.h + R - y0) / S));
+        for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) if (!blk[j * nx + i] && inBox(b, x0 + (i + 0.5) * S, y0 + (j + 0.5) * S, R)) blk[j * nx + i] = 1;
+      }
       const ok = (i, j) => {
         if (i < 0 || j < 0 || i >= nx || j >= ny) return false;
-        const x = x0 + (i + 0.5) * S, y = y0 + (j + 0.5) * S;
-        if (!inBox(hh, x, y, R)) return true;
-        for (let k = 0; k < bl.length; k++) if (inBox(bl[k], x, y, R)) return false;
-        return true;
+        return !blk[j * nx + i] || !inBox(hh, x0 + (i + 0.5) * S, y0 + (j + 0.5) * S, R);
       };
       const si = Math.floor((st[0] - x0) / S), sj = Math.floor((st[1] - y0) / S), qu = new Int32Array(nx * ny);
       let qn = 0; qu[qn++] = sj * nx + si; seen[sj * nx + si] = 1;

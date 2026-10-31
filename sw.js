@@ -1,5 +1,5 @@
 // Offline: guarda todos os arquivos do jogo; a versão muda a cada build.
-const CACHE = 'zumbilandia-09d6302367';
+const CACHE = 'zumbilandia-c5f311009b';
 const FILES = ['./', 'index.html', 'game.js', 'ui.js', 'sfx.js', 'render.js', 'modelos.js', 'lib/three.module.min.js', 'manifest.webmanifest', 'icon-192.png', 'icon-512.png'];
 self.addEventListener('install', (e) => { e.waitUntil(caches.open(CACHE).then((c) => c.addAll(FILES))); self.skipWaiting(); });
 self.addEventListener('activate', (e) => {
