@@ -1,8 +1,8 @@
 // Render do Zumbilandia (fase 0.2): three.js pixelado, cenario fundido por chunk. So le G, nunca muta.
 import * as THREE from 'three';
-import { makePlayer, makeZombieParts, makeCar, makeTree, makeFence, makeHouse, makeItem, makeWallSeg, makeRoof, makeMarketRoof, makeDoor, makeFurniture, makeFloor, makeDoorFrame, makeDoorstep, makePadlock, makeProp, outline } from './modelos.js';
+import { makePlayer, makeZombieParts, makeCar, makeTree, makeFence, makeHouse, makeItem, makeWallSeg, makeRoof, makeMarketRoof, makeDoor, makeFurniture, makeFloor, makeDoorFrame, makeDoorstep, makePadlock, makeProp, makeStairs, makeGate, makeSlab, outline } from './modelos.js';
 
-const CH = 40, INK = 0x15121a, SIDES = ['n', 's', 'w', 'e'], LOOKS = [0xa77bd1, 0x5b7bd5, 0x9b6a3c, 0x78a865, 0xd6cfc4, 0xff8c69, 0x4a5266, 0x2f3a6b];
+const ROTY = [0, Math.PI / 2, Math.PI, -Math.PI / 2], CH = 40, INK = 0x15121a, SIDES = ['n', 's', 'w', 'e'], LOOKS = [0xa77bd1, 0x5b7bd5, 0x9b6a3c, 0x78a865, 0xd6cfc4, 0xff8c69, 0x4a5266, 0x2f3a6b, 0xe6f7ff, 0x5b7bd5]; // 8 jaleco, 9 macacao (roupa por lugar; sem call nova)
 const BODY = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true });
 const LINE = new THREE.MeshBasicMaterial({ color: INK, side: THREE.BackSide });
 const cm = new Map(); // materiais so para o bake (a cor vira atributo)
@@ -51,7 +51,9 @@ let lastBake = { verts: 0, ms: 0 };
 let ground; const mkRoof = new Map(); // id do mercado -> [corpo, contorno]
 let zIM, zIK, zParts, plP, zPs = [], eqSig = '000', dPool = [], dCache = new Map(), ring, brk = [], demoRig = null, plRig, tIM, tIK, tSig = '', tList = [], bt = 0, pPh = 0, pPx = 0, pPy = 0, pV = 0, RM = 1, zIMs = [],
    carIM, carIK, crIM = [], roofIM = [], doorIM, roofSig = '', doorA = new Map(), lastDraw = 0, playerPivot, zData = new Map(), frame = 0,
-   doorB, wallIM, padIM, padFall = [], hl, hlG = new Map(), doorT = new Map(), doorSh = new Map(), aimRing, seenIM, crB = [], ZBODY, lookC = [];
+   doorB, wallIM, padIM, padFall = [], hl, hlG = new Map(), doorT = new Map(), doorSh = new Map(), aimRing, seenIM, crB = [], ZBODY, lookC = [], roof2IM = [], gateB, stairB, up = null, cH = 0, wallBase = 0;
+const FLH = 2.4; // altura de um andar (m)
+const stairRy = S => Math.abs(S.h) > Math.abs(S.w) ? (S.ly1 > S.ly0 ? 0 : Math.PI) : (S.lx1 > S.lx0 ? Math.PI / 2 : -Math.PI / 2); // +z do modelo = sentido da subida
 const dummy = new THREE.Object3D(), zR = new THREE.Matrix4(), zM = new THREE.Matrix4(), zB = new THREE.Matrix4(), zQ = new THREE.Quaternion(), zE = new THREE.Euler(), zV = new THREE.Vector3(), zS = new THREE.Vector3(1, 1, 1);
 const shots = [], hits = [], wc0 = new THREE.Color();
 let spillIM, flash, devLn = null, devEl = null, devCh = '', devT = 0, devN = 0, own, ownId = null, lidA = 0, cSm = { x: 0, y: 0, d: 1 }, sPool = [], sT = 0, fireIM, flameIM, flights = [], bottle = null;
@@ -84,17 +86,38 @@ function size() {
 const plane = (g, w, d, c, x, y, z) => { const m = new THREE.Mesh(new THREE.PlaneGeometry(w, d), cmat(c)); m.rotation.x = -Math.PI / 2; m.position.set(x, y, z); g.add(m); };
 const box = (g, w, h, d, c, x, y, z) => { const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), cmat(c)); m.position.set(x, y, z); g.add(m); };
 
-function houseSide(h, roads) { // lado ('w','e','n','s' = -x,+x,-y,+y) com a rua mais proxima
-  let best = 'n', bd = 1e9;
-  for (const r of roads) {
-    const c = [['w', h.x - (r.x + r.w), h.y < r.y + r.h && h.y + h.h > r.y], ['e', r.x - (h.x + h.w), h.y < r.y + r.h && h.y + h.h > r.y],
-      ['n', h.y - (r.y + r.h), h.x < r.x + r.w && h.x + h.w > r.x], ['s', r.y - (h.y + h.h), h.x < r.x + r.w && h.x + h.w > r.x]];
-    for (const [s, d, ok] of c) if (ok && d >= -0.01 && d < bd) { bd = d; best = s; }
-  }
-  // makeHouse: 's' (+z mundo = +y) e 'n' invertidos em relacao ao nome acima
-  return { w: 'w', e: 'e', n: 'n', s: 's' }[best];
+function houseSide(h) { // lado ('w','e','n','s' = -x,+x,-y,+y) com a via mais perto (grade ou way): sonda G.onRoad a partir do meio de cada parede
+  let best = 'n', bd = 20.5;
+  for (const [s, dx, dy] of [['w', -1, 0], ['e', 1, 0], ['n', 0, -1], ['s', 0, 1]])
+    for (let d = 0; d < bd; d += 0.5) if (window.G.onRoad(h.x + h.w / 2 + dx * (h.w / 2 + d), h.y + h.h / 2 + dy * (h.h / 2 + d))) { bd = d; best = s; break; }
+  return best;
 }
-
+// tira de quad ao longo da polilinha pts (largura 2*hw, y fixo): normais medias nos vertices => sem frestas nas curvas; cor via material (collect)
+function stripMesh(pts, hw, y, c) {
+  const v = [], L = [], R = [];
+  pts.forEach((p, i) => {
+    const a = pts[Math.max(0, i - 1)], b = pts[Math.min(pts.length - 1, i + 1)], dx = b[0] - a[0], dz = b[1] - a[1], l = Math.hypot(dx, dz) || 1, nx = -dz / l, nz = dx / l;
+    L.push([p[0] + nx * hw, p[1] + nz * hw]); R.push([p[0] - nx * hw, p[1] - nz * hw]);
+  });
+  for (let i = 0; i + 1 < pts.length; i++) for (const q of [[L[i], L[i + 1], R[i]], [R[i], L[i + 1], R[i + 1]]]) for (const p of q) v.push(p[0], y, p[1]);
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(v), 3));
+  return new THREE.Mesh(g, cmat(c));
+}
+// tracejado: pedacos de 1,2 m a cada 2,4 m de arco (uma malha so)
+function dashMesh(pts, y, c) {
+  const v = []; let acc = 0;
+  for (let i = 0; i + 1 < pts.length; i++) {
+    const [x0, z0] = pts[i], [x1, z1] = pts[i + 1], l = Math.hypot(x1 - x0, z1 - z0); if (!l) continue;
+    const dx = (x1 - x0) / l, dz = (z1 - z0) / l;
+    for (let t = (2.4 - acc % 2.4) % 2.4; t + 1.2 <= l; t += 2.4) {
+      const ax = x0 + dx * t, az = z0 + dz * t, bx = ax + dx * 1.2, bz = az + dz * 1.2, nx = -dz * 0.075, nz = dx * 0.075;
+      for (const p of [[ax + nx, az + nz], [bx + nx, bz + nz], [ax - nx, az - nz], [ax - nx, az - nz], [bx + nx, bz + nz], [bx - nx, bz - nz]]) v.push(p[0], y, p[1]);
+    }
+    acc += l;
+  }
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(v), 3));
+  return new THREE.Mesh(g, cmat(c));
+}
 const warned = new Set(); // kind sem modelo cai em 'box' (um aviso por kind), nunca lanca
 function furn(kind, o) { try { return makeFurniture(kind, o); } catch (_) { if (!warned.has(kind)) { warned.add(kind); console.warn('movel sem modelo, usando box: ' + kind); } return makeFurniture('box', o); } }
 // frente do movel (+z local) para longe da parede onde encosta (c.wall 0=-y,1=+y,2=-x,3=+x); livre (-1): para o centro do comodo
@@ -102,55 +125,65 @@ const WALL_RY = [0, Math.PI, Math.PI / 2, -Math.PI / 2];
 function furnRy(c, hs) {
   if (c.wall >= 0) return WALL_RY[c.wall];
   const h = hs.find(q => c.x >= q.x && c.x <= q.x + q.w && c.y >= q.y && c.y <= q.y + q.h);
-  const m = h && ((h.rooms || []).find(q => c.x >= q.x0 && c.x <= q.x1 && c.y >= q.y0 && c.y <= q.y1) || { x0: h.x, y0: h.y, x1: h.x + h.w, y1: h.y + h.h });
+  const m = h && ((h.rooms || []).find(q => (q.floor || 0) === (c.floor || 0) && c.x >= q.x0 && c.x <= q.x1 && c.y >= q.y0 && c.y <= q.y1) || { x0: h.x, y0: h.y, x1: h.x + h.w, y1: h.y + h.h });
   if (!m) return 0;
   const dx = (m.x0 + m.x1) / 2 - c.x, dy = (m.y0 + m.y1) / 2 - c.y;
   if (Math.abs(dx) < 0.05 && Math.abs(dy) < 0.05) return 0;
   return Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? Math.PI / 2 : -Math.PI / 2) : (dy > 0 ? 0 : Math.PI);
 }
 function buildChunk(cx, cy, src) {
-  const g = new THREE.Group(), ox = cx * CH, oy = cy * CH, SP = [[6, 20], [26, 40]], dst = [];
+  const g = new THREE.Group(), ox = cx * CH, oy = cy * CH, dst = [];
+  const rural = src.zone === 'rural';
   plane(g, CH, CH, 0x8fd16a, ox + 20, 0, oy + 20);
-  SP.forEach(([a], i) => SP.forEach(([b], j) => { if (((i + j + cx + cy) & 1) === 0) plane(g, 14, 14, 0x86c763, ox + a + 7, 0.005, oy + b + 7); }));
+  if (rural) plane(g, 20, 20, 0x86c763, ox + 10 + 20 * ((cx + cy) & 1), 0.005, oy + 10 + 20 * (cx & 1)); // pasto: mancha de 20 m (tom alternado da grama)
+  else for (const B of src.lots) { // quadras alternam o tom da grama (recortadas no chunk)
+    const x0 = Math.max(B.x, ox), x1 = Math.min(B.x + B.w, ox + CH), y0 = Math.max(B.y, oy), y1 = Math.min(B.y + B.h, oy + CH);
+    if (((B.i + B.j) & 1) === 0 && x1 - x0 > 0.1 && y1 - y0 > 0.1) plane(g, x1 - x0, y1 - y0, 0x86c763, (x0 + x1) / 2, 0.005, (y0 + y1) / 2);
+  }
   for (const r of src.roads) plane(g, r.w, r.h, 0x5e5b6b, r.x + r.w / 2, 0.01, r.y + r.h / 2);
-  for (const k of [0, 20]) for (const [a, b] of SP) for (const hz of [0, 1]) {
-    const mid = (a + b) / 2, len = b - a;
-    const X = hz ? ox + mid : ox + k, Y = hz ? oy + k : oy + mid;
-    for (const s of [-0.3, 6.3]) { // calcada 5 cm, 0,6 m de largura, nas duas bordas
-      const o = s < 0 ? -0.3 : 6.3;
-      if (hz) box(g, len, 0.05, 0.6, 0xd6cfc4, X, 0.025, oy + k + o); else box(g, 0.6, 0.05, len, 0xd6cfc4, ox + k + o, 0.025, Y);
-    }
-    for (let t = a + 0.6; t + 1.2 <= b; t += 2.4) { // faixa central tracejada
-      if (hz) plane(g, 1.2, 0.15, 0xf2d16b, ox + t + 0.6, 0.02, oy + k + 3); else plane(g, 0.15, 1.2, 0xf2d16b, ox + k + 3, 0.02, oy + t + 0.6);
-    }
+  for (const w of src.ways) g.add(stripMesh(w.pts, w.w / 2 + 1.2, 0.008, 0xd6cfc4), stripMesh(w.pts, w.w / 2, 0.01, 0x5e5b6b), dashMesh(w.pts, 0.02, 0xf2d16b)); // estrada: calcada, asfalto, faixa tracejada
+  const bal = src.props.filter(q => q.balao);
+  for (const r of src.roads) { // calcada (5 cm, 0,6 m fora do asfalto) e faixa central tracejada, so fora dos cruzamentos (e do balao)
+    const hz = r.w >= r.h, a0 = hz ? r.x : r.y, a1 = hz ? r.x + r.w : r.y + r.h, c0 = hz ? r.y : r.x, wd = hz ? r.h : r.w, mid = c0 + wd / 2;
+    const cuts = e => src.roads.filter(o => o !== r && (hz ? o.y < e && o.y + o.h > e : o.x < e && o.x + o.w > e)).map(o => hz ? [o.x, o.x + o.w] : [o.y, o.y + o.h]);
+    const free = (e, ex = []) => { const out = []; let s = a0; for (const [p, q] of cuts(e).concat(ex).sort((u, v) => u[0] - v[0])) { if (p > s) out.push([s, p]); s = Math.max(s, q); } if (s < a1) out.push([s, a1]); return out; };
+    for (const e of [c0 - 0.3, c0 + wd + 0.3]) for (const [s, t] of free(e)) if (t - s > 0.2) { if (hz) box(g, t - s, 0.05, 0.6, 0xd6cfc4, (s + t) / 2, 0.025, e); else box(g, 0.6, 0.05, t - s, 0xd6cfc4, e, 0.025, (s + t) / 2); }
+    for (const [s, t] of free(mid, bal.filter(b => Math.abs((hz ? b.y : b.x) - mid) < 0.6).map(b => hz ? [b.x - 7, b.x + 7] : [b.y - 7, b.y + 7]))) if (t - s > 1.2) g.add(dashMesh(hz ? [[s, mid], [t, mid]] : [[mid, s], [mid, t]], 0.02, 0xf2d16b));
+  }
+  for (const b of bal) { // balao: meio-fio em volta do canteiro e faixa circular tracejada (o asfalto ja e o cruzamento)
+    const ring = (r0, r1, y, c) => { const m = new THREE.Mesh(new THREE.RingGeometry(r0, r1, 28), cmat(c)); m.rotation.x = -Math.PI / 2; m.position.set(b.x, y, b.y); g.add(m); };
+    ring(2.1, 2.6, 0.03, 0xd6cfc4);
+    g.add(dashMesh(Array.from({ length: 21 }, (_, i) => [b.x + Math.cos(i / 20 * 6.2832) * 4.6, b.y + Math.sin(i / 20 * 6.2832) * 4.6]), 0.02, 0xf2d16b));
   }
   for (const h of src.houses) {
     if (h.parts) { // interior: chao + base 0,8 m das paredes (portas ficam de fora, sao instanciadas)
-      const f = makeFloor(h.w, h.h); f.position.set(h.x + h.w / 2, 0, h.y + h.h / 2); g.add(f);
+      for (const m of h.rooms.filter(m => !m.floor)) { const f = makeFloor(m.x1 - m.x0, m.y1 - m.y0); f.position.set((m.x0 + m.x1) / 2, 0, (m.y0 + m.y1) / 2); g.add(f); } // chao por comodo (L: o recorte fica sem piso)
       for (const d of h.doors) { // batente + soleira/capacho voltados para fora; so a folha e instanciada
-        const ax = d.w >= d.h, o = ax ? (d.y < h.y + h.h / 2 ? -1 : 1) : (d.x < h.x + h.w / 2 ? -1 : 1), wc = h.kind === 'market' ? 0xd6cfc4 : WALL[h.pal], L = Math.max(d.w, d.h);
+        const ax = d.w >= d.h, o = ax ? (d.y < h.y + h.h / 2 ? -1 : 1) : (d.x < h.x + h.w / 2 ? -1 : 1), wc = h.sign ? 0xd6cfc4 : WALL[h.pal], L = Math.max(d.w, d.h);
         const x = ax ? (o < 0 ? d.x + d.w : d.x) : d.x + d.w / 2, z = ax ? d.y + d.h / 2 : (o < 0 ? d.y : d.y + d.h), ry = ax ? (o < 0 ? Math.PI : 0) : (o < 0 ? -Math.PI / 2 : Math.PI / 2);
-        dst.push([wc, L, x, z, ry]);
+        dst.push([wc, L, x, z, ry, d.gate]);
       }
       for (const p of h.parts) {
-        if (p.door) continue;
-        const m = makeWallSeg(Math.max(p.w, p.h), 0.8, 0.2, h.kind === 'market' ? 0xd6cfc4 : WALL[h.pal]); m.position.set(p.x + p.w / 2, 0, p.y + p.h / 2); if (p.h > p.w) m.rotation.y = Math.PI / 2; g.add(m);
+        if (p.door || p.floor) continue;
+        const m = makeWallSeg(Math.max(p.w, p.h), 0.8, 0.2, h.sign ? 0xd6cfc4 : WALL[h.pal]); m.position.set(p.x + p.w / 2, 0, p.y + p.h / 2); if (p.h > p.w) m.rotation.y = Math.PI / 2; g.add(m);
       }
       continue;
     }
-    const s = houseSide(h, src.roads), K = 1.6, sw = s === 'e' || s === 'w';
+    const s = houseSide(h), K = 1.6, sw = s === 'e' || s === 'w';
     const m = makeHouse((sw ? h.h : h.w) / K, (sw ? h.w : h.h) / K, s);
     m.scale.setScalar(K); m.position.set(h.x + h.w / 2, 0, h.y + h.h / 2); g.add(m);
   }
   // arvores: InstancedMesh unico (tronco+copa, 2 calls) balancando inteiro, mais barato que separar a copa
   for (const e of src.fences) { const hz = e.w >= e.h, m = makeFence(Math.max(e.w, e.h)); m.position.set(e.x + e.w / 2, 0, e.y + e.h / 2); if (!hz) m.rotation.y = Math.PI / 2; g.add(m); }
   const P = [[], []], C = []; collect(g, P, C);
-  for (const [wc, L, x, z, ry] of dst) { stamp(P, C, 'fr' + wc + L, () => makeDoorFrame(L, 2.0, wc), x, 0, z, ry); stamp(P, C, 'st' + L, () => makeDoorstep(L), x, 0, z, ry); }
-  for (const q of src.props) { const k = q.kind === 'pole' ? 'lamp' : q.kind; try { stamp(P, C, 'p' + k, () => makeProp(k), q.x, 0, q.y, q.a || 0); } catch (_) {} }
+  for (const [wc, L, x, z, ry, gt] of dst) { stamp(P, C, 'fr' + wc + L, () => makeDoorFrame(L, 2.0, wc), x, 0, z, ry); if (!gt) stamp(P, C, 'st' + L, () => makeDoorstep(L), x, 0, z, ry); }
+  for (const h of src.houses) if (h.stairs) { const S = h.stairs; stamp(P, C, 'stairs', makeStairs, S.x + S.w / 2, 0, S.y + S.h / 2, stairRy(S)); } // escada do sobrado (o topo encosta na laje do andar 1)
+  for (const q of src.props) { const k = q.kind === 'pole' ? 'lamp' : q.kind === 'canteiro' && q.balao ? 'canteiro_g' : q.kind; try { stamp(P, C, 'p' + k, () => makeProp(k), q.x, 0, q.y, q.a || 0); } catch (_) {} }
+  for (const t of src.tanks) stamp(P, C, 'ptank', () => makeProp('tank'), t.x, 0, t.y, 0); // tampa do tanque do posto
   for (const c of src.crates) { // moveis (cache por kind+estado); frente aponta para o centro do lote
-    if (!c.w) continue;
+    if (!c.w || c.floor) continue; // andar 1: so no mesh preguicoso
     const op = !!c.opened && !c.scenery && c.kind !== 'register'; // cenario e caixa registradora nunca aparecem vasculhados
-    stamp(P, C, c.kind + (op ? '+' : '-'), () => furn(c.kind, { open: op }), c.x, 0, c.y, furnRy(c, src.houses));
+    stamp(P, C, c.kind + (op ? '+' : c.locked ? 'L' : '-'), () => furn(c.kind, { open: op, locked: !!c.locked }), c.x, 0, c.y, furnRy(c, src.houses));
   }
   const b = geoms(P, C), [bm, im] = pair(b);
   lastBake.verts = (b.body.attributes.position.count + b.ink.attributes.position.count);
@@ -163,7 +196,7 @@ const only = (l, k) => l.filter(e => e.ch === k);
 let seenGen = -1, queue = [];
 function mkChunk(G, k, sig) {
   const t0 = performance.now(), [cx, cy] = k.split(',').map(Number);
-  const group = buildChunk(cx, cy, { roads: only(G.roads, k), houses: only(G.houses, k), trees: only(G.trees, k), fences: only(G.fences, k), crates: only(G.crates, k), props: only(G.props || [], k) });
+  const group = buildChunk(cx, cy, { zone: G.zone(cx * CH + 20, cy * CH + 20).zona, ways: only(G.ways, k), roads: only(G.roads, k), houses: only(G.houses, k), trees: only(G.trees, k), fences: only(G.fences, k), crates: only(G.crates, k), props: only(G.props || [], k), tanks: only(G.tanks, k), lots: G.layout(cx, cy).lots });
   lastBake.ms = performance.now() - t0;
   scene.add(group); chunks.set(k, { group, sig });
 }
@@ -174,7 +207,7 @@ function syncChunks(G) {
     for (const [k, c] of chunks) if (!want.has(k)) { free(c); chunks.delete(k); }
     queue = G.loaded.filter(k => !chunks.has(k));
   }
-  const op = {}; for (const c of G.crates) if (c.w && c.opened) op[c.ch] = (op[c.ch] || 0) + c.id + 1;
+  const op = {}; for (const c of G.crates) if (c.w && (c.opened || c.locked)) op[c.ch] = (op[c.ch] || 0) + c.id + (c.locked ? 'L' : 1); // vasculhado ou cadeado cortado: rebake
   for (const [k, c] of chunks) if ((op[k] || 0) !== c.sig) { free(c); mkChunk(G, k, op[k] || 0); return; } // movel vasculhado: rebake do chunk
   if (!queue.length) return;
   const p = G.player, dist = k => { const [x, y] = k.split(',').map(Number); return (x * CH + CH / 2 - p.x) ** 2 + (y * CH + CH / 2 - p.y) ** 2; };
@@ -263,6 +296,7 @@ function pose(rig, mv, act, t, k) {
   else if (act === 'search') { const w = Math.sin(t * 14); P.armL.rotation.x = -1 + 0.5 * w; P.armR.rotation.x = -1 - 0.5 * w; P.body.rotation.x = 0.15; }
   else if (act === 'eat') P.armR.rotation.x = -2.3 * sm(u(0.2)) + 0.15 * Math.sin(t * 20);
   else if (act === 'heal') { P.armL.rotation.x = -1.3 * sm(u(0.2)); P.armR.rotation.x = -1 * sm(u(0.2)) + 0.2 * Math.sin(t * 14); }
+  else if (act === 'stairs') { const w = Math.sin(t * 14); P.legL.rotation.x = -0.9 * Math.max(0, w); P.legR.rotation.x = -0.9 * Math.max(0, -w); P.armL.rotation.x = 0.5 * w; P.armR.rotation.x = -0.5 * w; P.body.position.y += 0.05 * Math.abs(w); P.body.rotation.x = 0.12; }
   else if (act === 'equip') { const e = Math.sin(Math.PI * u(0.2)); playerG.scale.setScalar(1 + 0.1 * e); playerG.position.y = 0.12 * e; }
   else if (act === 'pick' || act === 'drop') { const e = Math.sin(Math.PI * u(0.4)); P.body.rotation.x = 0.6 * e; P.armL.rotation.x = P.armR.rotation.x = -0.8 * e; }
   else if (act === 'craft') { P.armL.rotation.x = -1.1 + 0.3 * Math.sin(t * 16); P.armR.rotation.x = -1.1 - 0.3 * Math.sin(t * 16); }
@@ -303,6 +337,8 @@ function init(canvas) {
   // telhado por paleta x lado da porta: a fachada do lado da porta e removida do modelo (vira 3 pecas em wallIM com vao de 2,0 m)
   const SIDEF = { n: p => p.z < -2.85, s: p => p.z > 2.85, w: p => p.x < -2.85, e: p => p.x > 2.85 };
   roofIM = [0, 1, 2].map(i => SIDES.map(sd => { const m = makeRoof(6, 6, 'ABC'[i]); for (const c of [...m.children]) if (SIDEF[sd](c.position)) m.remove(c); const r = instanced(m, 64); r[0].visible = r[1].visible = false; return r; }));
+  roof2IM = [0, 1, 2].map(i => SIDES.map(sd => { const m = makeRoof(6, 6, 'ABC'[i], 2); for (const c of [...m.children]) if (SIDEF[sd](c.position)) m.remove(c); const r = instanced(m, 16); r[0].visible = r[1].visible = false; return r; })); // casca de 2 andares (sobrado)
+  gateB = bake(makeGate(2.4)); stairB = bake(makeStairs()); // portao instanciado na wallIM (0 calls extras); gateB so no destaque
   wallIM = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1).translate(0, 0.5, 0).setAttribute('color', new THREE.BufferAttribute(new Float32Array(72).fill(1), 3)), BODY, 256);
   wallIM.frustumCulled = false; wallIM.count = 0; wallIM.setColorAt(0, new THREE.Color(1, 1, 1)); scene.add(wallIM);
   doorB = bake(makeDoor(1.4)); doorIM = instanced(doorB, 128);
@@ -382,35 +418,51 @@ function draw(G) {
   // A base 0,8 m fica (interior visivel sem sumir a parede sul); a porta e engrossada 3 cm para cobrir a faixa acima do vao.
   const rs = G.chunkGen + '|' + chunks.size + '|' + p.inside;
   if (rs !== roofSig) {
-    roofSig = rs; const rn = new Array(12).fill(0), keep = new Set(); let wn = 0; const wc = new THREE.Color();
+    roofSig = rs; const rn = new Array(24).fill(0), keep = new Set(); let wn = 0; const wc = new THREE.Color();
     const piece = (col, x0, x1, z0, z1, y0, hh) => { if (wn >= 256 || x1 - x0 < 0.01 || z1 - z0 < 0.01) return; place(wallIM, wn, (x0 + x1) / 2, y0, (z0 + z1) / 2, 0, x1 - x0, hh, z1 - z0); wallIM.setColorAt(wn++, wc.set(col)); };
     for (const h of G.houses) {
-      if (!h.parts || !chunks.has(h.ch)) continue;
+      if (!h.parts || h.open || !chunks.has(h.ch)) continue; // open: patio do posto, sem telhado
       const s = h.id === p.inside ? 0 : 1;
-      if (h.kind === 'market') { // um objeto (2 calls) por mercado, criado sob demanda
+      if (h.sign) { // telhado plano com letreiro: um objeto (2 calls) por landmark, criado sob demanda (desenhado com a porta ao sul e girado por rot)
         keep.add(h.id); let e = mkRoof.get(h.id);
-        if (!e) { const dx = h.doors.reduce((a, q) => a + q.x + q.w / 2, 0) / h.doors.length - (h.x + h.w / 2); e = instanced(makeMarketRoof(h.w, h.h, dx), 1); e[0].count = e[1].count = 1; e[1].instanceMatrix = e[0].instanceMatrix; mkRoof.set(h.id, e); }
-        place(e[0], 0, h.x + h.w / 2, 0, h.y + h.h / 2, 0, s, s, s); e[0].instanceMatrix.needsUpdate = true; continue;
+        if (!e) { e = instanced(makeMarketRoof(h.cw, h.cd, h.dx, h.sign), 1); e[0].count = e[1].count = 1; e[1].instanceMatrix = e[0].instanceMatrix; mkRoof.set(h.id, e); }
+        place(e[0], 0, h.x + h.w / 2, 0, h.y + h.h / 2, ROTY[h.rot || 0], s, s, s); e[0].instanceMatrix.needsUpdate = true; continue;
       }
-      const d = h.doors[0], ax = d.w >= d.h, si = ax ? (d.y < h.y + h.h / 2 ? 0 : 1) : (d.x < h.x + h.w / 2 ? 2 : 3), ri = h.pal * 4 + si;
-      if (rn[ri] >= 64) continue;
-      place(roofIM[h.pal][si][0], rn[ri]++, h.x + h.w / 2, 0, h.y + h.h / 2, 0, s * h.w / 6, s, s * h.h / 6);
-      if (!s) continue;
-      const col = WALL[h.pal], t = Math.min(d.w, d.h);
-      if (ax) { piece(col, h.x, d.x, d.y, d.y + t, 0.8, 1.4); piece(col, d.x + d.w, h.x + h.w, d.y, d.y + t, 0.8, 1.4); piece(col, d.x, d.x + d.w, d.y, d.y + t, 2.0, 0.2); }
-      else { piece(col, d.x, d.x + t, h.y + t, d.y, 0.8, 1.4); piece(col, d.x, d.x + t, d.y + d.h, h.y + h.h - t, 0.8, 1.4); piece(col, d.x, d.x + t, d.y, d.y + d.h, 2.0, 0.2); }
+      const two = h.stairs ? 12 : 0, hh = h.stairs ? 3.8 : 1.4, gt = h.doors.find(q => q.gate);
+      const vols = h.wing ? [Object.assign({ d: h.doors[0] }, h.main), Object.assign({ d: gt || null, sh: h.wing.sh }, h.wing)] : [{ x: h.x, y: h.y, w: h.w, h: h.h, d: h.doors[0] }]; // L/garagem: um telhado por volume
+      for (const v of vols) {
+        const d = v.d, ax = d && d.w >= d.h, si = d ? (ax ? (d.y < v.y + v.h / 2 ? 0 : 1) : (d.x < v.x + v.w / 2 ? 2 : 3)) : { y1: 1, y0: 0, x1: 3, x0: 2 }[v.sh], ri = two + h.pal * 4 + si;
+        if (rn[ri] >= (two ? 16 : 64)) continue;
+        place((two ? roof2IM : roofIM)[h.pal][si][0], rn[ri]++, v.x + v.w / 2, 0, v.y + v.h / 2, 0, s * v.w / 6, s, s * v.h / 6);
+        if (!s || !d) continue;
+        const col = WALL[h.pal], t = Math.min(d.w, d.h);
+        if (ax) { piece(col, v.x, d.x, d.y, d.y + t, 0.8, hh); piece(col, d.x + d.w, v.x + v.w, d.y, d.y + t, 0.8, hh); piece(col, d.x, d.x + d.w, d.y, d.y + t, 2.0, hh - 1.2); }
+        else { piece(col, d.x, d.x + t, v.y + t, d.y, 0.8, hh); piece(col, d.x, d.x + t, d.y + d.h, v.y + v.h - t, 0.8, hh); piece(col, d.x, d.x + t, d.y, d.y + d.h, 2.0, hh - 1.2); }
+      }
     }
     for (const [id, e] of mkRoof) if (!keep.has(id)) { scene.remove(...e); e[0].geometry.dispose(); e[1].geometry.dispose(); mkRoof.delete(id); }
-    roofIM.forEach((r, pi) => r.forEach(([im, ik], si) => { const c = rn[pi * 4 + si]; im.count = ik.count = c; im.visible = ik.visible = c > 0; im.instanceMatrix.needsUpdate = true; ik.instanceMatrix = im.instanceMatrix; }));
-    wallIM.count = wn; wallIM.visible = wn > 0; wallIM.instanceMatrix.needsUpdate = true; if (wallIM.instanceColor) wallIM.instanceColor.needsUpdate = true;
+    [roofIM, roof2IM].forEach((R2, j) => R2.forEach((r, pi) => r.forEach(([im, ik], si) => { const c = rn[j * 12 + pi * 4 + si]; im.count = ik.count = c; im.visible = ik.visible = c > 0; im.instanceMatrix.needsUpdate = true; ik.instanceMatrix = im.instanceMatrix; })));
+    wallBase = wn; wallIM.count = wn; wallIM.visible = wn > 0; wallIM.instanceMatrix.needsUpdate = true; if (wallIM.instanceColor) wallIM.instanceColor.needsUpdate = true;
   }
   // portas: pivo na dobradica, giram 90 graus PARA DENTRO da casa em 150 ms; cadeado dourado na altura da macaneta (pulsa a <6 m)
-  let dn = 0, ln = 0; doorT.clear();
+  let dn = 0, ln = 0, gn = 0; doorT.clear();
   for (const h of G.houses) {
     if (!h.parts || !chunks.has(h.ch)) continue;
     for (const d of h.doors) {
       if (dn >= 128) break;
       const ax = d.w >= d.h, hx = h.x + h.w / 2, hy = h.y + h.h / 2;
+      if (d.gate) { // portao: painel enrola para cima (escala Y presa ao topo) em 0,3 s
+        let u = doorA.get(d.id); if (u === undefined) u = d.open ? 1 : 0; u += Math.max(-dtm / 300, Math.min(dtm / 300, (d.open ? 1 : 0) - u)); doorA.set(d.id, u);
+        const Lg = Math.max(d.w, d.h), tg = { x: ax ? d.x : d.x + d.w / 2, z: ax ? d.y + d.h / 2 : d.y, a: ax ? 0 : -Math.PI / 2, sx: Lg / 2.4, sy: 1 - 0.92 * sm(u), sz: 1, gate: true };
+        doorT.set(d.id, tg);
+        if (wallBase + gn * 5 + 5 <= 256) { // painel + 4 frisos como pecas da wallIM (so cor, sem contorno), a 2,0 m de altura e enrolando para o topo
+          const sy = tg.sy, cx = ax ? d.x + Lg / 2 : d.x + d.w / 2, cz = ax ? d.y + d.h / 2 : d.y + Lg / 2, i = wallBase + gn * 5;
+          place(wallIM, i, cx, 2.0 - 2.0 * sy, cz, tg.a, Lg, 2.0 * sy, 0.12); wallIM.setColorAt(i, wc0.set(0xeab26a));
+          [0.4, 0.85, 1.3, 1.75].forEach((k, j) => { place(wallIM, i + 1 + j, cx, 2.0 - k * sy - 0.025, cz, tg.a, Lg - 0.1, 0.05, 0.16); wallIM.setColorAt(i + 1 + j, wc0.set(0x6e4422)); });
+          gn++;
+        }
+        continue;
+      }
       const a0 = ax ? 0 : -Math.PI / 2, o1 = !d.open ? a0 : ax ? (d.y < hy ? -Math.PI / 2 : Math.PI / 2) : (d.x < hx ? 0 : -Math.PI), a1 = d.broken ? a0 + (o1 - a0) * 0.7 : o1; // quebrada: pendurada torta, nunca fecha
       let a = doorA.get(d.id); if (a === undefined) a = a1;
       const st = dtm * Math.PI / 300; a += Math.max(-st, Math.min(st, a1 - a)); doorA.set(d.id, a);
@@ -424,21 +476,36 @@ function draw(G) {
       }
     }
   }
+  wallIM.count = wallBase + gn * 5; wallIM.visible = wallIM.count > 0; wallIM.instanceMatrix.needsUpdate = true; if (wallIM.instanceColor) wallIM.instanceColor.needsUpdate = true;
   doorIM[0].count = doorIM[1].count = dn; doorIM[0].instanceMatrix.needsUpdate = true; doorIM[1].instanceMatrix = doorIM[0].instanceMatrix;
   padIM[0].count = padIM[1].count = Math.min(ln, 128); padIM[0].visible = padIM[1].visible = ln > 0; padIM[0].instanceMatrix.needsUpdate = true; padIM[1].instanceMatrix = padIM[0].instanceMatrix;
   if (padIM[0].instanceColor) padIM[0].instanceColor.needsUpdate = true;
 
+  // andar 1 (sobrado): 1 mesh baked sob demanda (paredes, moveis, laje com furo), so ao chegar na escada; visivel so com o jogador la em cima; descartado ao sair da casa
+  { const wantUp = p.floor ? p.inside : p.near && p.near.type === 'stairs' ? p.near.id : null, uh = wantUp && G.houses.find(h => h.id === wantUp && h.stairs), fc = uh ? G.crates.filter(c => c.floor && c.ch === uh.ch) : [], us = uh ? uh.id + '|' + fc.reduce((a, c) => a + (c.opened ? 1 : 0), 0) : null;
+    if ((up && up.sig) !== us) {
+      if (up) { scene.remove(up.g); up.g.children.forEach(m => m.geometry.dispose()); up = null; }
+      if (uh) {
+        const g = new THREE.Group(), P = [[], []], C = [], cx = uh.x + uh.w / 2, cz = uh.y + uh.h / 2, S = uh.stairs, t0 = performance.now();
+        const sl = makeSlab(uh.w, uh.h, { x: S.x + S.w / 2 - cx, z: S.y + S.h / 2 - cz, w: S.w, d: S.h }); sl.position.set(cx, FLH, cz); g.add(sl);
+        for (const q of uh.parts) if (q.floor) { const m = makeWallSeg(Math.max(q.w, q.h), 0.8, 0.2, WALL[uh.pal]); m.position.set(q.x + q.w / 2, FLH, q.y + q.h / 2); if (q.h > q.w) m.rotation.y = Math.PI / 2; g.add(m); }
+        collect(g, P, C);
+        for (const c of fc) if (c.w) { const op = !!c.opened && !c.scenery; stamp(P, C, c.kind + (op ? '+' : '-'), () => furn(c.kind, { open: op }), c.x, FLH, c.y, furnRy(c, G.houses)); }
+        const b = geoms(P, C), o = new THREE.Group(); o.add(...pair(b)); scene.add(o); up = { id: uh.id, sig: us, g: o }; lastBake.up = performance.now() - t0;
+      }
+    }
+    if (up) up.g.visible = !!p.floor; }
   ground.position.set(p.x, -0.01, p.y);
   const bk = p.equip && p.equip.back && p.equip.back.id || null;
   const es = ['head', 'torso', 'legs'].map(k => p.equip && p.equip[k] ? 1 : 0).join('') + (bk || '');
   if (es !== eqSig) { eqSig = es; buildPlayer({ head: es[0] === '1', torso: es[1] === '1', legs: es[2] === '1' }, bk); }
-  playerG.visible = !p.car; playerG.position.set(p.x, 0, p.y); playerG.rotation.y = Math.PI / 2 - p.dir; animPlayer(p, dtm / 1000);
+  playerG.visible = !p.car; playerG.position.set(p.x, 0, p.y); playerG.rotation.y = Math.PI / 2 - p.dir; animPlayer(p, dtm / 1000); playerG.position.y += FLH * (p.floor || 0);
   const ja = p.action && p.action.type === 'jump' ? p.action : null;
   if (ja && p.anim && p.anim.act === 'jump') { const u = Math.min(1, p.anim.t / 0.6); playerG.position.x = ja.x0 + (ja.x1 - ja.x0) * u; playerG.position.z = ja.y0 + (ja.y1 - ja.y0) * u; }
 
   // zumbis: 3 InstancedMesh (body, legL, legR) + contorno; so <=20 m recalcula a pose, os outros so a posicao
   let n = 0; const dt = dtm / 1000, seen = new Set(), cn = [0, 0];
-  const poseZ = (id, x, y, anim, ang, sc, pol, run, look) => {
+  const poseZ = (id, x, y, anim, ang, sc, pol, run, look, fh = 0) => {
     const k = +id || [...String(id)].reduce((h, c) => (h * 31 + c.charCodeAt(0)) % 9973, 7); // id 'p:12' (zumbi de spawn) em id*1.7 dava NaN: matriz do corpo NaN, so as pernas apareciam
     const S = pol ? zPs : zIMs, n = cn[pol ? 1 : 0]++;
     let d = zData.get(id); if (!d) zData.set(id, d = { a: ang, ph: k * 1.7, sw: 0, ro: 0, ln: 0, fw: 0, f });
@@ -453,20 +520,22 @@ function draw(G) {
       else if (act === 'hit') { d.ln = 0.5; d.fw = 0.25 + 0.1 * Math.sin(t * 22); }
     }
     const e = act === 'dead' ? sm(Math.min(1, t / 0.5)) : 0;
-    dummy.position.set(x, 0.25 * e + (act === 'climb' ? 0.35 + 0.08 * Math.sin(t * 8) : 0), y); dummy.rotation.set(0, d.a, -Math.PI / 2 * e); dummy.scale.setScalar(sc); dummy.updateMatrix();
+    dummy.position.set(x, fh + 0.25 * e + (act === 'climb' ? 0.35 + 0.08 * Math.sin(t * 8) : 0), y); dummy.rotation.set(0, d.a, -Math.PI / 2 * e); dummy.scale.setScalar(sc); dummy.updateMatrix();
     zR.copy(dummy.matrix);
-    zQ.setFromEuler(zE.set(d.ln, 0, d.ro)); zM.compose(zV.set(0, 0.55, d.fw), zQ, zS); S[0][0].setMatrixAt(n, zB.multiplyMatrices(zR, zM)); if (!pol) S[0][0].setColorAt(n, lookC[d.lk & 7]);
+    zQ.setFromEuler(zE.set(d.ln, 0, d.ro)); zM.compose(zV.set(0, 0.55, d.fw), zQ, zS); S[0][0].setMatrixAt(n, zB.multiplyMatrices(zR, zM)); if (!pol) S[0][0].setColorAt(n, lookC[d.lk]);
     for (let i = 1; i < 3; i++) { zQ.setFromEuler(zE.set(i === 1 ? d.sw : -d.sw, 0, 0)); zM.compose(zV.set(i === 1 ? -0.15 : 0.15, 0.55, 0), zQ, zS); S[i][0].setMatrixAt(n, zB.multiplyMatrices(zR, zM)); }
   };
+  const upH = p.floor ? G.houses.find(h => h.id === p.inside) : null;
   for (const z of G.zombies) {
     if (cn[0] + cn[1] >= 96) break;
+    if ((z.floor || 0) !== (p.floor || 0) && (z.floor || (upH && z.x > upH.x && z.x < upH.x + upH.w && z.y > upH.y && z.y < upH.y + upH.h))) continue; // andar de cima so aparece para quem esta la (e o terreo some sob a laje)
     const d = zData.get(z.id), ang0 = z.state === 'idle' && z.face !== undefined ? Math.atan2(Math.cos(z.face), Math.sin(z.face)) : Math.atan2(p.x - z.x, p.y - z.y); // parado: olha para z.face (costas = ataque furtivo)
     if (d) {
       const dx = z.x - d.x, dy = z.y - d.y;
       if (dx * dx + dy * dy > 1e-5) d.a = Math.atan2(dx, dy); else d.a = ang0;
       d.x = z.x; d.y = z.y;
     }
-    poseZ(z.id, z.x, z.y, z.anim, ang0, z.state === 'attack' ? 1 + 0.12 * Math.abs(Math.sin(now / 45)) : 1, z.police, z.runner, Number.isInteger(z.look) ? z.look : undefined);
+    poseZ(z.id, z.x, z.y, z.anim, ang0, z.state === 'attack' ? 1 + 0.12 * Math.abs(Math.sin(now / 45)) : 1, z.police, z.runner, Number.isInteger(z.look) ? z.look : z.look === 'jaleco' ? 8 : z.look === 'macacao' ? 9 : undefined, FLH * (z.floor || 0));
     const q = zData.get(z.id); q.x = z.x; q.y = z.y; seen.add(z.id);
   }
   for (const y of G.dying) if (cn[0] + cn[1] < 96 && !seen.has(y.id)) poseZ(y.id, y.x, y.y, y.anim, 0, 1);
@@ -532,9 +601,9 @@ function draw(G) {
 
   // baus
   const cnt = [0, 0];
-  for (const c of G.crates) { if (c.w) continue; const k = c.opened ? 1 : 0, im = crIM[k][0]; if (cnt[k] < 128) place(im, cnt[k]++, c.x, 0, c.y, 0); }
+  for (const c of G.crates) { if (c.w || (c.floor || 0) !== (p.floor || 0)) continue; const k = c.opened ? 1 : 0, im = crIM[k][0]; if (cnt[k] < 128) place(im, cnt[k]++, c.x, FLH * (c.floor || 0), c.y, 0); }
   { let sn = 0; // marcador de vasculhado no topo (so do andar atual, 1 InstancedMesh)
-    for (const c of G.crates) if (c.opened && !c.scenery && c.kind !== 'register' && sn < 128) place(seenIM, sn++, c.x, (c.w ? FH[c.kind] || 1 : 0.6) + 0.28 + (RM === 1 ? 0.04 * Math.sin(now / 400 + sn) : 0), c.y, RM === 1 ? now / 700 : 0);
+    for (const c of G.crates) if (c.opened && !c.scenery && c.kind !== 'register' && (c.floor || 0) === (p.floor || 0) && sn < 128) place(seenIM, sn++, c.x, FLH * (c.floor || 0) + (c.w ? FH[c.kind] || 1 : 0.6) + 0.28 + (RM === 1 ? 0.04 * Math.sin(now / 400 + sn) : 0), c.y, RM === 1 ? now / 700 : 0);
     seenIM.count = sn; seenIM.visible = sn > 0; seenIM.instanceMatrix.needsUpdate = true; }
   crIM.forEach(([im, ik], k) => { im.count = ik.count = cnt[k]; im.instanceMatrix.needsUpdate = true; ik.instanceMatrix = im.instanceMatrix; });
 
@@ -552,12 +621,13 @@ function draw(G) {
   const nr = !p.car && p.near; let on = false;
   if (nr) {
     let geo, x, z, ry = 0, sx = 1, sy = 1, sz = 1, y = 0;
-    if (nr.type === 'door') { const t = doorT.get(nr.id); if (t) { geo = doorB.body; x = t.x; z = t.z; ry = t.a; sx = t.sx * 1.08; sy = 1.05; sz = 2.4; } }
+    if (nr.type === 'door') { const t = doorT.get(nr.id); if (t && t.gate) { geo = gateB.body; x = t.x; z = t.z; y = 2.0; ry = t.a; sx = t.sx * 1.06; sy = t.sy * 1.03; sz = 2.4; } else if (t) { geo = doorB.body; x = t.x; z = t.z; ry = t.a; sx = t.sx * 1.08; sy = 1.05; sz = 2.4; } }
+    else if (nr.type === 'stairs') { const h = G.houses.find(q => q.id === nr.id), S = h && h.stairs; if (S) { geo = stairB.body; x = S.x + S.w / 2; z = S.y + S.h / 2; ry = stairRy(S); sx = sz = 1.12; sy = 1.02; } }
     else if (nr.type === 'drop') { const q = G.drops.find(e => e.id === nr.id), b = q && dCache.get(q.item.id); if (b) { geo = b.body; x = q.x; z = q.y; y = 0.12; ry = now / 2500; sx = sy = sz = 0.6 * 1.25; } }
     else { const c = G.crates.find(e => e.id === nr.id); if (c) {
       if (c.w) { const op = !!c.opened && !c.scenery, key = c.kind + op; geo = hlG.get(key); if (!geo) hlG.set(key, geo = bake(furn(c.kind, { open: op })).body); ry = furnRy(c, G.houses); sx = sz = 1.1; sy = 1.06; }
       else geo = crB[c.opened ? 1 : 0].body, sx = sz = 1.15, sy = 1.1;
-      x = c.x; z = c.y; } }
+      x = c.x; z = c.y; y = FLH * (c.floor || 0); } }
     if (geo) { on = true; if (hl.geometry !== geo) hl.geometry = geo; hl.position.set(x, y, z); hl.rotation.y = ry; hl.scale.set(sx, sy, sz); hl.material.opacity = RM === 1 ? 0.7 + 0.3 * Math.sin(now / 160) : 0.9; }
   }
   hl.visible = on;
@@ -598,10 +668,11 @@ function draw(G) {
   // camera ~55 graus
   const dc = p.car && G.cars.find(c => c.id === p.car), k = 1 - Math.exp(-dt * 3);
   cSm.x += ((dc ? Math.cos(dc.dir) * dc.speed * 0.4 : 0) - cSm.x) * k; cSm.y += ((dc ? Math.sin(dc.dir) * dc.speed * 0.4 : 0) - cSm.y) * k; cSm.d += ((dc ? 1.25 : 1) - cSm.d) * k;
+  cH += ((p.floor || 0) * FLH - cH) * (1 - Math.exp(-dt * 6));
   const d = camera.userData.d * cSm.d, el = EL, fx = p.x + cSm.x, fy = p.y + cSm.y;
   scene.fog.near = d + 14; scene.fog.far = d + 34;
-  camera.position.set(fx, 0.5 + d * Math.sin(el), fy + d * Math.cos(el));
-  camera.lookAt(fx, 0.5, fy);
+  camera.position.set(fx, 0.5 + cH + d * Math.sin(el), fy + d * Math.cos(el));
+  camera.lookAt(fx, 0.5 + cH, fy);
   if (devLn) devUpdate(p, now);
   renderer.render(scene, camera);
 }
@@ -685,7 +756,7 @@ function spin(canvas, id) {
   spinCv = canvas; spinId = id; spinRaf = requestAnimationFrame(spinTick);
 }
 // demos de acao: jogador de armadura completa repetindo a acao num loop de 1,2 s (mesmo renderer, mesmo RT do spin)
-const DEMO = { run: ['run'], crouch: ['crouch'], jump: ['idle', 'jump'], equip: ['idle', 'equip'], siphon: ['crouch', 'siphon'], cut: ['crouch', 'cut'], throw: ['idle', 'throw'], craft: ['idle', 'craft'], search: ['idle', 'search'] };
+const DEMO = { run: ['run'], crouch: ['crouch'], jump: ['idle', 'jump'], stairs: ['idle', 'stairs'], equip: ['idle', 'equip'], siphon: ['crouch', 'siphon'], tank: ['crouch', 'siphon'], cut: ['crouch', 'cut'], throw: ['idle', 'throw'], craft: ['idle', 'craft'], search: ['idle', 'search'] };
 function demoPose(t) {
   const [mv, act] = DEMO[spinId], s = t / 1000, c = s % 1.2, rig = demoRig;
   for (const n in rig.P) { rig.P[n].position.copy(rig.P[n].userData.p0); rig.P[n].rotation.set(0, 0, 0); rig.P[n].scale.set(1, 1, 1); }
@@ -699,12 +770,13 @@ function demo(canvas, id) {
   spinStop(); itemSetup();
   if (!iRig) iRig = mkRig({ head: 1, torso: 1, legs: 1 });
   iPivot.clear(); iPivot.rotation.y = 0; iPivot.add(iRig.g); demoRig = iRig;
+  if (id === 'tank') { const t = new THREE.Group(); t.add(...pair(bake(makeProp('tank')))); t.position.set(0.55, 0, 0.5); iPivot.add(t); } // boneco sifonando a tampa do tanque
   iC.position.set(0.7, 0.4, 0.9).normalize().multiplyScalar(5.6); iC.lookAt(0, 0.95, 0); iC.updateMatrixWorld();
   spinCv = canvas; spinId = id; spinRaf = requestAnimationFrame(spinTick);
 }
 
 // toque na tela -> {type,id}|null: raio da camera contra caixas por entidade (moveis, tumbas/baus, portas, drops) a <=2,5 m do jogador
-const FH = { fridge: 1.6, cabinet: 0.9, wardrobe: 1.8, drawer: 0.8, shelf: 1.4, box: 0.5, stove: 0.95, sink: 1.1, bed: 0.6, nightstand: 0.5, toilet: 0.9, medcab: 1.8, sofa: 0.85, bookshelf: 1.8, table: 0.78 };
+const FH = { fridge: 1.6, cabinet: 0.9, wardrobe: 1.8, drawer: 0.8, shelf: 1.4, box: 0.5, stove: 0.95, sink: 1.1, bed: 0.6, nightstand: 0.5, toilet: 0.9, medcab: 1.8, sofa: 0.85, bookshelf: 1.8, table: 0.78, box_mercado: 0.5, box_posto: 0.5, box_galpao: 0.5, toolbox_oficina: 0.2, pshelf: 1.5, medcart: 0.9, gunlocker: 1.8, desk: 1, locker: 1.8, sacristy: 1.6 };
 function pick(cx, cy) {
   const G = window.G; if (!G || !renderer) return null;
   const r = renderer.domElement.getBoundingClientRect(), p = G.player, ray = new THREE.Raycaster();
@@ -715,12 +787,13 @@ function pick(cx, cy) {
     B.min.set(x0 - E, y0, z0 - E); B.max.set(x1 + E, y1 + E, z1 + E);
     if (ray.ray.intersectBox(B, v)) { const t = v.distanceTo(ray.ray.origin); if (t < bt) { bt = t; best = { type, id }; } }
   };
+  const pf = p.floor || 0;
   for (const c of G.crates) {
-    if (c.scenery) continue;
-    if (c.w) { const h = FH[c.kind] || 1; test(c.x - c.w / 2, c.kind === 'medcab' ? 1.2 : 0, c.y - c.h / 2, c.x + c.w / 2, h, c.y + c.h / 2, c.tomb ? 'tomb' : 'crate', c.id); }
+    if (c.scenery || (c.floor || 0) !== pf) continue;
+    if (c.w) { const h = FH[c.kind] || 1, fy = FLH * pf; test(c.x - c.w / 2, fy + (c.kind === 'medcab' ? 1.2 : 0), c.y - c.h / 2, c.x + c.w / 2, fy + h, c.y + c.h / 2, c.tomb ? 'tomb' : 'crate', c.id); }
     else test(c.x - 0.4, 0, c.y - 0.35, c.x + 0.4, 0.6, c.y + 0.35, c.tomb ? 'tomb' : 'crate', c.id);
   }
-  for (const h of G.houses) for (const d of h.doors || []) { const m = Math.max(0, 0.5 - Math.min(d.w, d.h)) / 2; test(d.x - m, 0, d.y - m, d.x + d.w + m, 2.0, d.y + d.h + m, 'door', d.id); }
+  if (!pf) for (const h of G.houses) for (const d of h.doors || []) { const m = Math.max(0, 0.5 - Math.min(d.w, d.h)) / 2; test(d.x - m, 0, d.y - m, d.x + d.w + m, 2.0, d.y + d.h + m, 'door', d.id); }
   for (const d of G.drops || []) test(d.x - 0.3, 0, d.y - 0.3, d.x + 0.3, 0.5, d.y + 0.3, 'drop', d.id);
   return best;
 }
@@ -733,5 +806,5 @@ function badMatrices() {
   });
   return bad;
 }
-window.R = { seenN: () => (seenIM && seenIM.visible ? seenIM.count : 0), aimOn: () => !!aimRing && aimRing.visible, zoom(pct) { VIEW_R = 10 * Math.max(50, Math.min(170, +pct || 100)) / 100; if (camera) size(); }, init, draw, pick, icon, spin, demo, info: () => ({ calls: renderer.info.render.calls, verts: lastBake.verts, ms: lastBake.ms }), mem: () => renderer.info.memory.geometries, chunks: () => chunks.size, badMatrices, devOverlay,
+window.R = { seenN: () => (seenIM && seenIM.visible ? seenIM.count : 0), aimOn: () => !!aimRing && aimRing.visible, zoom(pct) { VIEW_R = 10 * Math.max(50, Math.min(170, +pct || 100)) / 100; if (camera) size(); }, init, draw, pick, icon, spin, demo, info: () => ({ calls: renderer.info.render.calls, verts: lastBake.verts, ms: lastBake.ms, up: lastBake.up }), mem: () => renderer.info.memory.geometries, chunks: () => chunks.size, badMatrices, devOverlay,
   view() { const c = camera, v = new THREE.Vector3(), d = c.userData.d; c.position.set(0, 0.5 + d * Math.sin(EL), d * Math.cos(EL)); c.lookAt(0, 0.5, 0); c.updateMatrixWorld(true); return [[VIEW_R, 0], [-VIEW_R, 0], [0, VIEW_R], [0, -VIEW_R]].map(([x, z]) => { v.set(x, 0, z).project(c); return Math.max(Math.abs(v.x), Math.abs(v.y)); }); } };

@@ -158,6 +158,7 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
     hit: '<path d="M4 18c2-8 8-13 16-14"/><path d="M14 4h6v6"/><path d="M6 20l4-4"/>',
     pump: '<path d="M5 21V5a1 1 0 0 1 1-1h7a1 1 0 0 1 1 1v16M3 21h13M6 8h7"/><path d="M14 10h2.5a1.5 1.5 0 0 1 1.5 1.5v5a1.5 1.5 0 0 0 3 0V9l-3-3"/>',
     fire: '<path d="M10 11h4v2l1.5 2v5.5h-7V15l1.5-2z"/><path d="M11 11V8.5h2V11"/><path d="M12 2c1 2 3 3 3 5a3 3 0 0 1-6 0c0-1 .6-1.7 1-2.5.2.8.6 1 1 1 0-1.5 0-2.5 1-3.5z"/>',
+    stairs: '<path d="M3 20h5v-4h4v-4h4V8h5"/><path d="M13 5l3-3 3 3"/>',
     crouch: '<circle cx="15" cy="6" r="2.5"/><path d="M14 10l-3 4.5 4 2.5-1 4.5M11 14.5l-4 1.5v4h4"/>'
   };
   const svg = (n, c) => '<svg viewBox="0 0 24 24"' + (c ? ' style="color:' + c + '"' : '') + '>' + ICON[n] + '</svg>';
@@ -165,12 +166,12 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
   // near.type -> [icone, rotulo <= 8 letras]
   const ACAO = {
     crate: ['search', 'BUSCAR'], tomb: ['hand', 'PEGAR'], enter: ['door', 'ENTRAR'], exit: ['exit', 'SAIR'],
-    trunk: ['trunk', 'MALA'], car: ['door', 'ENTRAR'], siphon: ['pump', 'SIFONAR'], pour: ['pump', 'DESPEJAR'], search: ['search', 'BUSCAR'], drop: ['hand', 'PEGAR'], fence: ['jump', 'PULAR'], cut: ['hand', 'CORTAR'], locked: ['door', 'TRANCADA']
+    trunk: ['trunk', 'MALA'], car: ['door', 'ENTRAR'], siphon: ['pump', 'SIFONAR'], pour: ['pump', 'DESPEJAR'], search: ['search', 'BUSCAR'], drop: ['hand', 'PEGAR'], fence: ['jump', 'PULAR'], cut: ['hand', 'CORTAR'], locked: ['door', 'TRANCADA'], tank: ['pump', 'SIFONAR']
   };
-  const acaoDe = (n) => n.type === 'door' && n.locked ? (n.cut ? ACAO.cut : ACAO.locked) : n.act ? ACAO[n.act] : n.type === 'door' ? (n.open ? ['door', 'FECHAR'] : ['door', 'ABRIR']) : ACAO[n.type] || ['hand', 'AÇÃO'];
+  const acaoDe = (n) => (n.type === 'door' || n.type === 'crate') && n.locked ? (n.cut ? ACAO.cut : ACAO.locked) : n.act ? ACAO[n.act] : n.type === 'stairs' ? ['stairs', n.up ? 'SUBIR' : 'DESCER'] : n.type === 'door' ? (n.open ? ['door', 'FECHAR'] : ['door', 'ABRIR']) : ACAO[n.type] || ['hand', 'AÇÃO'];
   const NOME = { food: 'Comida', bandage: 'Bandagem', ammo: 'Munição', rag: 'Trapo', wire: 'Arame', bottle: 'Garrafa', hose: 'Mangueira', cutter: 'Alicate', gascan: 'Galão', key: 'Chave', pipe: 'Cano', pipe_r: 'Cano reforçado', bat: 'Taco', pistol: 'Pistola', molotov: 'Molotov', helmet: 'Capacete', jacket: 'Jaqueta', shinguards: 'Caneleiras', bag_school: 'Mochila escolar', bag_hiking: 'Mochila de trilha', bag_military: 'Mochila militar' };
   const BAG = { bag_school: 4, bag_hiking: 8, bag_military: 12 };
-  const CNOME = { fridge: 'Geladeira', cabinet: 'Armário', wardrobe: 'Guarda-roupa', drawer: 'Gaveta', shelf: 'Gôndola', box: 'Caixa', trunk: 'Porta-malas', tomb: 'Tumba' };
+  const CNOME = { fridge: 'Geladeira', cabinet: 'Armário', wardrobe: 'Guarda-roupa', drawer: 'Gaveta', shelf: 'Gôndola', box: 'Caixa', box_mercado: 'Caixa', box_posto: 'Caixa', box_galpao: 'Caixa', toolbox: 'Caixa de ferramentas', toolbox_oficina: 'Bancada', pshelf: 'Prateleira', medcart: 'Carrinho', medcab: 'Armarinho', gunlocker: 'Armário de armas', desk: 'Recepção', locker: 'Armário', sacristy: 'Armário da sacristia', trunk: 'Porta-malas', tomb: 'Tumba' };
   const ARMA = { pipe: 'CANO', pipe_r: 'CANO+', bat: 'TACO', pistol: 'PISTOLA', molotov: 'MOLOTOV' };
   const DUR = { helmet: 20, jacket: 20, shinguards: 10, cutter: 4 };
 
@@ -314,21 +315,24 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
     panes.craft.innerHTML = '<div class="col"><h3>Receitas</h3>' + left + '</div><div class="col">' + right + '</div>';
   }
 
-  // Mapa: 5x5 chunks em volta do jogador, 48 px por chunk (1,2 px/m), cache por chunk, 4 novos por frame
-  const MN = 5, MC = 48, MS = MC / 40; // px por metro
+  // Mapa: 7x7 chunks em volta do jogador, 48 px por chunk (1,2 px/m), cache por chunk, 4 novos por frame; le G.layout (nunca G.gen)
+  const MN = 7, MC = 48, MS = MC / 40; // px por metro
+  const MK = { market: '#ffb347', posto: '#ff5c57', igreja: '#fff3d6', delegacia: '#5b7bd5', hospital: '#e6f7ff', saude: '#e6f7ff', farmacia: '#e6f7ff' };
   function renderMap() {
-    if (!panes.map.firstChild) { const c = el('canvas', null, panes.map); c.width = c.height = MN * MC; }
+    if (!panes.map.firstChild) { const c = el('canvas', null, panes.map); c.width = c.height = MN * MC; el('div', null, panes.map, '▬ estrada · ' + [['mercado', '#ffb347'], ['posto', '#ff5c57'], ['igreja', '#fff3d6'], ['delegacia', '#5b7bd5'], ['saúde', '#e6f7ff']].map(([n, c]) => '<span style="color:' + c + '">■</span> ' + n).join(' · ') + ' · ● você · <span style="color:#ff5c57">■</span> tumba', 'dim'); }
     if (!mapRaf) mapRaf = requestAnimationFrame(mapLoop);
   }
   function mapChunk(k, cx, cy) {
     let c = mapCache.get(k);
     if (c) return c;
     c = document.createElement('canvas'); c.width = c.height = MC;
-    const x = c.getContext('2d'), g = window.G.gen ? window.G.gen(cx, cy) : {}, ox = cx * 40, oy = cy * 40;
+    const x = c.getContext('2d'), g = window.G.layout ? window.G.layout(cx, cy) : {}, ox = cx * 40, oy = cy * 40;
     x.fillStyle = '#8fd16a'; x.fillRect(0, 0, MC, MC);
     const box = (r, col) => { x.fillStyle = col; x.fillRect((r.x - ox) * MS, (r.y - oy) * MS, Math.max(1, r.w * MS), Math.max(1, r.h * MS)); };
     (g.roads || []).forEach((r) => box(r, '#5e5b6b'));
-    (g.houses || []).forEach((r) => box(r, '#f0e2c4'));
+    x.strokeStyle = '#5e5b6b'; x.lineWidth = Math.max(2, 6 * MS); x.lineJoin = 'round';
+    (g.ways || []).forEach((w) => { x.beginPath(); w.pts.forEach((q, i) => x[i ? 'lineTo' : 'moveTo']((q[0] - ox) * MS, (q[1] - oy) * MS)); x.stroke(); }); // estradas (curvas)
+    c.lm = g.landmarks || [];
     mapCache.set(k, c);
     return c;
   }
@@ -346,6 +350,7 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
       x.drawImage(mapChunk(k, cx, cy), i * MC, j * MC);
     }
     const w2p = (wx, wy) => [(wx - (pcx - h) * 40) * MS, (wy - (pcy - h) * 40) * MS];
+    for (let j = 0; j < MN; j++) for (let i = 0; i < MN; i++) { const c = mapCache.get((pcx - h + i) + ',' + (pcy - h + j)); if (c && ex.has((pcx - h + i) + ',' + (pcy - h + j))) for (const m of c.lm || []) { const [a, b] = w2p(m.x, m.y); const col = MK[m.kind]; if (!col) continue; x.fillStyle = col; x.strokeStyle = '#15121a'; x.lineWidth = 1.5; x.fillRect(a - 4, b - 4, 8, 8); x.strokeRect(a - 4, b - 4, 8, 8); } } // 1 marcador por tipo (paleta); escola, oficina, galpao e cemiterio ficam so no guia
     x.fillStyle = '#ff5c57';
     const tombs = (G.crates || []).filter((c) => c.tomb);
     for (const k in G.chunks) for (const id in (G.chunks[k].crates || {})) { const c = G.chunks[k].crates[id]; if (c && c.tomb && c.x != null) tombs.push(c); }
@@ -401,9 +406,9 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
     const car = [[10, '100 %'], [5, '50 %'], [0, '0 %']].map(([f, n]) => '<div>Tanque ' + n + ' ' + [100, 25, 0].map((h) => DVB('car:' + f + ':' + h, 'vida ' + h)).join('') + '</div>').join('');
     panes.settings.innerHTML = '<div class="ip"><h3>Modo desenvolvedor</h3><button class="btn" data-a="dv" data-v="back">Voltar</button> <span class="dim" id="dvmsg"></span>' +
       '<h3 class="dvh">Itens (toque +1, segure = pilha)</h3>' + grid(items) +
-      '<h3 class="dvh">Zumbis</h3>' + DVB('z:walker', 'Andador') + DVB('z:runner', 'Corredor') + DVB('z:police', 'Policial') + DVB('z:horde', 'Horda') +
+      '<h3 class="dvh">Zumbis</h3>' + DVB('z:walker', 'Andador') + DVB('z:runner', 'Corredor') + DVB('z:police', 'Policial') + DVB('z:jaleco', 'Jaleco') + DVB('z:macacao', 'Macacão') + DVB('z:horde', 'Horda') +
       '<h3 class="dvh">Carro</h3>' + car +
-      '<h3 class="dvh">Teleporte</h3>' + DVB('tp:market', 'Mercado') + DVB('tp:locked', 'Casa trancada') + DVB('tp:car', 'Carro') + DVB('tp:spawn', 'Início') + DVB('tp:far', '+10 chunks') +
+      '<h3 class="dvh">Teleporte</h3>' + DVB('tp:market', 'Mercado') + DVB('tp:posto', 'Posto') + DVB('tp:delegacia', 'Delegacia') + DVB('tp:igreja', 'Igreja') + DVB('tp:hospital', 'Hospital') + DVB('tp:saude', 'Posto de saúde') + DVB('tp:farmacia', 'Farmácia') + DVB('tp:escola', 'Escola') + DVB('tp:oficina', 'Oficina') + DVB('tp:galpao', 'Galpão') + DVB('tp:cemiterio', 'Cemitério') + DVB('tp:locked', 'Casa trancada') + DVB('tp:sobrado', 'Sobrado') + DVB('tp:garagem', 'Garagem') + DVB('tp:car', 'Carro') + DVB('tp:spawn', 'Início') + DVB('tp:far', '+10 chunks') +
       '<h3 class="dvh">Chaves</h3>' + DVB('god', 'Imortal' + on(d.god)) + DVB('noclip', 'Atravessar paredes' + on(d.noclip)) + DVB('t:1', 'Tempo ×1' + on(d.speed === 1)) + DVB('t:4', '×4' + on(d.speed === 4)) + DVB('t:16', '×16' + on(d.speed === 16)) + DVB('fill', 'Encher status') + DVB('ov', 'Overlay' + on(d.ov)) + '</div>';
   }
   function devAct(v) {
@@ -545,6 +550,7 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
       const s = sl[i];
       return '<div class="card" role="button" tabindex="0" data-i="' + i + '">' + (s
         ? '<b>' + fmt(s.t) + '</b><span>Seed ' + (s.seed >>> 0).toString(36).slice(-5).toUpperCase() + '</span><button class="del" data-del="' + i + '" aria-label="Apagar">' + TRASH + '</button>'
+        : G.slotOld(i + 1) ? '<b>Novo mundo</b><span>Mundo de versão antiga — comece um novo</span><button class="del" data-del="' + i + '" aria-label="Apagar">' + TRASH + '</button>'
         : '<b>Novo mundo</b><span>Slot ' + (i + 1) + '</span>') + '</div>';
     }).join('');
     hide(startEl, false);
@@ -773,8 +779,8 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
 
     contTick(G, p);
     const nr = p.open ? null : car ? { type: 'exit' } : p.near;
-    const cutN = nr && nr.type === 'door' && nr.locked && (p.inv || []).some((i) => i.id === 'cutter');
-    put('near', nr ? nr.type + (nr.open ? '1' : '0') + (nr.act || '') + (nr.locked ? (cutN ? 'c' : 'l') : '') : '', (v) => {
+    const cutN = nr && (nr.type === 'door' || nr.type === 'crate') && nr.locked && (p.inv || []).some((i) => i.id === 'cutter');
+    put('near', nr ? nr.type + (nr.open ? '1' : '0') + (nr.up ? 'u' : '') + (nr.act || '') + (nr.locked ? (cutN ? 'c' : 'l') : '') : '', (v) => {
       E.act.classList.toggle('hidden', !v);
       E.act.classList.toggle('near', !!v);
       if (v) { const a = acaoDe(cutN ? Object.assign({ cut: 1 }, nr) : nr); E.act.innerHTML = svg(a[0]) + a[1]; E.act.appendChild(E.ring); }
@@ -782,7 +788,7 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
     const gc = (p.inv || []).find((i) => i.id === 'gascan'), sf = p.action && p.action.type === 'siphon';
     const sa = sf ? Math.min(1, ((p.action.act === 'pour' ? (G.cars.find((c) => c.id === p.action.id) || {}).fuel : gc && gc.fuel) || 0) / 10)
       : car && car.burn > 0 ? Math.min(1, Math.max(0, 1 - car.burn / 5)) // incendio: 5 s ate explodir
-      : p.action && p.action.type === 'search' ? Math.min(1, Math.max(0, p.action.t || 0)) : p.action && p.action.type === 'cut' ? Math.min(1, Math.max(0, (p.action.t || 0) / 1.5)) : -1;
+      : p.action && p.action.type === 'search' ? Math.min(1, Math.max(0, p.action.t || 0)) : p.action && p.action.type === 'cut' ? Math.min(1, Math.max(0, (p.action.t || 0) / 1.5)) : p.action && p.action.type === 'stairs' ? Math.min(1, Math.max(0, (p.action.t || 0) / 0.8)) : -1;
     put('ring', sa < 0 ? -1 : Math.round(sa * 100), (v) => {
       E.ring.classList.toggle('hidden', v < 0);
       if (v >= 0) E.ring.firstElementChild.setAttribute('stroke-dashoffset', String(1 - v / 100));

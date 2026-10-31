@@ -160,6 +160,12 @@
     crateOpen: () => voice(0.2, (t, n) => osc(n, 'sawtooth', 200, 600, t, 0.18, 0.12)),
     doorOpen: () => voice(0.25, (t, n) => osc(n, 'triangle', 170, 380, t, 0.22, 0.2)),   // rangido curto subindo
     doorClose: () => voice(0.16, (t, n) => osc(n, 'sine', 120, 50, t, 0.15, 0.6)),       // batida grave curta
+    stairs: (vol) => voice(0.85, (t, n) => [0, 0.2, 0.4, 0.6].forEach((d, i) => { // 4 passos de madeira subindo de tom
+      osc(n, 'triangle', 180 + i * 25, 90 + i * 12, t + d, 0.1, 0.5 * (vol || 1));
+      noise(n, t + d, 0.05, 0.25 * (vol || 1), 'bandpass', 700 + i * 120, 1.2, 0.005);
+    })),
+    gateOpen: () => voice(0.5, (t, n) => { noise(n, t, 0.4, 0.3, 'bandpass', 500, 1.4, 0.05); osc(n, 'sawtooth', 110, 220, t, 0.35, 0.1); }),  // portao enrolando: chocalho grave subindo
+    gateClose: () => voice(0.5, (t, n) => { noise(n, t, 0.3, 0.3, 'bandpass', 700, 1.4, 0.03); osc(n, 'sawtooth', 220, 90, t, 0.3, 0.1); osc(n, 'sine', 100, 40, t + 0.3, 0.15, 0.6); }), // chocalho descendo + baque
     search: () => voice(0.3, (t, n) => [0, 0.09, 0.18].forEach((d) => noise(n, t + d, 0.04, 0.3, 'bandpass', 1400, 1.5, 0.005))), // remexer: 3 burst
     doorHit: () => voice(0.3, (t, n) => { osc(n, 'sine', 120, 55, t, 0.18, 0.6); noise(n, t, 0.08, 0.35, 'lowpass', 400, 0.7, 0.004); osc(n, 'triangle', 210, 140, t, 0.1, 0.2); }), // pancada de zumbi na porta: baque de madeira
     backstab: () => voice(0.3, (t, n) => { noise(n, t, 0.07, 0.4, 'bandpass', 1800, 1.2, 0.003); osc(n, 'sawtooth', 320, 90, t, 0.14, 0.3); }), // golpe pelas costas: estalo agudo + queda
@@ -234,6 +240,10 @@
     throw: () => voice(0.4, (t, n) => noise(n, t, 0.35, 0.25, 'bandpass', 900, 1, 0.05)), // sopro da garrafa
     fire: () => voice(0.6, (t, n) => noise(n, t, 0.5, 0.35, 'lowpass', 900, 0.5, 0.1)),   // whoosh ao acender
     burn: () => voice(0.15, (t, n) => noise(n, t, 0.14, 0.2, 'highpass', 2000, 0.7, 0.005)), // chiado curto
+    tank: () => voice(0.35, (t, n) => { // tampa de metal do tanque: clang + gole oco
+      osc(n, 'square', 620, 520, t, 0.07, 0.12); osc(n, 'sine', 180, 120, t + 0.06, 0.2, 0.3);
+      noise(n, t + 0.1, 0.18, 0.15, 'bandpass', 500, 4, 0.02);
+    }),
     noKey: () => voice(0.4, (t, n) => [0, 0.18].forEach((d) => osc(n, 'square', 150, 150, t + d, 0.1, 0.14))), // dois bipes graves
     openCrate: () => voice(0.2, (t, n) => { // madeira: rangido de porta de armário
       osc(n, 'triangle', 180, 420, t, 0.16, 0.15);
@@ -296,7 +306,13 @@
   // Evento -> som. door: abrir/fechar pelo ev.open. search: só o início (p:0 com action ativa; cancelamento tem action null).
   // windup: rosnado só se o zumbi estiver a <12 m do jogador. open: ev.kind = crate|trunk|tomb. move: to 'inv' = mochila.
   function play(ev, G) {
-    if (ev.type === 'door') return (ev.open ? SND.doorOpen : SND.doorClose)();
+    if (ev.type === 'door') return (ev.gate ? (ev.open ? SND.gateOpen : SND.gateClose) : (ev.open ? SND.doorOpen : SND.doorClose))();
+    if (ev.type === 'stairs') { // jogador: passos no inicio (p:0 com acao ativa); zumbi (up definido, sem done): baixo e so a <12 m
+      const a = G.player && G.player.action, z = ev.up !== undefined && !ev.done && (G.zombies || []).find((e) => e.id === ev.id);
+      if (ev.p === 0 && a && a.type === 'stairs' && a.id === ev.id) SND.stairs(1);
+      else if (z && G.player && Math.hypot(z.x - G.player.x, z.y - G.player.y) < 12) SND.stairs(0.4);
+      return;
+    }
     if (ev.type === 'open') return (ev.kind === 'trunk' ? SND.openTrunk : ev.kind === 'tomb' ? SND.openTomb : SND.openCrate)();
     if (ev.type === 'move') return (ev.to === 'inv' ? SND.stowBag : SND.stowBox)();
     if (ev.type === 'close') return SND.closeBox();
