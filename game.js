@@ -170,8 +170,8 @@
   // shortcut: nao testa se o carro girado ate o multiplo de 90 graus invade algo
   function exitPoint(car) {
     const d = Math.round(car.dir / (Math.PI / 2)) * Math.PI / 2, c = Math.cos(car.dir), s = Math.sin(car.dir), V = veh(car), lw = V.w / 2 + 0.5, lb = V.l / 2 + 0.7; // offsets pelo dir real
-    for (const [ox, oy] of [[-s * lw, c * lw], [s * lw, -c * lw], [-c * lb, -s * lb], [-c * (lb + 0.2), -s * (lb + 0.2)]])
-      if (free(car.x + ox, car.y + oy, 0.3, car.id)) return { x: car.x + ox, y: car.y + oy, d };
+    for (const e of [0, 0.6, 1.2]) for (const [ox, oy] of [[-s * (lw + e), c * (lw + e)], [s * (lw + e), -c * (lw + e)], [-c * (lb + e), -s * (lb + e)], [c * (lb + e), s * (lb + e)]])
+      if (free(car.x + ox, car.y + oy, 0.45)) return { x: car.x + ox, y: car.y + oy, d }; // sem pular o proprio carro: a caixa AABB dele nao pode prender o jogador (bug do dono: sair travava)
     return null;
   }
   function enterCar(p, id) {
@@ -282,7 +282,7 @@
     if (!on && p._eng) { p._eng = false; G.events.push({ type: 'engine', on: false, id: car.id }); } // tanque zerado por fora (sifao)
     p._stop = Math.abs(v) < 0.1 ? (p._stop || 0) + dt : 0;
     if (!on) v = approach(v, 0, 8 * dt);
-    else if (my > 0.05) v = v >= 0 ? Math.min(vm, v + 4 * my * dt) : Math.min(0, v + 8 * dt);
+    else if (my > 0.05) v = v >= 0 ? Math.min(vm, v + 6 * my * dt) : Math.min(0, v + 8 * dt); // dono: carro mais responsivo (era 4)
     else if (my < -0.05) v = v > 0.05 ? Math.max(0, v - 8 * dt) : v < -0.05 || p._stop >= 0.4 ? Math.max(-3, v + 4 * my * dt) : 0;
     else v = approach(v, 0, 1.5 * dt);
     const br = on && my < -0.05 && v > 3;
@@ -294,7 +294,7 @@
       if (car.fuel <= 0 && p._eng) { p._eng = false; G.events.push({ type: 'engine', on: false, id: car.id }); }
       if (car.fuel < 2) hint('fuel', 'Pouco combustível — gasolina é finita: sifone de outros carros', 'siphon');
     }
-    car.dir += mx * 1.8 * Math.min(1, Math.abs(v) / 4) * Math.sign(v) * dt;
+    car.dir += mx * 2.1 * Math.min(1, Math.abs(v) / 2.5) * Math.sign(v) * dt; // dono: volante responde mais cedo (era 1,8 e /4)
     const n = Math.max(1, Math.ceil(Math.abs(v) * dt / 0.3)), h = dt / n, f = v >= 0 ? 1 : -1;
     for (let i = 0; i < n; i++) {
       const c = Math.cos(car.dir), s = Math.sin(car.dir), nx = car.x + c * v * h, ny = car.y + s * v * h;
