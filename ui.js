@@ -454,7 +454,7 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
   function renderSettings() {
     const m = !!(window.SFX && SFX.muted && SFX.muted());
     const zm = zoomPct();
-    panes.settings.innerHTML = '<h3>Ajustes</h3><button class="btn" data-a="mute">Som: ' + (m ? 'mudo' : 'ligado') + '</button> <button class="btn" data-a="dicas">Dicas: ' + (hintMode() === 'crit' ? 'só importantes' : 'todas') + '</button> <label class="zoom">Câmera <input type="range" min="50" max="170" step="10" value="' + zm + '" aria-label="Distância da câmera"><b>' + zm + ' %</b></label> <button class="btn" data-a="exit">Sair para o início</button> <button class="btn" data-a="delw">Apagar este mundo</button><p class="ver" data-a="ver">Versão ' + ((document.querySelector('meta[name=versao]') || {}).content || 'dev') + '</p>' + (window.G.dev && window.G.dev.on ? '<button class="btn" data-a="dev">Modo dev</button>' : '');
+    panes.settings.innerHTML = '<h3>Ajustes</h3>' + (window.G.dev && window.G.dev.on ? '<button class="btn dev-top" data-a="dev">Abrir modo dev (itens, zumbis, veículos, teleporte)</button> ' : '') + '<button class="btn" data-a="mute">Som: ' + (m ? 'mudo' : 'ligado') + '</button> <button class="btn" data-a="dicas">Dicas: ' + (hintMode() === 'crit' ? 'só importantes' : 'todas') + '</button> <label class="zoom">Câmera <input type="range" min="50" max="170" step="10" value="' + zm + '" aria-label="Distância da câmera"><b>' + zm + ' %</b></label> <button class="btn" data-a="exit">Sair para o início</button> <button class="btn" data-a="delw">Apagar este mundo</button><p class="ver" data-a="ver">Versão ' + ((document.querySelector('meta[name=versao]') || {}).content || 'dev') + '</p>';
     bindZoom();
   }
 
