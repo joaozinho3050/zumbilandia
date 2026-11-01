@@ -189,6 +189,7 @@
     empty: () => voice(0.12, (t, n) => { osc(n, 'sine', 160, 90, t, 0.08, 0.45); noise(n, t, 0.03, 0.12, 'lowpass', 600, 0.8, 0.002); }), // toc seco: movel vazio
     sick: () => voice(0.5, (t, n) => { osc(n, 'sawtooth', 190, 85, t, 0.4, 0.14); osc(n, 'sine', 95, 60, t + 0.05, 0.4, 0.2); noise(n, t, 0.3, 0.06, 'lowpass', 400, 0.8, 0.08); }), // enjoo: gemido curto
     bairro: () => SND.hint(),
+    cidade: () => voice(0.6, (t, n) => { osc(n, 'sine', 660, 660, t, 0.25, 0.18); osc(n, 'sine', 880, 880, t + 0.2, 0.35, 0.18); }), // 2 notas suaves
     eat: () => voice(0.5, (t, n) => [0, 0.14, 0.28].forEach((d) => { osc(n, 'sine', 130, 70, t + d, 0.07, 0.5); noise(n, t + d, 0.04, 0.2, 'lowpass', 500, 0.8, 0.003); })), // mastigar: 3 estalos graves
     heal: () => voice(0.3, (t, n) => noise(n, t, 0.25, 0.3, 'bandpass', 2200, 0.8, 0.04)), // rasgar pano: ruido filtrado
     doorOpen: () => voice(0.25, (t, n) => osc(n, 'triangle', 170, 380, t, 0.22, 0.2)),   // rangido curto subindo

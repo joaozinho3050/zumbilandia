@@ -351,6 +351,7 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
     (g.roads || []).forEach((r) => box(r, '#5e5b6b'));
     x.strokeStyle = '#5e5b6b'; x.lineWidth = Math.max(2, 6 * MS); x.lineJoin = 'round';
     (g.ways || []).forEach((w) => { x.beginPath(); w.pts.forEach((q, i) => x[i ? 'lineTo' : 'moveTo']((q[0] - ox) * MS, (q[1] - oy) * MS)); x.stroke(); }); // estradas (curvas)
+    x.fillStyle = '#cfc9bd'; (g.lots || []).forEach((b) => { if (!b.plaza) x.fillRect((b.x - ox) * MS + 2, (b.y - oy) * MS + 2, Math.max(1, b.w * MS - 4), Math.max(1, b.h * MS - 4)); }); // quarteiroes construidos (casas), sem a praca
     c.lm = g.landmarks || [];
     mapCache.set(k, c);
     return c;
@@ -371,11 +372,15 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
     }
     const w2p = (wx, wy) => [(wx - (pcx - h) * 40) * MS, (wy - (pcy - h) * 40) * MS];
     for (let j = 0; j < MN; j++) for (let i = 0; i < MN; i++) { const c = mapCache.get((pcx - h + i) + ',' + (pcy - h + j)); if (c && ex.has((pcx - h + i) + ',' + (pcy - h + j))) for (const m of c.lm || []) { const [a, b] = w2p(m.x, m.y); const col = MK[m.kind]; if (!col) continue; x.fillStyle = col; x.strokeStyle = '#15121a'; x.lineWidth = 1.5; x.fillRect(a - 4, b - 4, 8, 8); x.strokeRect(a - 4, b - 4, 8, 8); } } // 1 marcador por tipo (paleta); escola, oficina, galpao e cemiterio ficam so no guia
-    x.fillStyle = '#fff1e0'; x.font = '14px "Pixelify Sans", sans-serif'; x.fillText(G.bairro || 'Campo', 10, 20); // nome do bairro onde voce esta
+    x.fillStyle = '#fff1e0'; x.font = '14px "Pixelify Sans", sans-serif'; const hd = [G.cidade, G.bairro].filter(Boolean).concat(G.bairro ? [] : ['Campo'], 'Dia ' + (1 + Math.floor(Math.max(0, G.t - (p.born || 0)) / 1440))).join(' · '); x.fillText(hd, 10, 20); cv.dataset.info = hd; // cidade · bairro · Dia N (24 min de vida)
     x.fillStyle = '#ff5c57';
     const tombs = (G.crates || []).filter((c) => c.tomb);
     for (const k in G.chunks) for (const id in (G.chunks[k].crates || {})) { const c = G.chunks[k].crates[id]; if (c && c.tomb && c.x != null) tombs.push(c); }
-    for (const t of tombs) { const [a, b] = w2p(t.x, t.y); x.fillRect(a - 3, b - 3, 6, 6); }
+    let tn = null; for (const t of tombs) { const d = Math.hypot(t.x - p.x, t.y - p.y); if (!tn || d < tn.d) tn = { t, d }; }
+    if (tn) { const [a, b] = w2p(tn.t.x, tn.t.y), W = cv.width; if (a >= 4 && b >= 4 && a <= W - 4 && b <= W - 4) x.fillRect(a - 3, b - 3, 6, 6); else { // fora da janela: seta na borda + distancia
+      const an = Math.atan2(tn.t.y - p.y, tn.t.x - p.x), m = W / 2 - 14, k = m / Math.max(Math.abs(Math.cos(an)), Math.abs(Math.sin(an))), ax = W / 2 + Math.cos(an) * k, ay = W / 2 + Math.sin(an) * k;
+      x.save(); x.translate(ax, ay); x.rotate(an); x.beginPath(); x.moveTo(10, 0); x.lineTo(-7, -7); x.lineTo(-7, 7); x.closePath(); x.fill(); x.restore();
+      const km = tn.d >= 1000 ? (tn.d / 1000).toFixed(1).replace('.', ',') + ' km' : Math.round(tn.d) + ' m', tx = 'Tumba ' + km; cv.dataset.info += '|' + tx; x.font = '12px "Pixelify Sans", sans-serif'; x.fillText(tx, Math.min(W - 6 - x.measureText(tx).width, Math.max(6, ax - x.measureText(tx).width / 2)), ay < W / 2 ? ay + 24 : ay - 14); } }
     const [a, b] = w2p(p.x, p.y);
     x.fillStyle = '#ff8c69'; x.beginPath(); x.arc(a, b, 3.5, 0, 6.3); x.fill();
     if (typeof p.dir === 'number') { x.strokeStyle = '#fff1e0'; x.lineWidth = 2; x.beginPath(); x.moveTo(a, b); x.lineTo(a + Math.cos(p.dir) * 8, b + Math.sin(p.dir) * 8); x.stroke(); }
@@ -806,6 +811,7 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
         try { navigator.vibrate && navigator.vibrate(60); } catch (e) {}
       } else if (ev.type === 'equip') armorUntil = now + 3000;
       else if (ev.type === 'open') { if (ev.empty) { vazioTxt = ['Vazio', 'Nada aqui', 'Já levaram tudo', 'Só poeira'][Math.random() * 4 | 0]; E.toast.textContent = vazioTxt; toastUntil = now + 2000; } }
+      else if (ev.type === 'cidade') { E.toast.textContent = 'Você chegou a ' + ev.name; toastUntil = now + 3000; }
       else if (ev.type === 'bairro') { E.toast.textContent = ev.name; toastUntil = now + 2500; }
       else if (ev.type === 'full') { E.toast.textContent = 'Mochila cheia'; toastUntil = now + 2000; }
       else if (ev.type === 'hint') { if (hintQ.length < 3) hintQ.push(ev); } // fila FIFO (max 3): duas dicas no mesmo quadro nao se perdem
