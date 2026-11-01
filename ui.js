@@ -114,6 +114,7 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
 #start h1,#dead h1{margin:0;font:400 32px 'Pixelify Sans',monospace;text-shadow:var(--sombra-texto)}
 #start .cards{display:flex;gap:var(--esp-4)}
 #start .card{position:relative;width:240px;height:140px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:var(--esp-1);background:var(--slot);border:2px solid var(--borda);border-radius:14px;box-shadow:var(--sombra);font-size:14px;cursor:pointer;touch-action:manipulation}
+#start .aviso{margin:0;max-width:86vw;text-align:center;font:400 12px 'Atkinson Hyperlegible',sans-serif;color:var(--texto);opacity:.8}
 #start .card b{font:400 20px 'Pixelify Sans',monospace}
 #start .card .del{position:absolute;top:0;right:0;width:48px;height:48px;padding:0;display:flex;align-items:center;justify-content:center;background:none;border:0;color:var(--texto)}
 #dead p,#confirm p{margin:0;font-size:16px}
@@ -454,7 +455,7 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
   function renderSettings() {
     const m = !!(window.SFX && SFX.muted && SFX.muted());
     const zm = zoomPct();
-    panes.settings.innerHTML = '<h3>Ajustes</h3>' + (window.G.dev && window.G.dev.on ? '<button class="btn dev-top" data-a="dev">Abrir modo dev (itens, zumbis, veículos, teleporte)</button> ' : '') + '<button class="btn" data-a="mute">Som: ' + (m ? 'mudo' : 'ligado') + '</button> <button class="btn" data-a="dicas">Dicas: ' + (hintMode() === 'crit' ? 'só importantes' : 'todas') + '</button> <label class="zoom">Câmera <input type="range" min="50" max="170" step="10" value="' + zm + '" aria-label="Distância da câmera"><b>' + zm + ' %</b></label> <button class="btn" data-a="exit">Sair para o início</button> <button class="btn" data-a="delw">Apagar este mundo</button><p class="ver" data-a="ver">Versão ' + ((document.querySelector('meta[name=versao]') || {}).content || 'dev') + '</p>';
+    panes.settings.innerHTML = '<h3>Ajustes</h3>' + (window.G.dev && window.G.dev.on ? '<button class="btn dev-top" data-a="dev">Abrir modo dev (itens, zumbis, veículos, teleporte)</button> ' : '') + '<button class="btn" data-a="mute">Som: ' + (m ? 'mudo' : 'ligado') + '</button> <button class="btn" data-a="dicas">Dicas: ' + (hintMode() === 'crit' ? 'só importantes' : 'todas') + '</button> <label class="zoom">Câmera <input type="range" min="50" max="170" step="10" value="' + zm + '" aria-label="Distância da câmera"><b>' + zm + ' %</b></label> <button class="btn" data-a="exit">Sair para o início</button> <button class="btn" data-a="delw">Apagar este mundo</button><p class="ver" data-a="ver">Versão ' + ((document.querySelector('meta[name=versao]') || {}).content || 'dev') + (window.__nova ? ' — nova versão pronta: toque em Sair para o início' : '') + '</p>';
     bindZoom();
   }
 
@@ -603,7 +604,7 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
     else if (a === 'guide') { guideOpen = v; return listGuide(); }
     else if (a === 'mute') toggleMute();
     else if (a === 'dicas') { try { localStorage['zl1.dicas'] = hintMode() === 'crit' ? 'all' : 'crit'; } catch (e) {} renderSettings(); }
-    else if (a === 'exit') { try { G.save(); } catch (er) {} toggleMenu(false); return openStart(); }
+    else if (a === 'exit') { let ok = false; try { ok = G.save() !== false; } catch (er) {} if (!ok) return; toggleMenu(false); return openStart(); } // save que falha: fica na partida (aviso saveFull) e não recarrega
     else if (a === 'delw') { toggleMenu(false); return UI._askDelete(G.slot); }
     showTab(curTab);
   }
@@ -649,7 +650,10 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
         : G.slotOld(i + 1) ? '<b>Novo mundo</b><span>Mundo de versão antiga — comece um novo</span><button class="del" data-del="' + i + '" aria-label="Apagar">' + TRASH + '</button>'
         : '<b>Novo mundo</b><span>Slot ' + (i + 1) + '</span>') + '</div>';
     }).join('');
+    const standalone = navigator.standalone || (window.matchMedia && matchMedia('(display-mode: standalone)').matches);
+    startEl.querySelector('.aviso').textContent = window.__nova ? 'Atualizando…' : standalone ? 'Apagar o app apaga os mundos.' : 'Instale antes de jogar: Compartilhar ⇒ Adicionar à Tela de Início. O mundo do Safari não passa para o app.';
     hide(startEl, false);
+    try { window.__wake && window.__wake(false); if (window.__nova && window.__aplica) window.__aplica(); } catch (e) {} // versão nova só entra aqui, nunca em partida
   }
   function play(i) {
     const G = window.G;
@@ -657,13 +661,15 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
     try { ok = !!(G.slots()[i] && G.load(i + 1)); } catch (e) { bad = true; } // save corrompido: nao trava o cartao
     if (!ok) G.init(Date.now(), i + 1);
     hide(startEl, true); UI.paused = false;
+    try { window.__wake && window.__wake(true); } catch (e) {}
     if (bad) { E.toast.textContent = 'Save danificado — mundo novo neste slot'; toastUntil = performance.now() + 4000; }
     if (!lsGet('zl1.tour')) tourGo(0);
   }
   function buildStart() {
-    startEl = el('div', 'start', root, '<h1>Zumbilândia</h1><div class="cards"></div>');
+    startEl = el('div', 'start', root, '<h1>Zumbilândia</h1><div class="cards"></div><p class="aviso"></p>');
     confirmEl = el('div', 'confirm', root, '<p>Apagar o mundo?</p><div class="row2"><button class="big sim">SIM</button><button class="big">NÃO</button></div>', 'hidden');
     let del = -1;
+    UI.onNova = () => { if (!startEl.classList.contains('hidden')) openStart(); };
     // também usado por Ajustes ▸ "Apagar este mundo" (mesma confirmação)
     UI._askDelete = (slot) => { del = slot - 1; UI.paused = true; hide(confirmEl, false); };
     startEl.addEventListener('click', (e) => {
@@ -686,7 +692,7 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
       UI.paused = false; hide(deadEl, true); document.getElementById('ui').classList.remove('morto');
     });
   }
-  const PASSOS = [['#joy', 'Arraste o joystick para andar. Empurre até a borda para correr.'], ['#btn-attack', 'Toque ATACAR para bater nos zumbis.'], ['#btn-action', 'Perto de um móvel, toque BUSCAR e fique parado.'], ['#btn-menu', 'Abra o MENU e veja sua mochila.'], ['#btn-menu', 'No MENU, abra a aba Mapa.']];
+  const PASSOS = [['#joy', 'Arraste o joystick para andar. Arraste além do círculo para correr.'], ['#btn-attack', 'Toque ATACAR para bater nos zumbis.'], ['#joy', 'Ande até um móvel (geladeira, armário); toque BUSCAR e fique parado.'], ['#btn-menu', 'Abra o MENU e veja sua mochila.'], ['#btn-menu', 'No MENU, abra a aba Mapa.']];
   function tourGo(n) {
     tourStep = n;
     if (n >= PASSOS.length) { try { localStorage['zl1.tour'] = 'done'; } catch (e) {} return hide(tourEl, true); }

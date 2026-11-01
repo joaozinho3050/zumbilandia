@@ -4,9 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
 <title>Zumbilândia</title>
-<meta name="versao" content="70716644a6">
+<meta name="versao" content="1db2b15223">
 <link rel="manifest" href="manifest.webmanifest">
-<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-180.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -44,6 +44,7 @@ CONTRATO (ver PLANO.md):
   UI.init(document.getElementById('ui'));
   document.addEventListener('pointerdown', () => {
     screen.orientation?.lock?.('landscape').catch(() => {});
+    try { navigator.storage?.persist?.().catch(() => {}); } catch (e) {} // iOS não limpa o save; sem aviso se negar
   }, { once: true, capture: true });
   let last = performance.now(), raf = 0;
   function loop(now){
@@ -74,6 +75,25 @@ CONTRATO (ver PLANO.md):
   });
   raf = requestAnimationFrame(loop);
 </script>
-<script>if ('serviceWorker' in navigator && location.protocol === 'https:') { const had = !!navigator.serviceWorker.controller; let rl = false; navigator.serviceWorker.addEventListener('controllerchange', () => { if (had && !rl) { rl = true; try { window.__salva && window.__salva(); } catch (e) {} location.reload(); } }); navigator.serviceWorker.register('sw.js').then((r) => document.addEventListener('visibilitychange', () => { if (!document.hidden) r.update().catch(() => {}); })).catch(() => {}); }</script>
+<script>
+// Tela tem de continuar acordada em partida; sem Wake Lock ou com erro: segue sem
+let __wl = null; window.__emPartida = false;
+window.__wake = (on) => { window.__emPartida = !!on; try { if (on) { if (!__wl && navigator.wakeLock) navigator.wakeLock.request('screen').then((l) => { __wl = l; l.addEventListener('release', () => { if (__wl === l) __wl = null; }); }).catch(() => {}); } else if (__wl) { const l = __wl; __wl = null; l.release().catch(() => {}); } } catch (e) {} };
+document.addEventListener('visibilitychange', () => { if (!document.hidden && window.__emPartida) window.__wake(true); });
+// Atualização: a versão nova baixa em segundo plano e só entra (reload) com a tela inicial aberta
+if ('serviceWorker' in navigator && isSecureContext && (document.querySelector('meta[name=versao]') || {}).content !== '__VERSAO' + '__') {
+  const had = !!navigator.serviceWorker.controller; let rl = false;
+  window.__aplica = () => { const w = window.__sw && window.__sw.waiting; if (w) w.postMessage('go'); };
+  const nova = () => { window.__nova = true; try { window.UI && UI.onNova && UI.onNova(); } catch (e) {} };
+  navigator.serviceWorker.addEventListener('controllerchange', () => { if (had && !rl) { rl = true; location.reload(); } });
+  navigator.serviceWorker.register('sw.js').then((r) => {
+    window.__sw = r;
+    const olha = (w) => w && w.addEventListener('statechange', () => { if (w.state === 'installed' && navigator.serviceWorker.controller) nova(); });
+    if (r.waiting && navigator.serviceWorker.controller) nova();
+    r.addEventListener('updatefound', () => olha(r.installing));
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) r.update().catch(() => {}); });
+  }).catch(() => {});
+}
+</script>
 </body>
 </html>
