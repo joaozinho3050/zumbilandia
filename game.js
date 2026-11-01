@@ -155,7 +155,7 @@
     if (car) { car.speed = 0; if (veh(car).air) car.alt = car.vz = 0; else if (pt) car.dir = pt.d; G.events.push({ type: 'engine', on: false, id: car.id }); } // aeronave: cai direto no chao (shortcut)
     p._eng = false;
     Object.assign(p, { x: 23, y: 23, hp: 100, hunger: Math.max(25, p.hunger), inv: [], weapon: 'pipe', equip: {}, car: null, action: null, near: null, open: null, floor: 0 }); // mochila (equip.back) ja foi para a tumba
-    G._hunger = G._starve = 0;
+    G._hunger = G._starve = 0; G._regen = 0; G._hurtT = G.t;
     Object.assign(p, { stamina: 100, crouch: false, running: false, noise: 0 }); G._hp = 100; G._rw = false;
     setAct(p, 'dead');
     G.lastLife = G.t - (p.born || 0); G.best = Math.max(G.best || 0, G.lastLife); p.born = G.t;
@@ -497,14 +497,12 @@
       G.cd = 0.6; setAct(p, 'swing');
       G.events.push({ type: 'swing' });
       const a = aimOf(p); if (a) p.dir = Math.atan2(a.y - p.y, a.x - p.x);
-      G.zombies.forEach(z => {
-        if (dist(z, p) > 1.7 || (z.floor || 0) !== (p.floor || 0) || blocked(p.x, p.y, z.x, z.y, undefined, p.floor || 0) || angDiff(Math.atan2(z.y - p.y, z.x - p.x), p.dir) > Math.PI / 4) return;
-        strike(z, p.weapon === 'pipe_r' ? 35 : 25, p);
-      });
-      for (const n of G.npcs.slice()) { // NPC no cone do golpe (amigo tambem: acertar vira o grupo hostil)
-        if (n.hp <= 0 || p.floor || dist(n, p) > 1.7 || blocked(p.x, p.y, n.x, n.y) || angDiff(Math.atan2(n.y - p.y, n.x - p.x), p.dir) > Math.PI / 4) continue;
-        strikeNpc(n, p.weapon === 'pipe_r' ? 35 : 25, p);
-      }
+      // UM golpe acerta UM alvo (dono: zumbis juntos morriam ao mesmo tempo): o da mira assistida se estiver no cone, senao o mais perto
+      const cand = [];
+      for (const z of G.zombies) if (z.hp > 0 && dist(z, p) <= 1.7 && (z.floor || 0) === (p.floor || 0) && !blocked(p.x, p.y, z.x, z.y, undefined, p.floor || 0) && angDiff(Math.atan2(z.y - p.y, z.x - p.x), p.dir) <= Math.PI / 4) cand.push(z);
+      for (const n of G.npcs) if (n.hp > 0 && !p.floor && dist(n, p) <= 1.7 && !blocked(p.x, p.y, n.x, n.y) && angDiff(Math.atan2(n.y - p.y, n.x - p.x), p.dir) <= Math.PI / 4) cand.push(n); // NPC no cone (amigo tambem: acertar vira o grupo hostil)
+      const t = cand.includes(a) ? a : cand.reduce((m, e) => !m || dist(e, p) < dist(m, p) ? e : m, null);
+      if (t) { const dm = p.weapon === 'pipe_r' ? 35 : 25; if (t.fac !== undefined) strikeNpc(t, dm, p); else strike(t, dm, p); }
     } else {
       const am = p.inv.find(i => i.id === 'ammo');
       if (!am) return;
@@ -550,6 +548,7 @@
   // todo dano ao jogador: -20 % por peca (max 60 %); cada golpe absorvido gasta 1 de dur nas pecas
   function hurtPlayer(d, nodur) {
     if (G.dev.god) return;
+    G._hurtT = G.t; // regeneracao espera 10 s sem dano
     const p = G.player, eq = p.equip || {}, parts = Object.keys(eq).filter(k => eq[k] && k !== 'back'); // mochila nao e armadura
     p.hp -= d * (1 - Math.min(0.6, 0.2 * parts.length));
     cancelUse(p);
@@ -1088,6 +1087,10 @@
       if (G._starve >= 5) { G._starve -= 5; p.hp -= 1; }
     }
     if (p.hunger < 30) hint('hunger', 'Com fome — coma algo da mochila', 'hunger');
+    if (p.hp < 100 && p.hp > 0 && p.hunger > 60 && !p.bleed && G.t - G._hurtT >= 10) { // regeneracao (P1): +1 a cada 20 s bem alimentado, 10 s depois do ultimo dano, sem sangrar
+      G._regen += dt;
+      if (G._regen >= 20) { G._regen -= 20; p.hp = Math.min(100, p.hp + 1); hint('regen', 'Bem alimentado, você se recupera devagar', 'hunger'); }
+    } else G._regen = 0;
     if (countOf(p, 'wire') && avail(p, 'pipe') && !G.hints.craft) hint('craft', 'Cano + arame: fabrique o cano reforçado no MENU', 'pipe_r');
     if (countOf(p, 'bottle') && countOf(p, 'rag') && canFuel(p, { id: 'gascan', fuel: 2 })) hint('molotov', 'Garrafa + trapo + 2 L do galão: fabrique o molotov no MENU', 'molotov');
     if (countOf(p, 'molotov')) hint('molotov2', 'Molotov: troque para a arma MOLOTOV e toque ATACAR (o fogo também queima você)', 'molotov');
@@ -1478,6 +1481,8 @@
     sacristy: [['rag', 4], ['bottle', 2], [null, 94]], // igreja e capela: sem arma nem municao
     box_militar: [['ammo', 8], ['bandage', 8], ['rag', 6], ['wire', 5], ['food', 2], ['helmet', 2], ['jacket', 1], [null, 68]], // galpao da base militar e porta-malas militar (escasso; sem pistola, sem alicate, sem gasolina); bag_military so por sorteio da base
   };
+  const FOOD_X = new Set(['fridge', 'cabinet', 'shelf', 'box_mercado']); // geladeira, armario de cozinha, gondola e deposito do mercado (gv>=5)
+  const FOOD_K = 0.01; // chance da comida extra por movel vazio (gv>=5); medido em 30 seeds (COERENCIA/PLANO)
   const SOLDIER = [['ammo', 5], ['bandage', 2], ['helmet', 1], ['jacket', 0.5], ['food', 1], [null, 90.5]]; // zumbi de farda ao morrer (soma 100; sem pistola)
   // dimensoes (w,h) de cada movel; SCEN = cenario (so colide, sem loot); ROOM = moveis de cada tipo de comodo, em ordem de prioridade
   const FD = { fridge: [0.8, 0.8], cabinet: [1.2, 0.5], wardrobe: [1.2, 0.6], drawer: [0.9, 0.5], shelf: [2, 0.7], stove: [0.7, 0.6], sink: [0.8, 0.5], bed: [1, 2], nightstand: [0.5, 0.5], toilet: [0.5, 0.7], medcab: [0.5, 0.3], sofa: [1.8, 0.8], bookshelf: [1.2, 0.4], table: [1, 1], toolbox: [0.5, 0.35], toolbox_oficina: [0.5, 0.35], box_mercado: [0.8, 0.8], box_posto: [0.8, 0.8], box_galpao: [0.8, 0.8], pshelf: [1.8, 0.6], medcart: [0.8, 0.5], gunlocker: [1.2, 0.5], desk: [1.4, 0.7], locker: [1.2, 0.5], sacristy: [1, 0.5], box_militar: [0.8, 0.8], pew: [2.8, 0.6], altar: [2, 0.8], pump: [0.7, 0.5], counter: [2.2, 0.7], stretcher: [0.9, 2], bars: [1.3, 0.15], carteira: [0.9, 0.6], register: [0.8, 0.6] };
@@ -2288,6 +2293,10 @@
         }
       }
     }
+    if (G.gv >= 5) { // bloco FINAL gv:5 (fome justa, P1): RNG hash(seed,cx,cy,9510); so preenche loot VAZIO de cozinha/mercado ainda nao saqueado; ids, nid e r() intocados => gv 0-4 identico
+      const fr = mulberry32(hash(G.seed, cx, cy, 9510));
+      o.crates.forEach(c => { const a = fr(), b = fr(); if (FOOD_X.has(c.kind) && !c.scenery && !c.tomb && !c.opened && !c.loot.length && a < FOOD_K) c.loot = [{ id: b < 0.54 ? 'food' : 'food_bad', qty: 1 }]; }); // 2 sorteios por movel (estavel); food:food_bad = 7:6 como a geladeira
+    }
     // local -> mundo (roads ja nascem em mundo)
     const sh = e => { e.x += ox; e.y += oy; return e; };
     [o.houses, o.crates, o.zombies, o.trees, o.fences, o.props, o.tanks, o.npcs || []].forEach(l => l.forEach(sh));
@@ -2472,16 +2481,17 @@
     }
   }
 
+  const GV_NOVO = 5; // UNICO ponto do gv do mundo novo (B=5, E=6, F=7); mundo salvo mantem o seu
   // novo mundo (st undefined) ou estado salvo
   function start(seed, slot, st) {
-    G.gv = st ? (st.gv || 0) : 4; // gv:4 = NPCs sobreviventes; gv:1 = densidade/rastejantes; gv:2 = auditoria (tanque seco, saqueadas, alarme, corpo, lata, pichacao, janelas); gv:3 = base militar; mundo salvo mantem o seu gv (gen antigo intocado)
+    G.gv = st ? (st.gv || 0) : GV_NOVO; // gv:5 = comida extra em cozinha/mercado (P1); gv:4 = NPCs sobreviventes; gv:1 = densidade/rastejantes; gv:2 = auditoria (tanque seco, saqueadas, alarme, corpo, lata, pichacao, janelas); gv:3 = base militar; mundo salvo mantem o seu gv (gen antigo intocado)
     HMEMO.clear();
     st = st || {};
     MEMO.cen.clear(); MEMO.edge.clear(); MEMO.sq.clear(); MEMO.lm.clear(); MEMO.base.clear();
     G.seed = seed; G.slot = slot; G._pe = false; // evento pendente de painel não vaza para o mundo novo
     rng = mulberry32(seed);
     G.t = st.t > 0 ? st.t : 0; G.bairro = null; G.cidade = null; G.dead = false; G.cd = 0; G.nextId = st.nextId > 0 ? st.nextId : 0;
-    G._hunger = G._starve = G._spawn = G._as = 0; G._bad = 0;
+    G._hunger = G._starve = G._spawn = G._as = 0; G._bad = 0; G._regen = 0; G._hurtT = -1e9;
     G.dying = []; G._hp = 100; G._rw = false;
     G.hints = st.hints || {}; G.chunks = st.chunks || {}; G.hordes = st.hordes || {}; G._hq = []; G._hseen = {}; G.hordeNear = null; G._hmn = 0; G._hnext = 0;
     G.events = []; G.queue = []; G.loaded = []; G._ls = new Set(); G.chunkGen = (G._ep = (G._ep || 0) + 1) * 1e5; // epoca nova: o render nunca confunde mundo novo com o antigo (chunks velhos) G._gb = new Map(); G._gp = {}; G._ws = null; G.fires = []; G.flights = []; G.spills = [];
@@ -2553,7 +2563,7 @@
     g('horda', 'Horda', ['horda', 'grupo', 'bando', 'perseguicao', 'fugir', 'gemido', 'seta', 'grito'], [], ['Hordas de 8 a 15 zumbis vagam pelo mapa; uma seta vermelha na borda da tela mostra de onde vem (a menos de 25 m).', 'Zumbi que persegue a menos de 5 m grita e chama até 4 vizinhos parados: se você não fugir, vira horda.', 'Entre numa casa e feche a porta, ou agache e saia de lado. Barulho (tiro, motor) chama mais.', 'Os mortos da horda não voltam antes de 60 minutos de jogo.'], 'horde'),
     g('infestada', 'Áreas infestadas', ['infestada', 'calma', 'densidade', 'vermelho', 'regiao', 'mapa', 'zumbis', 'centro'], [], ['O mundo tem regiões calmas (metade dos zumbis), normais e infestadas (o dobro, e novos zumbis nascem mais rápido).', 'O centro das cidades costuma ser pior.', 'No Mapa, as regiões infestadas já exploradas ficam num tom vermelho.'], 'horde'),
     g('police', 'Policial zumbi', ['policial', 'policia', 'quepe', 'azul'], [{ item: 'ammo', onde: 'policiais mortos' }, { item: 'pistol', onde: 'policiais mortos (raro)' }, { item: 'helmet', onde: 'policiais mortos (muito raro)' }], ['Zumbi de camisa azul e quepe.', 'Ao morrer pode soltar munição, pistola, bandagem ou capacete.'], 'ammo'),
-    g('hunger', 'Fome', ['fome', 'comer', 'estomago', 'faminto'], [{ item: 'food', onde: 'geladeiras, armários, mercados e sobreviventes' }], ['A fome cai com o tempo.', 'Com fome zerada você perde vida e fôlego.', 'Coma pela mochila: leva 1,5 s parado; dano ou correr cancela e não gasta o item.'], 'food'),
+    g('hunger', 'Fome', ['fome', 'comer', 'estomago', 'faminto'], [{ item: 'food', onde: 'geladeiras, armários, mercados e sobreviventes' }], ['A fome cai com o tempo.', 'Com fome zerada você perde vida e fôlego.', 'Coma pela mochila: leva 1,5 s parado; dano ou correr cancela e não gasta o item.', 'Bem alimentado (fome acima de 60) e sem dano há 10 s, a vida volta devagar: +1 a cada 20 s.'], 'food'),
     g('fence', 'Cercas', ['cerca', 'pular', 'pulo', 'obstaculo', 'muro'], [], ['Cercas bloqueiam o caminho.', 'Perto de uma cerca, toque PULAR (gasta fôlego).', 'Zumbis levam alguns segundos para atravessar.'], 'jump'),
     g('map', 'Mapa', ['mapa', 'explorar', 'mundo', 'onde', 'localizar'], [], ['Abra o MENU e toque a aba Mapa.', 'Mostra os quarteirões que você já visitou, com as casas em cinza-claro.', 'No alto: cidade, bairro e o dia da sua vida (Dia N).', 'O ponto vermelho é sua tumba; fora do mapa, uma seta vermelha aponta para ela.'], 'run'),
     g('cidades', 'Estradas e cidades', ['estrada', 'cidade', 'vila', 'posto', 'rural', 'sitio', 'viagem', 'caminho'], [], ['Estradas curvas ligam as cidades; fora delas só há pasto, árvores e sítios.', 'Sítios ficam na beira da estrada, com a porta virada para ela.', 'Postos de gasolina ficam na saída das cidades.', 'O Mapa mostra as estradas e os mercados.'], 'run'),
@@ -2660,7 +2670,7 @@
       },
       fill() { const p = G.player; p.hp = p.hunger = p.stamina = 100; },
     },
-    VEH, NPC_TAB, TRADES, NPC_LOOT, baseAt, baseOfChunk, aloft, runwayOk, seed: 0, gv: 1, viewR: 7, hordes: {}, hordeNear: null, players: [], input: null, target: null, // compat 0.1: alias de players[0].input
+    GV_NOVO, VEH, NPC_TAB, TRADES, NPC_LOOT, baseAt, baseOfChunk, aloft, runwayOk, seed: 0, gv: 1, viewR: 7, hordes: {}, hordeNear: null, players: [], input: null, target: null, // compat 0.1: alias de players[0].input
     player: null, dying: [], zombies: [], crates: [], houses: [], events: [],
     dead: false, slot: 1, hints: {}, _as: 0, _dead: 0, cd: 0, _hunger: 0, _starve: 0, _spawn: 0,
 
