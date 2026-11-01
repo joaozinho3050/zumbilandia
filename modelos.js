@@ -220,6 +220,17 @@ const ITEMS = {
   pipe_r: (g, c) => { ITEMS.pipe(g, c); // cano reforçado: arame enrolado (anéis) por cima
     const p = new THREE.Group(); p.position.set(0, 0.45, 0); p.rotation.z = 0.35; g.add(p);
     for (const y of [-0.24, -0.16, -0.08, 0, 0.08, 0.16, 0.24]) add(p, new THREE.TorusGeometry(0.08, 0.018, 6, 10), 0xd8c9a0, 0, y, 0, Math.PI / 2, 0, 0); },
+  // sucata e armas improvisadas (Mais coisas): paleta do ESTILO.md (madeira eab26a, cabo 6e4422, metal 9aa3b5, costura d8c9a0, f2d16b, ff8c69)
+  tape: (g, c) => { add(g, Cyl(0.17, 0.17, 0.12, 12), c.metal, 0, 0.06, 0); add(g, Cyl(0.09, 0.09, 0.125, 12), 0x2f2a35, 0, 0.06, 0); add(g, Box(0.14, 0.012, 0.06), c.metal, 0.2, 0.014, 0.05); }, // rolo de fita prateada com a ponta solta
+  nails: (g, c) => { add(g, Box(0.34, 0.12, 0.22), c.wood, 0, 0.06, 0); add(g, Box(0.1, 0.125, 0.225), 0xff5c57, 0, 0.06, 0); for (const [x, z, r] of [[-0.08, 0.02, 0.35], [0.0, -0.03, -0.25], [0.09, 0.04, 0.15]]) add(g, Cyl(0.014, 0.014, 0.2, 5), c.metal, x, 0.2, z, 0, 0, r); }, // caixinha com pregos saindo
+  stick: (g, c) => { add(g, Cyl(0.04, 0.04, 1.1, 8), 0x6e4422, 0, 0.45, 0, 0, 0, 0.35); add(g, Cyl(0.047, 0.047, 0.08, 8), 0x2f2a35, 0.2, -0.04, 0, 0, 0, 0.35); }, // cabo de vassoura com ponteira de borracha
+  knife: (g, c) => { add(g, Box(0.34, 0.025, 0.08), c.metal, 0.11, 0.03, 0); add(g, Box(0.18, 0.05, 0.07), 0x6e4422, -0.16, 0.04, 0); add(g, Box(0.02, 0.055, 0.075), c.metal, -0.06, 0.04, 0); }, // faca de cozinha: lamina, cabo e rebite
+  snack: (g, c) => { add(g, Box(0.34, 0.06, 0.22), 0xf2d16b, 0, 0.03, 0); add(g, Box(0.1, 0.064, 0.225), 0xff8c69, 0, 0.03, 0); for (const x of [-0.17, 0.17]) add(g, Box(0.02, 0.07, 0.22), 0xd8c9a0, x, 0.03, 0); }, // pacote de biscoito (costuras nas pontas)
+  spear: (g, c) => { const p = new THREE.Group(); p.position.set(0, 0.5, 0); p.rotation.z = 0.35; g.add(p);
+    add(p, Cyl(0.035, 0.035, 1.1, 8), 0x6e4422, 0, 0, 0); add(p, Cyl(0, 0.07, 0.3, 6), c.metal, 0, 0.68, 0); add(p, Cyl(0.05, 0.05, 0.07, 8), 0xd8c9a0, 0, 0.5, 0); }, // lanca: cabo, ponta de faca e fita
+  nailbat: (g, c) => { const p = new THREE.Group(); p.position.set(0, 0.5, 0); p.rotation.z = 0.35; g.add(p);
+    add(p, Cyl(0.075, 0.04, 1.0, 8), c.wood, 0, 0, 0); add(p, Cyl(0.048, 0.048, 0.14, 8), 0xd8c9a0, 0, -0.38, 0);
+    for (const y of [0.18, 0.3, 0.42]) { for (const s of [-1, 1]) { add(p, Cyl(0.012, 0.012, 0.13, 5), c.metal, s * 0.1, y, 0, 0, 0, Math.PI / 2); add(p, Cyl(0.012, 0.012, 0.13, 5), c.metal, 0, y, s * 0.1, Math.PI / 2, 0, 0); } } }, // porrete com pregos cravados na ponta
   molotov: (g, c) => { add(g, Cap(0.1, 0.22), 0x78a865, 0, 0.2, 0); add(g, Cyl(0.04, 0.045, 0.16, 8), 0x78a865, 0, 0.45, 0);
     add(g, Cyl(0.03, 0.03, 0.1, 6), 0xd8c9a0, 0, 0.58, 0);
     add(g, new THREE.ConeGeometry(0.08, 0.2, 6), c.can, 0, 0.73, 0); add(g, new THREE.ConeGeometry(0.045, 0.12, 6), 0xf2d16b, 0, 0.71, 0.01); },

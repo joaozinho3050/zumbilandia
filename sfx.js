@@ -212,6 +212,9 @@
       osc(n, 'square', 220, 220, t, 0.12, 0.1);
       osc(n, 'square', 175, 175, t + 0.18, 0.12, 0.1);
     }),
+    cam: () => voice(0.1, (t, n) => { osc(n, 'square', 1500, 900, t, 0.04, 0.08); noise(n, t, 0.02, 0.1, 'highpass', 3000, 0.8, 0.001); }), // clique do botao da camera
+    goal: () => voice(0.9, (t, n) => [880, 1175, 1568].forEach((f, i) => { osc(n, 'sine', f, f, t + i * 0.11, 0.5, 0.14); osc(n, 'sine', f * 2, f * 2, t + i * 0.11, 0.2, 0.04); })), // sino curto: meta do Diario cumprida
+    break: () => voice(0.35, (t, n) => { [0, 0.07].forEach((d) => { noise(n, t + d, 0.05, 0.4, 'bandpass', 1200, 1.4, 0.002); osc(n, 'triangle', 240, 90, t + d, 0.08, 0.35); }); }), // estalo de madeira: arma improvisada quebrou
     hint: () => voice(0.2, (t, n) => osc(n, 'sine', 880, 880, t, 0.18, 0.12)),
     npcStep: (vol) => voice(0.07, (t, n) => noise(n, t, 0.06, typeof vol === 'number' ? Math.max(0.01, vol) : 0.12, 'lowpass', 320, 0.5)), // passo de sobrevivente: mais grave e baixo que o seu
     npcAim: () => voice(0.08, (t, n) => { osc(n, 'square', 2000, 2000, t, 0.02, 0.08); osc(n, 'square', 1500, 1500, t + 0.03, 0.02, 0.06); }), // clique da arma sendo armada: aviso de 0,8 s
@@ -500,6 +503,6 @@
     document.addEventListener('visibilitychange', () => { if (!document.hidden && ctx) ensure(); });
   }
 
-  window.SFX = { init, draw, mute, muted };
+  window.SFX = { init, draw, mute, muted, play: (id) => { if (SND[id]) SND[id](); } }; // play: sons de interface (camera)
   init(); // index.html não chama init: roda ao carregar
 })();

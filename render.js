@@ -64,6 +64,7 @@ const SMOKE = new THREE.MeshBasicMaterial({ color: 0xbfc4cc }), BOOM = new THREE
 const hsh = s => { let h = 0; for (const ch of String(s)) h = (h * 31 + ch.charCodeAt(0)) | 0; return h; }; // ids podem ser texto
 const puff = (x, y, z, vx, vz, vy = 0.7, sc = 1, mat = SMOKE) => { const m = sPool.find(s => !s.visible); if (!m) return; m.material = mat; m.position.set(x, y, z); m.userData = { t: 0, vx, vz, vy, sc }; m.scale.setScalar(0.08); m.visible = true; };
 
+let yaw = 0, yawT = 0; // camera giratoria: preferencia do aparelho (UI), G nao sabe do angulo; yaw nunca entra em roofSig nem em G.viewR (circulo)
 const EL = 0.96; let VIEW_R = 7; // 100 % = raio 7 m (dono); R.zoom(%) ajusta
 function camDist() { // menor d tal que (±R,0) e (0,±R) do chao projetam em |ndc|<=1 (camera olhando de EL)
   const c = camera, v = new THREE.Vector3();
@@ -252,6 +253,7 @@ function mkRig(armor, back) {
   for (const n of ['head', 'armL', 'armR']) { if (n !== 'head') P[n].position.y -= P.body.position.y; P.body.add(P[n]); }
   const hs = pair(bake(makeItem('hose'))); const hi = new THREE.Group(); hi.add(...hs); hi.scale.setScalar(0.7); P.hose = new THREE.Group(); P.hose.add(hi); P.hose.position.set(0, -0.55, 0.12); P.hose.visible = false; P.armR.add(P.hose); // mangueira na mao (so no siphon)
   const ci = new THREE.Group(); ci.add(...pair(bake(makeItem('cutter')))); ci.rotation.z = Math.PI; P.cutter = new THREE.Group(); P.cutter.add(ci); P.cutter.position.set(0, -0.45, 0.12); P.cutter.visible = false; P.armR.add(P.cutter);
+  for (const [k, id] of [['spear', 'spear'], ['nail', 'nailbat']]) { const wi = new THREE.Group(); wi.add(...pair(bake(makeItem(id)))); wi.scale.setScalar(0.85); P[k] = new THREE.Group(); P[k].add(wi); P[k].position.set(0, -0.42, 0.1); P[k].visible = false; P.armR.add(P[k]); } // arma improvisada na mao (so quando equipada)
   const g = new THREE.Group(); g.add(P.body, P.legL, P.legR);
   for (const n in P) P[n].userData.p0 = P[n].position.clone();
   P.hose.userData.p0 = P.hose.position.clone();
@@ -313,13 +315,16 @@ function pose(rig, mv, act, t, k) {
   const cr = mv === 'crouch', bob = mov && RM === 1 ? Math.abs(Math.sin(pPh)) * (mv === 'run' ? 0.06 : 0.04) * k : 0;
   for (const n in P) { P[n].position.copy(P[n].userData.p0); P[n].rotation.set(0, 0, 0); P[n].scale.set(1, 1, 1); }
   playerG.rotation.z = 0; playerG.scale.set(1, 1, 1); playerG.position.y = 0; P.hose.visible = act === 'siphon'; P.cutter.visible = false;
+  const wp = rig === plRig && window.G && G.player && !G.player.car ? G.player.weapon : '', hands = act !== 'siphon' && act !== 'cut' && act !== 'eat' && act !== 'search' && act !== 'craft' && act !== 'crank';
+  if (P.spear) { P.spear.visible = wp === 'spear' && hands; P.nail.visible = wp === 'nailbat' && hands; }
   P.legL.rotation.x = s; P.legR.rotation.x = -s; P.armL.rotation.x = -s; P.armR.rotation.x = s;
   P.body.rotation.x = mv === 'run' ? 0.14 : cr ? 0.1 : 0;
   P.body.position.y += bob - (cr ? 0.15 : 0);
   if (cr) for (const l of [P.legL, P.legR]) { l.scale.y = 0.8; l.position.y = 0.44; }
   if (!mov || RM < 1) P.body.scale.y = 1 + 0.01 * (1 + Math.sin(bt * 2)) * RM;
   const u = x => Math.min(1, t / x);
-  if (act === 'swing') { P.armR.rotation.x = -1.75 * Math.sin(Math.PI * u(0.25)); P.body.rotation.y = 0.3 * Math.sin(Math.PI * u(0.25)); }
+  if (act === 'swing' && wp === 'spear') { P.armR.rotation.x = -1.5 * sm(Math.min(1, u(0.25) * 2)); P.armR.position.z += 0.35 * Math.sin(Math.PI * u(0.25)) * RM; P.body.rotation.y = -0.15 * Math.sin(Math.PI * u(0.25)); } // estocada: braco reto e lanca para frente
+  else if (act === 'swing') { P.armR.rotation.x = -1.75 * Math.sin(Math.PI * u(0.25)); P.body.rotation.y = 0.3 * Math.sin(Math.PI * u(0.25)); }
   else if (act === 'siphon') { const w = Math.sin(t * 6); P.body.rotation.x = 0.5; P.body.position.y -= 0.2; for (const l of [P.legL, P.legR]) { l.rotation.x = -0.9; l.scale.y = 0.75; l.position.y = 0.4; } P.armL.rotation.x = -1.2 + 0.1 * w; P.armR.rotation.x = -1.3 - 0.1 * w; }
   else if (act === 'cut') { const w = Math.max(0, Math.sin(t * 12)); P.body.rotation.x = 0.55; P.body.position.y -= 0.22; for (const l of [P.legL, P.legR]) { l.rotation.x = -0.9; l.scale.y = 0.75; l.position.y = 0.4; } P.armL.rotation.x = -1.25 + 0.15 * w; P.armR.rotation.x = -1.3 + 0.15 * w; P.cutter.visible = true; P.cutter.scale.setScalar(0.65 - 0.06 * w); }
   else if (act === 'throw') { const e = u(0.4); P.armR.rotation.x = e < 0.4 ? 0.8 * sm(e / 0.4) : 0.8 - 3.1 * sm((e - 0.4) / 0.6); P.body.rotation.y = e < 0.4 ? 0.3 * e : 0.12 - 0.5 * (e - 0.4); }
@@ -463,7 +468,7 @@ function carOwnDraw(c, p, dt, now, trunk) {
   if (o.cid !== c.id) { o.cid = c.id; o.hop = 0; o.hp0 = hp; }
   if (hp < o.hp0 && RM === 1) o.hop = 0.12; o.hp0 = hp; // salto de 120 ms ao bater
   o.hop = Math.max(0, o.hop - dt);
-  const hood = hp < 50 ? 0.05 : 0; // capo amassado: frente sobe
+  const hood = hp < 50 ? 0.12 : 0; // capo amassado: frente sobe
   o.body.rotation.set(st.roll + bump, 0, st.pitch + hood); o.body.position.y = Math.abs(bump) * 2 + (o.hop > 0 ? Math.sin(o.hop / 0.12 * Math.PI) * 0.06 : 0);
   o.crack.visible = hp < 75;
   st.ph += v * dt / o.R; // v m/s / raio da roda no mundo (carro 0,38; militar wr)
@@ -471,8 +476,9 @@ function carOwnDraw(c, p, dt, now, trunk) {
   lidA += ((trunk ? 1 : 0) - lidA) * Math.min(1, dt * 8); o.lid.rotation.z = -Math.PI / 3 * lidA;
   const on = !!(p.car && p._eng);
   o.lightL.visible = on && hp >= 50; o.lightR.visible = o.beam.visible = on; // farol esquerdo apaga
-  if ((on || hp < 25) && RM === 1 && (sT -= dt) <= 0) {
+  if ((on || hp < 50) && RM === 1 && (sT -= dt) <= 0) {
     sT = 0.15; o.g.updateMatrixWorld(true);
+    if (hp >= 25 && hp < 50 && ((o.sm = ((o.sm || 0) + 1) % 4) === 0)) { cv3.set(...o.hood); o.body.localToWorld(cv3); puff(cv3.x, cv3.y, cv3.z, (Math.random() - 0.5) * 0.2, (Math.random() - 0.5) * 0.2, 0.6, 0.7); } // fumaca fina (1 a cada ~0,6 s)
     if (hp < 25) { cv3.set(...o.hood); o.body.localToWorld(cv3); puff(cv3.x, cv3.y, cv3.z, (Math.random() - 0.5) * 0.4, (Math.random() - 0.5) * 0.4, 1.1, 1.3); } // fumaca do capo
     if (on) { o.ex.getWorldPosition(cv3); puff(cv3.x, cv3.y, cv3.z, -Math.cos(c.dir) * 0.3 + (Math.random() - 0.5) * 0.3, -Math.sin(c.dir) * 0.3 + (Math.random() - 0.5) * 0.3); }
   }
@@ -572,7 +578,7 @@ function draw(G) {
       }
       if (d.locked && ln < 128) {
         const o = ax ? (d.y < hy ? -1 : 1) : (d.x < hx ? -1 : 1), px = ax ? d.x + L - 0.3 : d.x + d.w / 2 + o * 0.22, pz = ax ? d.y + d.h / 2 + o * 0.22 : d.y + L - 0.3;
-        const near = (px - p.x) ** 2 + (pz - p.y) ** 2 < 36, k = near && RM === 1 ? Math.sin(now / 220) : 0, sc = 3.2 * (1 + 0.1 * k);
+        const near = (px - p.x) ** 2 + (pz - p.y) ** 2 < 49, k = near && RM === 1 ? Math.sin(now / 220) : 0, sc = 4.5 * (1 + 0.1 * k);
         place(padIM[0], ln, px, 0.95, pz, ax ? 0 : Math.PI / 2, sc, sc, sc); padIM[0].setColorAt(ln++, wc0.setScalar(near ? 1.15 + 0.25 * k : 1));
       }
     }
@@ -896,7 +902,8 @@ function draw(G) {
   scene.fog.near = d + 14; scene.fog.far = d + 34;
   if (Math.abs(camera.far - (d + 70)) > 2) { camera.far = d + 70; camera.updateProjectionMatrix(); }
   const sh = shakeT > 0 && RM === 1 ? 0.12 * (shakeT / 0.15) : 0; shakeT = Math.max(0, shakeT - dt); // tremor 0,15 s (desligado com prefers-reduced-motion)
-  camera.position.set(fx + (sh ? (Math.random() - 0.5) * sh : 0), 0.5 + cH + cSm.a + d * Math.sin(el) + (sh ? (Math.random() - 0.5) * sh : 0), fy + d * Math.cos(el));
+  yaw = RM === 1 ? yaw + (yawT - yaw) * (1 - Math.exp(-dt * 16)) : yawT; if (Math.abs(yawT - yaw) < 0.002) yaw = yawT; // ~0,25 s; reduced-motion: instantaneo
+  camera.position.set(fx + d * Math.cos(el) * Math.sin(yaw) + (sh ? (Math.random() - 0.5) * sh : 0), 0.5 + cH + cSm.a + d * Math.sin(el) + (sh ? (Math.random() - 0.5) * sh : 0), fy + d * Math.cos(el) * Math.cos(yaw));
   camera.lookAt(fx, 0.5 + cH + cSm.a, fy);
   if (devLn) devUpdate(p, now);
   renderer.render(scene, camera);
@@ -1029,7 +1036,7 @@ function demoZ(canvas, id) {
   spinCv = canvas; spinId = id; spinRaf = requestAnimationFrame(spinTick);
 }
 // mini-cenas do guia da base militar (pecas baked 1x e guardadas): 'base' = boneco corta o cadeado e o portao desliza; 'militar' = jipe sai do patio com caminhao e blindado parados; 'kero' = boneco sifona o tanque de querosene
-const BDEMO = ['base', 'militar', 'kero', 'heli', 'jato'];
+const BDEMO = ['base', 'militar', 'kero', 'heli', 'jato', 'siphon', 'camera'];
 let bdG = null;
 function bPose(mv, act, t, s) { // pose do boneco do guia (mesma preparacao de demoPose)
   const rig = iRig; for (const n in rig.P) { rig.P[n].position.copy(rig.P[n].userData.p0); rig.P[n].rotation.set(0, 0, 0); rig.P[n].scale.set(1, 1, 1); }
@@ -1047,6 +1054,7 @@ function demoB(canvas, id) {
     for (let i = 0; i <= 8; i++) box(bars, 0.05, 1.8, 0.05, 0x2f2a35, i * 0.35, 1.15, 0);
     bdG = { gate: mk(gate), bars: mk(bars), lock: mk(makePadlock()), tank: mk(makeProp('kerotank')), jeep: mk(makeMil('jeep')), truck: mk(makeMil('truck')), apc: mk(makeMil('apc')) };
   }
+  if (!bdG.car) { const mk = f => { const g = new THREE.Group(); g.add(...pair(bake(f))); return g; }; bdG.car = mk(makeCar()); bdG.car.scale.setScalar(2); bdG.can = mk(makeItem('gascan')); bdG.can.scale.setScalar(1.3); bdG.hose = new THREE.Mesh(new THREE.BoxGeometry(1, 0.06, 0.06), cmat(0x2f2a35)); } // cena do sifao: carro do jogo + galao + mangueira (so no guia)
   if (!bdG.heli) { const mk = f => { const g = new THREE.Group(); g.add(...pair(bake(f))); return g; }; bdG.heli = mk(makeHeli()); bdG.rotor = mk(makeRotor()); bdG.jet = mk(makeJet({ gear: false })); bdG.gear = mk(makeJetGear()); bdG.pad = mk(makeProp('heliporto')); bdG.rw = mk(makeProp('pista40')); bdG.sh = new THREE.Mesh(new THREE.CircleGeometry(1, 20).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0x8fd16a, transparent: true, opacity: 0.5, depthWrite: false })); }
   iPivot.clear(); iPivot.rotation.y = 0;
   const R90 = Math.PI / 2;
@@ -1079,6 +1087,21 @@ function demoB(canvas, id) {
       iRig.g.position.set(-0.4, 0, 1.7); iRig.g.rotation.set(0, 0.2, 0);
       bdG.lock.visible = u < 1.5; bdG.lock.rotation.y = 0;
       bdG.bars.scale.x = 1 - 0.9 * (RM === 1 ? sm(open) : (open > 0.5 ? 1 : 0)); bdG.bars.position.set(-1.4, 0, 0); // grade presa ao pilar esquerdo
+    };
+  } else if (id === 'siphon') { // carro parado, boneco agachado ao lado puxa a gasolina para o galao pela mangueira
+    iPivot.add(bdG.car, bdG.can, bdG.hose, iRig.g); bdG.car.position.set(0.6, 0, -0.4); bdG.car.rotation.y = 0;
+    iC.position.set(0.15, 0.55, 1).normalize().multiplyScalar(9.5); iC.lookAt(0.2, 0.9, 0); iC.updateMatrixWorld();
+    demoFn = (s) => {
+      iRig.g.scale.set(1, 1, 1); bPose('crouch', 'siphon', s % 1.2, s); iRig.g.position.set(-1.3, 0, 0.9); iRig.g.rotation.set(0, R90 - 0.3, 0);
+      bdG.can.position.set(-0.6, 0, 1.1);
+      const a = [-0.2, 0.55, 0.15], b = [-0.6, 0.55, 1.1], d = Math.hypot(b[0] - a[0], b[2] - a[2]); // da tampa do tanque ate a boca do galao
+      bdG.hose.scale.x = d; bdG.hose.position.set((a[0] + b[0]) / 2, 0.55, (a[2] + b[2]) / 2); bdG.hose.rotation.y = -Math.atan2(b[2] - a[2], b[0] - a[0]);
+    };
+  } else if (id === 'camera') { // a camera orbita o boneco (e o carro de referencia): e o giro do botao
+    iPivot.add(bdG.car, iRig.g); bdG.car.position.set(3.2, 0, -1.6); bdG.car.rotation.y = 0.5;
+    demoFn = (s) => {
+      iRig.g.scale.set(1, 1, 1); bPose('idle', null, 0, s); iRig.g.position.set(0, 0, 0); iRig.g.rotation.set(0, 0, 0);
+      const a = RM === 1 ? s * 0.7 : Math.floor(s / 1.5) * Math.PI / 4; iC.position.set(Math.sin(a) * 6.2, 4.6, Math.cos(a) * 6.2); iC.lookAt(1.2, 0.8, -0.6); iC.updateMatrixWorld();
     };
   } else if (id === 'militar') {
     iPivot.add(bdG.truck, bdG.apc, bdG.jeep);
@@ -1173,7 +1196,7 @@ function demo(canvas, id) {
   if (!iRig) iRig = mkRig({ head: 1, torso: 1, legs: 1 });
   iPivot.clear(); iPivot.rotation.y = 0; iPivot.add(iRig.g); demoRig = iRig;
   if (id === 'tank') { const t = new THREE.Group(); t.add(...pair(bake(makeProp('tank')))); t.position.set(0.55, 0, 0.5); iPivot.add(t); } // boneco sifonando a tampa do tanque
-  iC.position.set(0.7, 0.4, 0.9).normalize().multiplyScalar(5.6); iC.lookAt(0, 0.95, 0); iC.updateMatrixWorld();
+  iC.position.set(0.7, 0.4, 0.9).normalize().multiplyScalar(7.4); iC.lookAt(0, 0.9, 0); iC.updateMatrixWorld();
   spinCv = canvas; spinId = id; spinRaf = requestAnimationFrame(spinTick);
 }
 
@@ -1209,5 +1232,5 @@ function badMatrices() {
   });
   return bad;
 }
-window.R = { toScreen(x, y, z) { if (!camera || !renderer) return null; const v = new THREE.Vector3(x, y, z).project(camera); if (v.z > 1) return null; const b = renderer.domElement.getBoundingClientRect(); return { x: b.left + (v.x + 1) / 2 * b.width, y: b.top + (1 - v.y) / 2 * b.height }; }, seenN: () => (seenIM && seenIM.visible ? seenIM.count : 0), aimOn: () => !!aimRing && aimRing.visible, zoom(pct) { VIEW_R = 7 * Math.max(50, Math.min(170, +pct || 100)) / 100; if (camera) size(); }, init, draw, pick, icon, spin, demo, info: () => ({ bakes, calls: renderer.info.render.calls, verts: lastBake.verts, ms: lastBake.ms, up: lastBake.up }), mem: () => renderer.info.memory.geometries, chunks: () => chunks.size, badMatrices, devOverlay,
+window.R = { setYaw(a) { yawT = a; if (RM !== 1) yaw = a; }, camYaw: () => yaw, camYawT: () => yawT, toScreen(x, y, z) { if (!camera || !renderer) return null; const v = new THREE.Vector3(x, y, z).project(camera); if (v.z > 1) return null; const b = renderer.domElement.getBoundingClientRect(); return { x: b.left + (v.x + 1) / 2 * b.width, y: b.top + (1 - v.y) / 2 * b.height }; }, seenN: () => (seenIM && seenIM.visible ? seenIM.count : 0), aimOn: () => !!aimRing && aimRing.visible, zoom(pct) { VIEW_R = 7 * Math.max(50, Math.min(170, +pct || 100)) / 100; if (camera) size(); }, init, draw, pick, icon, spin, demo, info: () => ({ bakes, calls: renderer.info.render.calls, verts: lastBake.verts, ms: lastBake.ms, up: lastBake.up }), mem: () => renderer.info.memory.geometries, chunks: () => chunks.size, badMatrices, devOverlay,
   view() { const c = camera, v = new THREE.Vector3(), d = c.userData.d; c.position.set(0, 0.5 + d * Math.sin(EL), d * Math.cos(EL)); c.lookAt(0, 0.5, 0); c.updateMatrixWorld(true); return [[VIEW_R, 0], [-VIEW_R, 0], [0, VIEW_R], [0, -VIEW_R]].map(([x, z]) => { v.set(x, 0, z).project(c); return Math.max(Math.abs(v.x), Math.abs(v.y)); }); } };
