@@ -90,6 +90,8 @@ input[type=range]{flex:1;min-height:var(--toque)}
     ['Carro', 'Desligar motor militar', 'Ao desligar um veículo militar.', 'Serra caindo de 70 a 24 Hz.', { type: 'engine', on: false, id: 'c2' }],
     ['Carro', 'Portão da base abrindo', 'Quando o portão com cadeado da base militar é aberto (ou cortado).', 'Ruído passa-faixa (380 Hz) de grade correndo + serra subindo de 55 a 95 Hz + batida metálica no fim.', { type: 'door', open: true, base: true }],
     ['Carro', 'Portão da base fechando', 'Quando o portão da base é fechado.', 'Mesmo chocalho com serra caindo de 90 a 45 Hz e batida grave no fim.', { type: 'door', open: false, base: true }],
+    ['Carro', 'Raspão', 'Ao raspar a lateral numa parede ou carro.', 'Ruído passa-faixa (1,8 kHz) + serra grave descendo, lata raspando.', { type: 'scrape' }],
+    ['Carro', 'Pneu cantando', 'Curva forte acima de 8 m/s (só som, não atrai zumbi).', 'Ruído passa-faixa agudo (4,2 kHz), 0,3 s.', { type: 'skid' }],
     ['Carro', 'Freada', 'Ao frear forte.', 'Ruído passa-faixa agudo (3,2 kHz), chiado curto.', { type: 'brake' }],
     ['Carro', 'Batida', 'Quando o carro bate em algo.', 'Seno grave (110 a 40 Hz) + ruído passa-alta de vidro.', { type: 'crash' }],
     ['Carro', 'Atropelar', 'Quando o carro atropela um zumbi.', 'Seno grave (120 a 45 Hz) + ruído passa-baixa: baque.', { type: 'run_over' }],

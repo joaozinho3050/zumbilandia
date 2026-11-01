@@ -295,6 +295,8 @@
       noise(n, t, 0.55, 0.3, 'bandpass', 380, 1.6, 0.05); osc(n, 'sawtooth', ev.open ? 55 : 90, ev.open ? 95 : 45, t, 0.5, 0.12);
       osc(n, 'square', 180, 120, t + 0.5, 0.12, 0.12); osc(n, 'sine', 90, 40, t + 0.52, 0.3, 0.55);
     }),
+    scrape: () => voice(0.3, (t, n) => { noise(n, t, 0.28, 0.25, 'bandpass', 1800, 3, 0.02); osc(n, 'sawtooth', 220, 150, t, 0.2, 0.08); }), // lata raspando na parede
+    skid: () => voice(0.4, (t, n) => noise(n, t, 0.3, 0.18, 'bandpass', 4200, 4, 0.04)), // pneu cantando (so som: nao atrai zumbi)
     brake: () => voice(0.2, (t, n) => noise(n, t, 0.18, 0.2, 'bandpass', 3200, 2, 0.02)), // chiado curto
     crash: () => voice(0.35, (t, n) => { // pancada + vidro leve
       osc(n, 'sine', 110, 40, t, 0.25, 0.6);

@@ -39,7 +39,7 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
 #hud button{pointer-events:auto;touch-action:none;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:0;padding:0;color:var(--texto);background:var(--superficie);border:2px solid var(--borda);border-radius:50%;box-shadow:var(--sombra);font:12px 'Pixelify Sans',monospace;text-shadow:var(--sombra-texto);opacity:.65}
 #hud button.active{opacity:1;transform:scale(.96)}
 #hud button.hidden{opacity:0}
-#btn-attack{right:var(--mr);bottom:var(--mb);width:84px;height:84px}
+#btn-attack,#btn-brake{right:var(--mr);bottom:var(--mb);width:84px;height:84px}
 #btn-action{right:calc(var(--mr) + 100px);bottom:calc(var(--mb) + 24px);width:72px;height:72px}
 #btn-action.near{border-color:var(--vida)}
 #btn-action small{position:absolute;left:50%;top:100%;transform:translateX(-50%);white-space:nowrap;font:400 10px "Pixelify Sans",monospace;color:var(--texto);margin-top:2px;pointer-events:none}
@@ -67,8 +67,11 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
 #btn-crouch{left:calc(var(--ml) + 56px);bottom:calc(var(--mb) + 156px);width:48px;height:48px}
 #btn-crouch.on{opacity:1;border-color:var(--folego)}
 #joy.aero .zona{display:none}
-#btn-up,#btn-down{left:calc(var(--ml) + 52px);width:56px;height:56px;font-size:11px}
-#btn-up{bottom:calc(var(--mb) + 216px)}#btn-down{bottom:calc(var(--mb) + 152px)}
+#btn-up,#btn-down{right:var(--mr);width:72px;height:72px;font-size:11px}
+#btn-down{bottom:var(--mb)}#btn-up{bottom:calc(var(--mb) + 84px)}
+#joy .rumo{position:absolute;left:50%;top:50%;width:0;height:0;pointer-events:none;display:none}
+#joy .rumo svg{position:absolute;left:-9px;top:-75px;width:18px;height:18px;fill:var(--folego);stroke:#15121a;stroke-width:1.5;stroke-linejoin:round}
+#joy.easy .rumo{display:block}#joy.easy.re .rumo svg{fill:var(--vida)}
 #alt{right:var(--mr);top:calc(var(--mt) + 100px);color:var(--folego)}
 #warn{left:50%;top:calc(var(--mt) + 100px);transform:translateX(-50%);padding:6px var(--esp-4);background:var(--vida);color:#15121a;border:2px solid #15121a;border-radius:14px;box-shadow:var(--sombra);font:16px 'Pixelify Sans',monospace;white-space:nowrap;animation:pulso .6s ease-in-out infinite}
 @media (prefers-reduced-motion:reduce){#warn{animation:none}}
@@ -212,8 +215,8 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
   const ARMA = { pipe: 'CANO', pipe_r: 'CANO+', spear: 'LANÇA', nailbat: 'PORRETE', pistol: 'PISTOLA', molotov: 'MOLOTOV' };
   const durMax = (id) => id === 'cutter' ? 4 : ((window.G && G.DUR) || {})[id] || ((window.G && G.WDUR) || {})[id]; // durabilidade cheia: G.DUR (+ alicate, que nao e armadura)
 
-  const held = { atk: false, act: false, up: false, down: false }, keys = new Set(), last = {}, E = {};
-  const joy = { id: null, cx: 0, cy: 0, mx: 0, my: 0, run: false };
+  const held = { atk: false, act: false, up: false, down: false, brake: false }, keys = new Set(), last = {}, E = {};
+  const joy = { id: null, cx: 0, cy: 0, mx: 0, my: 0, run: false, yw: 0 }; // yw: yaw da camera congelado enquanto o dedo esta no joystick
   let glow = null, vazioTxt = 'Vazio', tapT = null, intT = 0, pend = false, ctOn = false, atkPend = false, holdT = 0, relPend = false, hintGuia = '', crouchPend = false, root, armorUntil = 0, hintUntil = 0, hintNear = '', hintAt = 0, hintQ = [], flashWUntil = 0, toastUntil = 0, flashUntil = 0, menuEl, startEl, confirmEl, deadEl, tourEl, tourStep = -1, tourPos, contEl, contSig = '', hp = null;
 
   const put = (k, v, fn) => { if (last[k] !== v) { last[k] = v; fn(v); } };
@@ -440,6 +443,7 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
   }
 
   // dicas calmas (dono): criticas e respostas a uma acao passam na hora; as outras: 1 por id, 1 a cada 25 s, sem fila (as excedentes somem); modo "so importantes" bloqueia as nao criticas. O guia continua mostrando tudo
+  const dirMode = () => { try { return localStorage['zl1.direcao'] === 'classic' ? 'classic' : 'easy'; } catch (e) { return 'easy'; } }; // Direcao dos carros: facil (padrao) | classica
   const hintMode = () => { try { return localStorage['zl1.dicas'] === 'crit' ? 'crit' : 'all'; } catch (e) { return 'all'; } };
   const hintSeen = new Set();
   let hintLast = -1e9;
@@ -455,7 +459,7 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
   function renderSettings() {
     const m = !!(window.SFX && SFX.muted && SFX.muted());
     const zm = zoomPct();
-    panes.settings.innerHTML = '<h3>Ajustes</h3>' + (window.G.dev && window.G.dev.on ? '<button class="btn dev-top" data-a="dev">Abrir modo dev (itens, zumbis, veículos, teleporte)</button> ' : '') + '<button class="btn" data-a="mute">Som: ' + (m ? 'mudo' : 'ligado') + '</button> <button class="btn" data-a="dicas">Dicas: ' + (hintMode() === 'crit' ? 'só importantes' : 'todas') + '</button> <label class="zoom">Câmera <input type="range" min="50" max="170" step="10" value="' + zm + '" aria-label="Distância da câmera"><b>' + zm + ' %</b></label> <button class="btn" data-a="exit">Sair para o início</button> <button class="btn" data-a="delw">Apagar este mundo</button><p class="ver" data-a="ver">Versão ' + ((document.querySelector('meta[name=versao]') || {}).content || 'dev') + (window.__nova ? ' — nova versão pronta: toque em Sair para o início' : '') + '</p>';
+    panes.settings.innerHTML = '<h3>Ajustes</h3>' + (window.G.dev && window.G.dev.on ? '<button class="btn dev-top" data-a="dev">Abrir modo dev (itens, zumbis, veículos, teleporte)</button> ' : '') + '<button class="btn" data-a="mute">Som: ' + (m ? 'mudo' : 'ligado') + '</button> <button class="btn" data-a="dir">Direção: ' + (dirMode() === 'classic' ? 'clássica' : 'fácil') + '</button> <button class="btn" data-a="dicas">Dicas: ' + (hintMode() === 'crit' ? 'só importantes' : 'todas') + '</button> <label class="zoom">Câmera <input type="range" min="50" max="170" step="10" value="' + zm + '" aria-label="Distância da câmera"><b>' + zm + ' %</b></label> <button class="btn" data-a="exit">Sair para o início</button> <button class="btn" data-a="delw">Apagar este mundo</button><p class="ver" data-a="ver">Versão ' + ((document.querySelector('meta[name=versao]') || {}).content || 'dev') + (window.__nova ? ' — nova versão pronta: toque em Sair para o início' : '') + '</p>';
     bindZoom();
   }
 
@@ -603,6 +607,7 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
     else if (a === 'craft') { if (G.craft && G.craft(v) !== false) say('Fabricou: ' + nm(G.recipes.find((r) => r.id === v).out)); }
     else if (a === 'guide') { guideOpen = v; return listGuide(); }
     else if (a === 'mute') toggleMute();
+    else if (a === 'dir') { try { localStorage['zl1.direcao'] = dirMode() === 'classic' ? 'easy' : 'classic'; } catch (e) {} renderSettings(); }
     else if (a === 'dicas') { try { localStorage['zl1.dicas'] = hintMode() === 'crit' ? 'all' : 'crit'; } catch (e) {} renderSettings(); }
     else if (a === 'exit') { let ok = false; try { ok = G.save() !== false; } catch (er) {} if (!ok) return; toggleMenu(false); return openStart(); } // save que falha: fica na partida (aviso saveFull) e não recarrega
     else if (a === 'delw') { toggleMenu(false); return UI._askDelete(G.slot); }
@@ -748,11 +753,12 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
     E.flash = el('div', 'flash', hud, '', 'hidden');
     E.flashw = el('div', 'flashw', hud, '', 'hidden');
     E.horda = el('div', 'horda', hud, '<svg viewBox="0 0 24 24"><path d="M4 4l17 8-17 8 4-8z"/></svg>', 'hidden');
-    const joyEl = el('div', 'joy', hud, '<div class="base"><svg class="marca" viewBox="0 0 120 120"><circle cx="60" cy="60" r="54"/></svg><div class="nub"></div></div><div class="zona"></div>');
+    const joyEl = el('div', 'joy', hud, '<div class="base"><svg class="marca" viewBox="0 0 120 120"><circle cx="60" cy="60" r="54"/></svg><div class="rumo"><svg viewBox="0 0 14 14"><path d="M7 1l5 11-5-3-5 3z"/></svg></div><div class="nub"></div></div><div class="zona"></div>');
     E.joy = joyEl; E.nub = joyEl.querySelector('.nub');
     E.crouch = btn('btn-crouch', hud, svg('crouch')); E.crouch.setAttribute('aria-label', 'Agachar');
     E.up = btn('btn-up', hud, svg('up') + 'SUBIR'); E.down = btn('btn-down', hud, svg('down') + 'DESCER'); E.up.classList.add('hidden'); E.down.classList.add('hidden');
     E.atk = btn('btn-attack', hud, svg('hit') + 'ATACAR');
+    E.brake = btn('btn-brake', hud, svg('down') + 'FREIO'); E.brake.classList.add('hidden');
     E.fuel = el('div', 'fuel', hud, svg('pump') + '<span>0</span><i class="hpbar hidden"><i></i></i>', 'pill hidden');
     E.hpbar = E.fuel.querySelector('.hpbar');
     E.re = el('div', 're', hud, 'RÉ', 'pill hidden');
@@ -771,13 +777,14 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
     E.menuB.setAttribute('aria-label', 'Menu'); E.mute.setAttribute('aria-label', 'Mudo');
     menuEl = el('div', 'menu', root, '', 'hidden');
 
+    hold(E.brake, () => { held.brake = true; }, () => { held.brake = false; });
     hold(E.atk, () => { held.atk = true; atkPend = true; }, () => { held.atk = false; });
     hold(E.act, (e) => { pend = true; held.act = true; intT = performance.now(); holdT = e.timeStamp; }, (e) => { if (ctOn && e.timeStamp - holdT < 300) relPend = true; intT = 0; held.act = false; }); // timeStamp do evento: quadro lento nao transforma toque em segurar
     hold(E.wpn, () => window.G.switchWeapon());
     // camera giratoria: toque = +45 graus, segurar 400 ms = volta ao norte; o angulo e preferencia do aparelho (G nao sabe)
     let camT = 0, camLong = false;
     try { const y0 = parseFloat(localStorage['zl1:yaw']); if (isFinite(y0) && window.R && R.setYaw) R.setYaw(y0); } catch (e) {}
-    hold(E.cam, () => { camLong = false; camT = setTimeout(() => { camLong = true; camSet(Math.round(R.camYawT() / (2 * Math.PI)) * 2 * Math.PI); }, 400); }, () => { clearTimeout(camT); if (!camLong) camSet(R.camYawT() + Math.PI / 4); });
+    hold(E.cam, () => { camLong = false; camT = setTimeout(() => { camLong = true; const gp = window.G.players[0], cv = gp.car && window.G.cars.find((c) => c.id === gp.car), a = cv ? -Math.PI / 2 - cv.dir : 0; camSet(a + 2 * Math.PI * Math.round((R.camYawT() - a) / (2 * Math.PI))); }, 400); }, () => { clearTimeout(camT); if (!camLong) camSet(R.camYawT() + Math.PI / 4); });
     hold(E.menuB, () => toggleMenu());
     hold(E.mute, toggleMute);
     hold(E.crouch, () => { crouchPend = true; });
@@ -789,7 +796,7 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
       e.preventDefault();
       joy.id = e.pointerId; joyEl.setPointerCapture(e.pointerId); joyEl.classList.add('active');
       const b = joyEl.firstChild.getBoundingClientRect();
-      joy.cx = b.left + 60; joy.cy = b.top + 60;
+      joy.cx = b.left + 60; joy.cy = b.top + 60; joy.yw = window.R && R.camYaw ? R.camYaw() : 0;
       move(e);
     });
     const move = (e) => {
@@ -824,7 +831,7 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
       else if (e.code === 'KeyC') crouchPend = true;
     });
     window.addEventListener('keyup', (e) => { keys.delete(e.code); if (e.code === 'KeyE') { if (ctOn && performance.now() - holdT < 300) relPend = true; intT = 0; } });
-    window.addEventListener('blur', () => { keys.clear(); held.atk = held.act = held.up = held.down = false; intT = 0; });
+    window.addEventListener('blur', () => { keys.clear(); held.atk = held.act = held.up = held.down = held.brake = false; intT = 0; });
     // tocar para vasculhar: toque rapido no mundo (fora de #ui) => R.pick -> target + interact
     const tp0 = {};
     document.addEventListener('pointerdown', (e) => { tp0[e.pointerId] = { x: e.clientX, y: e.clientY, t: performance.now(), ok: e.target.id === 'ui' || !(e.target.closest && e.target.closest('#ui')) }; });
@@ -845,15 +852,16 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
     const k = kx && ky ? Math.SQRT1_2 : 1, pz = UI.paused;
     const car = G.cars && G.cars.find((c) => c.id === p.car), air = !!(car && (G.VEH[car.kind || 'car'] || {}).air);
     const zm = (v) => (Math.abs(v) < .12 ? 0 : v); // zona morta do volante
-    const gd = car && !air; // aeronave: joystick = direcao absoluta (como andar), sem zona de corrida
+    const easy = dirMode() === 'easy', gd = car && !air && !easy; inp.mode = easy ? 'easy' : 'classic'; // Tribunal #19: facil = rumo (como andar); classica = volante+acelerador. aeronave: joystick = direcao absoluta (como andar), sem zona de corrida
     inp.mx = pz ? 0 : joy.id !== null ? (gd ? zm(joy.mx) : joy.mx) : kx * k;
     inp.my = pz ? 0 : joy.id !== null ? (gd ? -zm(joy.my) : joy.my) : gd ? -ky : ky * k; // no carro, para cima = acelerar
-    { const yw = !gd && window.R && R.camYaw ? R.camYaw() : 0; // a pe e em aeronave o joystick e relativo a camera (para cima = para longe dela); carro de terra nao gira
+    { const yw = !gd && window.R && R.camYaw ? (joy.id !== null ? joy.yw : R.camYaw()) : 0; // a pe, em aeronave e no carro facil o joystick e relativo a camera (congelada com o dedo nele); carro classico nao gira
       if (yw) { const c = Math.cos(yw), s = Math.sin(yw), mx = inp.mx, my = inp.my; inp.mx = mx * c + my * s; inp.my = -mx * s + my * c; } }
     inp.up = !pz && air && (held.up || keys.has('KeyR')); inp.down = !pz && air && (held.down || keys.has('KeyF'));
     inp.run = !pz && !car && (joy.run || keys.has('ShiftLeft') || keys.has('ShiftRight'));
     if (crouchPend && !pz) inp.crouch = true; // pulso: o game alterna e zera
     crouchPend = false;
+    inp.brake = !pz && !!car && !air && (held.brake || keys.has('Space'));
     inp.attack = !pz && !car && (held.atk || atkPend || keys.has('Space')); atkPend = false; // toque curto de 1 quadro nao se perde
     const cutD = !!(p.near && p.near.type === 'door' && p.near.locked && (p.inv || []).some((i) => i.id === 'cutter'));
     // carro/mala com acao extra: toque curto = ENTRAR/MALA, segurar >= 300 ms = DESPEJAR/SIFONAR/CONSERTAR
@@ -954,11 +962,15 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
     const hv = car ? Math.max(0, Math.min(100, Math.round(car.hp == null ? 100 : car.hp / (G.VEH[car.kind || 'car'].hp / 100)))) : -1; // barra de vida do carro: so dirigindo
     put('chp', hv, (v) => { E.hpbar.classList.toggle('hidden', v < 0); E.hpbar.classList.toggle('zero', v === 0); if (v >= 0) E.hpbar.firstChild.style.width = v + '%'; });
     put('re', !!(car && car.speed < -.5), (v) => E.re.classList.toggle('hidden', !v));
-    put('incar', car ? (air ? 2 : 1) : 0, (v) => { // 0 a pe, 1 veiculo de terra, 2 aeronave (joystick aero, SUBIR/DESCER no lugar do agachar)
-      E.joy.classList.toggle('car', v === 1); E.joy.classList.toggle('aero', v === 2); E.atk.classList.toggle('hidden', v > 0); E.crouch.classList.toggle('hidden', v > 0);
+    put('incar', car ? (air ? 2 : easy ? 3 : 1) : 0, (v) => { // 0 a pe, 1 carro classico, 2 aeronave, 3 carro facil (joystick redondo); FREIO no lugar do ATACAR, SUBIR/DESCER a direita
+      E.joy.classList.toggle('car', v === 1); E.joy.classList.toggle('aero', v >= 2); E.joy.classList.toggle('easy', v === 3); E.atk.classList.toggle('hidden', v > 0); E.crouch.classList.toggle('hidden', v > 0); E.wpn.classList.toggle('hidden', v > 0);
+      E.brake.classList.toggle('hidden', v !== 1 && v !== 3);
       E.up.classList.toggle('hidden', v !== 2); E.down.classList.toggle('hidden', v !== 2);
       if (v) { joy.mx = joy.my = 0; E.nub.style.transform = ''; }
     });
+    put('brakeL', car && !air && Math.abs(car.speed) < 0.3 ? 1 : 0, (v) => { E.brake.lastChild.textContent = v ? 'RÉ' : 'FREIO'; }); // parado: segurar = ré
+    if (car && !air && easy) { const yw = R.camYaw(), c = Math.cos(yw), s = Math.sin(yw), wx = Math.cos(car.dir), wy = Math.sin(car.dir); put('rumoA', Math.round(Math.atan2(wx * c - wy * s, -(wx * s + wy * c)) * 57.3), (v) => { E.joy.querySelector('.rumo').style.transform = 'rotate(' + v + 'deg)'; }); }
+    put('rumoR', !!(car && car.speed < -0.5), (v) => E.joy.classList.toggle('re', v));
     put('alt', air ? Math.round(car.alt || 0) : -1, (v) => { E.alt.classList.toggle('hidden', v < 0); if (v >= 0) E.alt.querySelector('span').textContent = 'ALT ' + v + ' m'; });
     put('warn', air && car.stall ? 1 : 0, (v) => E.warn.classList.toggle('hidden', !v));
     const w = p.weapon, ranged = w === 'pistol', am = ranged ? p.ammo | 0 : -1;

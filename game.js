@@ -47,10 +47,10 @@
   // caixa (AABB) do carro: centro x,y, 4,2 m de comprimento no eixo da dir
   // tabela por tipo de veiculo (Tribunal #15): vmax m/s, hp, tanque L, cons (x consumo), trunk (espacos da mala), l x w (caixa m), fuel ('gas'), key (exige chave). kind ausente = 'car'
   const VEH = {
-    car: { vmax: 11, hp: 100, tank: 10, cons: 1, trunk: 10, l: 4.2, w: 2, fuel: 'gas', key: true },
-    jeep: { vmax: 12, hp: 140, tank: 10, cons: 1.2, trunk: 6, l: 4, w: 2, fuel: 'gas', key: true, mil: true },
-    truck: { vmax: 9, hp: 220, tank: 10, cons: 1.6, trunk: 16, l: 6, w: 2.4, fuel: 'gas', key: true, mil: true },
-    apc: { vmax: 8, hp: 400, tank: 10, cons: 2, trunk: 8, l: 6, w: 2.6, fuel: 'gas', key: true, mil: true },
+    car: { vmax: 11, hp: 100, tank: 10, cons: 1, trunk: 10, l: 4.2, w: 2, fuel: 'gas', key: true, turn: 1, acc: 6 },
+    jeep: { vmax: 12, hp: 140, tank: 10, cons: 1.2, trunk: 6, l: 4, w: 2, fuel: 'gas', key: true, mil: true, turn: 1.15, acc: 6.5 },
+    truck: { vmax: 9, hp: 220, tank: 10, cons: 1.6, trunk: 16, l: 6, w: 2.4, fuel: 'gas', key: true, mil: true, turn: 0.7, acc: 4.5 },
+    apc: { vmax: 8, hp: 400, tank: 10, cons: 2, trunk: 8, l: 6, w: 2.6, fuel: 'gas', key: true, mil: true, turn: 0.6, acc: 4 },
     // aeronaves (so locomocao, sem armas): querosene, tanque de 20 L, burn = L/s (heli 1 L/20 s, jato 1 L/10 s), vmin = velocidade minima no ar
     heli: { vmax: 20, hp: 120, tank: 20, cons: 1, trunk: 0, l: 7, w: 2.4, fuel: 'kero', key: true, mil: true, air: 'heli', burn: 0.05 },
     jet: { vmax: 40, vmin: 25, hp: 150, tank: 20, cons: 1, trunk: 0, l: 9, w: 3, fuel: 'kero', key: true, mil: true, air: 'jet', burn: 0.1 },
@@ -224,7 +224,8 @@
     }
     if (V.mil) hint('militar', 'Veículo militar: mais forte e gasta mais gasolina', 'militares');
     if (car.fuel < 1) hint('seco', 'Tanque quase vazio — sifone de outro carro (mangueira + galão)', 'siphon');
-    hint('engine', p._eng ? 'Motor ligado — joystick para frente acelera, para trás freia e dá ré' : 'Sem gasolina o motor não liga — ache gasolina (sifão)', p._eng ? 'car' : 'siphon');
+    if (V.air === undefined && p.input.mode === 'easy') hint('dirigir', 'Aponte o joystick para onde quer ir · segure FREIO para frear e dar ré · segure ⟳ para alinhar a câmera', 'car');
+    hint('engine', p._eng ? (p.input.mode === 'easy' ? 'Motor ligado — aponte o joystick para onde quer ir' : 'Motor ligado — joystick para frente acelera, para trás freia e dá ré') : 'Sem gasolina o motor não liga — ache gasolina (sifão)', p._eng ? 'car' : 'siphon');
   }
   function exitCar(p, car, force) { // force (incendio): sempre sai, no ponto livre mais perto
     const air = veh(car).air;
@@ -304,36 +305,69 @@
     G.spills = G.spills.filter(s => s.expires > G.t);
   }
   const approach = (v, t, s) => v > t ? Math.max(t, v - s) : Math.min(t, v + s);
-  // mx = volante, my = acelerador (+ acelera, - freia/re); um passo dt <= 0,05
+  // Classica (input.mode ausente/'classic'): mx = volante, my = acelerador (+ acelera, - freia/re). Facil (input.mode 'easy', Tribunal #19): mx,my = RUMO no mundo; o carro gira ate ele e acelera pelo quanto o dedo empurra; FREIO/RE = input.brake. Um passo dt <= 0,05
   function driveCar(p, car, mx, my, dt) {
     let v = car.speed || 0;
-    const V = veh(car), on = car.fuel > 0 && car.hp > 0 && !car.burnt, vm = V.vmax * (0.4 + 0.6 * Math.max(0, car.hp) / V.hp); // vida baixa = mais lento; hp 0 = motor morto
+    const V = veh(car), inp = p.input, easy = inp.mode === 'easy', on = car.fuel > 0 && car.hp > 0 && !car.burnt, vm = V.vmax * (0.4 + 0.6 * Math.max(0, car.hp) / V.hp), ac = V.acc || 6, d0 = car.dir; // vida baixa = mais lento; hp 0 = motor morto
+    let thr = Math.abs(my), want = false, df = 0;
+    if (easy) { // zona morta 0,20; velocidade cheia a 80 % do curso
+      const len = Math.min(1, hypot2(mx, my)), hd = Math.atan2(my, mx) + (v < -0.05 ? Math.PI : 0); // em re a traseira vai para o joystick
+      want = len > 0.2; thr = want ? Math.min(1, (len - 0.2) / 0.6) : 0; df = Math.atan2(Math.sin(hd - car.dir), Math.cos(hd - car.dir));
+    } else if (inp.brake) thr = -(my = -1); // clasico: FREIO = puxar tudo para tras
     if (!on && p._eng) { p._eng = false; G.events.push({ type: 'engine', on: false, id: car.id }); } // tanque zerado por fora (sifao)
     p._stop = Math.abs(v) < 0.1 ? (p._stop || 0) + dt : 0;
+    const brk = easy ? !!inp.brake : my < -0.05, rev = brk && v <= 0.05 && (v < -0.05 || p._stop >= 0.4);
     if (!on) v = approach(v, 0, 8 * dt);
-    else if (my > 0.05) v = v >= 0 ? Math.min(vm, v + 6 * my * dt) : Math.min(0, v + 8 * dt); // dono: carro mais responsivo (era 4)
+    else if (easy) {
+      if (brk) v = v > 0.05 ? Math.max(0, v - 8 * dt) : rev ? Math.max(-3, v - 4 * dt) : 0;
+      else if (want) { const tg = vm * thr * (0.4 + 0.6 * Math.max(0, Math.cos(df))); v = v < -0.05 ? Math.min(0, v + 8 * dt) : v < tg ? Math.min(tg, v + ac * dt) : Math.max(tg, v - 4 * dt); }
+      else v = approach(v, 0, 1.5 * dt);
+      if (rev) thr = 1;
+    }
+    else if (my > 0.05) v = v >= 0 ? Math.min(vm, v + ac * my * dt) : Math.min(0, v + 8 * dt); // dono: carro mais responsivo (era 4)
     else if (my < -0.05) v = v > 0.05 ? Math.max(0, v - 8 * dt) : v < -0.05 || p._stop >= 0.4 ? Math.max(-3, v + 4 * my * dt) : 0;
     else v = approach(v, 0, 1.5 * dt);
-    const br = on && my < -0.05 && v > 3;
+    const br = on && brk && v > 3;
     if (br && !p._brk) G.events.push({ type: 'brake', v });
     p._brk = br;
     if (Math.abs(v) > STREAM_CAP && !lsAt(car.x + Math.cos(car.dir) * v, car.y + Math.sin(car.dir) * v)) v = Math.sign(v) * STREAM_CAP; // chunk a 1 s a frente ainda nao carregou: teto (J5.6)
     if (on) {
-      car.fuel = Math.max(0, car.fuel - (0.02 + 0.2 * Math.abs(my)) * V.cons * dt);
+      car.fuel = Math.max(0, car.fuel - (0.02 + 0.2 * thr) * V.cons * dt);
       if (car.fuel <= 0 && p._eng) { p._eng = false; G.events.push({ type: 'engine', on: false, id: car.id }); }
       if (car.fuel < 2) hint('fuel', 'Pouco combustível — gasolina é finita: sifone de outros carros', 'siphon');
     }
-    car.dir += mx * 2.1 * Math.min(1, Math.abs(v) / 2.5) * Math.sign(v) * dt; // dono: volante responde mais cedo (era 1,8 e /4)
+    const tip = (d, f) => [car.x + Math.cos(d) * (V.l / 2 - 0.1) * f, car.y + Math.sin(d) * (V.l / 2 - 0.1) * f];
+    if (!easy) car.dir += mx * 2.1 * (V.turn || 1) * Math.min(1, Math.abs(v) / 2.5) * Math.sign(v) * dt; // dono: volante responde mais cedo (era 1,8 e /4)
+    else if (want) { // taxa de giro limitada pela velocidade (volante de verdade) e menor perto da velocidade maxima
+      const av = Math.abs(v), om = 2.1 * (V.turn || 1) * Math.min(1, Math.max(av, 1) / 2.5) * (1 - 0.35 * Math.max(0, Math.min(1, (av / vm - 0.7) / 0.3))), nd = car.dir + Math.max(-om * dt, Math.min(om * dt, df));
+      if (av >= 1 || free(...tip(nd, 1), 0.1, car.id)) car.dir = nd; // parado de frente para a parede: so gira se a ponta couber
+    }
     const n = Math.max(1, Math.ceil(Math.abs(v) * dt / 0.3)), h = dt / n, f = v >= 0 ? 1 : -1;
+    car._hitT = (car._hitT || 0) - dt;
     for (let i = 0; i < n; i++) {
       const c = Math.cos(car.dir), s = Math.sin(car.dir), nx = car.x + c * v * h, ny = car.y + s * v * h;
       if (free(nx, ny, V.w / 2 + 0.2, car.id) && free(nx + c * (V.l / 2 - 0.1) * f, ny + s * (V.l / 2 - 0.1) * f, 0.1, car.id)) { car.x = nx; car.y = ny; continue; }
+      // raspao: angulo raso (< 40 graus) desliza pelo eixo dominante com atrito; dano so pela componente normal
+      const ax = Math.abs(c) >= Math.abs(s), vf = ax ? Math.abs(s) : Math.abs(c), gx = ax ? nx : car.x, gy = ax ? car.y : ny;
+      if (vf < 0.64 && free(gx, gy, V.w / 2 + 0.2, car.id) && free(gx + c * (V.l / 2 - 0.1) * f, gy + s * (V.l / 2 - 0.1) * f, 0.1, car.id)) {
+        car.x = gx; car.y = gy;
+        const av = Math.abs(v), vn = av * vf, tgt = ax ? (c >= 0 ? 0 : Math.PI) : (s >= 0 ? Math.PI / 2 : -Math.PI / 2), e = Math.atan2(Math.sin(tgt - car.dir), Math.cos(tgt - car.dir));
+        car.dir += Math.max(-2 * h, Math.min(2 * h, e)); v = approach(v, 0, (3 + 8 * vf) * h);
+        if (car._hitT <= 0) {
+          car._hitT = 0.5; G.events.push({ type: 'scrape', v: av });
+          const o = carAt(nx + c * (V.l / 2 - 0.1) * f, ny + s * (V.l / 2 - 0.1) * f, 0.1, car.id) || carAt(nx, ny, V.w / 2 + 0.2, car.id); if (o) alarmOn(o); // o carro que bloqueou o passo cheio
+          const d = vn > CAR_HIT ? (vn - CAR_HIT) * 7 : av > CAR_HIT ? av - CAR_HIT : 0; damageCar(car, d); if (o) damageCar(o, d);
+        }
+        continue;
+      }
       if (Math.abs(v) > 2) G.events.push({ type: 'crash', v });
       const o = carAt(nx + c * (V.l / 2 - 0.1) * f, ny + s * (V.l / 2 - 0.1) * f, 0.1, car.id) || carAt(nx, ny, V.w / 2 + 0.2, car.id); if (o) alarmOn(o); // bater devagar tambem dispara
       if (Math.abs(v) > CAR_HIT) { const d = (Math.abs(v) - CAR_HIT) * 7; damageCar(car, d); if (o) damageCar(o, d); } // carro parado atingido leva o mesmo
       v = -v * 0.2; break;
     }
     car.speed = v;
+    const w = (car.dir - d0) / dt; car._w = w; // velocidade angular real (render: volante/inclinacao)
+    if (Math.abs(v) > 8 && Math.abs(w) >= 1.2) { if (!p._sk) G.events.push({ type: 'skid', v: Math.abs(v) }); p._sk = true; } else if (Math.abs(w) < 0.6 || Math.abs(v) <= 8) p._sk = false; // so som; nao chama noise
     for (const z of G.zombies) {
       const d = dist(z, car);
       if (d > 2.5) z._hitBy = false;
@@ -381,7 +415,8 @@
       vz = approach(vz, !on ? (alt > 0 ? -3 : 0) : up * 3, 6 * dt); // sem motor: autorrotacao a -3 m/s (pouso sem dano)
       if (on && alt >= 1 && want) { turn(2.5); v = approach(v, Math.abs(df) < 0.8 ? vm * len : 0, 6 * dt); } else v = approach(v, 0, (on ? 6 : 2) * dt);
     } else if (alt <= 0) { // jato no solo: 8 m/s2, freia ao soltar; fora de pista nao passa de 20 m/s (nunca chega aos 25 da decolagem)
-      if (on && want) { turn(0.8 * (0.3 + 0.7 * Math.min(1, Math.abs(v) / 6))); v = approach(v, (rw ? vm : Math.min(20, vm)) * len, 8 * dt); } else v = approach(v, 0, (on ? 8 : 4) * dt);
+      if (on && want && Math.abs(df) > 2.1) v = approach(v, 0, 8 * dt); // joystick para tras: so freia, nao gira (Tribunal #19)
+      else if (on && want) { turn(0.8 * (0.3 + 0.7 * Math.min(1, Math.abs(v) / 6))); v = approach(v, (rw ? vm : Math.min(20, vm)) * len, 8 * dt); } else v = approach(v, 0, (on ? 8 : 4) * dt);
       if (Math.abs(v) < 10) car._ld = 0;
       if (on && rw && v >= V.vmin && !car._ld) { alt = 0.05; vz = 1.5; } else vz = 0; // decolagem: >= 25 m/s sobre a pista
     } else { // jato no ar: nunca abaixo de vmin; sem motor planeia a -3 m/s; perto do chao o flare limita a descida a -2,5
@@ -2449,7 +2484,7 @@
   const LISTS = ['houses', 'crates', 'zombies', 'cars', 'roads', 'ways', 'trees', 'fences', 'drops', 'props', 'spills', 'tanks', 'npcs'];
   const parse = k => k.split(',').map(Number);
   const drivenIds = () => G.players.map(p => p.car).filter(Boolean); // so protege o unload; o diff grava o carro no chunk onde esta
-  const strip = e => { const c = Object.assign({}, e); delete c.ch; delete c.way; delete c.side; delete c.rc; delete c.bang; delete c.last; delete c.pw; delete c.ck; delete c.fl; delete c.anim; for (const k of ['rt', 'st', 'tg', 'nt', 'aim', 'at', 'cd', 'wu', 'zc', 'climb', 'fc', 'fct', '_hitBy', 'burn', 'hc', 'ht', 'sc', 'lg', 'alarmT', '_an', 'alt', 'vz', 'stall', '_ld']) delete c[k]; return c; };
+  const strip = e => { const c = Object.assign({}, e); delete c.ch; delete c.way; delete c.side; delete c.rc; delete c.bang; delete c.last; delete c.pw; delete c.ck; delete c.fl; delete c.anim; for (const k of ['rt', 'st', 'tg', 'nt', 'aim', 'at', 'cd', 'wu', 'zc', 'climb', 'fc', 'fct', '_hitBy', 'burn', 'hc', 'ht', 'sc', 'lg', 'alarmT', '_an', '_hitT', '_w', 'alt', 'vz', 'stall', '_ld']) delete c[k]; return c; };
   const same = (a, b) => a === b || (Array.isArray(a) && Array.isArray(b) && a.length !== b.length ? false : JSON.stringify(a) === JSON.stringify(b)); // tamanho diferente: nem serializa
   function syncCh() { for (const l of [G.zombies, G.cars]) for (const e of l) e.ch = chOf(e); for (const c of G.cars) if (c.hp === undefined) c.hp = veh(c).hp; } // carro de save antigo: vida cheia
   function want(rx, ry) { const w = []; for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) w.push((rx + dx) + ',' + (ry + dy)); return w; }
@@ -2667,7 +2702,7 @@
   const g = (id, titulo, palavras, precisa, passos, demo) => ({ id, titulo, palavras, precisa, passos, demo });
   const GUIDE = [
     g('siphon', 'Gasolina e sifão', ['gasolina', 'sifao', 'combustivel', 'galao', 'mangueira', 'carro'], [{ item: 'hose', onde: 'loja do posto, galpões e porta-malas' }, { item: 'gascan', onde: 'loja do posto, galpões e porta-malas' }], ['Chegue perto de um carro com gasolina.', 'Segure SIFONAR até encher o galão (2 L/s, máx. 10 L).', 'Com a chave do carro, segure DESPEJAR para abastecer.', 'Gasolina é finita: está nos carros e no tanque de um posto por cidade (veja Posto de gasolina).'], 'siphon'),
-    g('car', 'Dirigir', ['carro', 'dirigir', 'volante', 'acelerar', 'freio', 'motor', 'atropelar', 'sair'], [{ item: 'key', onde: 'móvel de casa no mesmo quarteirão' }, { item: 'gascan', onde: 'loja do posto, galpões e porta-malas' }], ['Com a chave, toque ENTRAR perto do carro.', 'Joystick: frente acelera, trás freia e dá ré; os lados viram.', 'Gasta combustível, faz barulho e atropela zumbis. Toque SAIR em lugar livre.'], 'car'),
+    g('car', 'Dirigir', ['carro', 'dirigir', 'volante', 'acelerar', 'freio', 'motor', 'atropelar', 'sair', 're', 'ré', 'raspar', 'derrapar', 'direcao'], [{ item: 'key', onde: 'móvel de casa no mesmo quarteirão' }, { item: 'gascan', onde: 'loja do posto, galpões e porta-malas' }], ['Com a chave, toque ENTRAR perto do carro.', 'Direção fácil (padrão): aponte o joystick para onde quer ir; o carro vira sozinho e acelera conforme você empurra. A seta no joystick mostra a frente do carro. Segure FREIO para frear; parado, segurar RÉ dá ré. Segure ⟳ para alinhar a câmera ao carro.', 'Direção clássica (Ajustes): frente acelera, trás freia e dá ré, os lados viram. Raspar a parede em ângulo raso desliza (dano leve); bater de frente estraga.', 'Gasta combustível, faz barulho e atropela zumbis. Toque SAIR em lugar livre.'], 'car'),
     g('carDmg', 'Dano do carro', ['dano', 'bater', 'batida', 'vida', 'fumaca', 'poça', 'poca', 'explosao', 'incendio', 'vazamento', 'carro'], [], ['Bater acima de 18 km/h estraga o carro (barra de vida ao dirigir).', 'Vida baixa = mais lento; em 0 o motor morre.', 'Com 0 de vida, outra batida forte pode vazar gasolina (poça acende com fogo) ou pegar fogo: saia, vai explodir em 5 s.'], 'car'),
     g('trunk', 'Porta-malas', ['porta-malas', 'mala', 'carro', 'bagageiro', 'vasculhar'], [], ['Chegue atrás do carro e toque MALA.', 'Fique parado 1 s: o painel abre (10 espaços).', 'Toque um item para mover entre porta-malas e mochila.'], 'trunk'),
     g('molotov', 'Molotov', ['molotov', 'fogo', 'bomba', 'incendio', 'queimar', 'garrafa'], [{ item: 'bottle', onde: 'armários' }, { item: 'rag', onde: 'armários e gavetas' }, { item: 'gascan', onde: 'loja do posto, galpões e porta-malas (gasta 2 L)' }], ['Fabrique no MENU: garrafa + trapo + 2 L do galão (o galão fica).', 'Troque para MOLOTOV e toque ATACAR: mira sozinho em zumbi de 3,5 a 12 m.', 'Dano 35 e fogo por 3 s. Cuidado: o fogo queima você também.'], 'throw'),
@@ -2730,8 +2765,8 @@
     g('galpao', 'Galpão', ['galpao', 'deposito', 'caixa', 'van', 'portao', 'sala de controle', 'chave', 'mangueira', 'galao'], [{ item: 'hose', onde: 'caixas do galpão' }, { item: 'gascan', onde: 'caixas do galpão (vazio)' }, { item: 'key', onde: 'gaveta da sala de controle (se há van)' }], ['O portão de 3 m nunca tem cadeado: toque AÇÃO para abrir.', 'Caixas de depósito: arame, mangueira, galão vazio e, raro, alicate.', 'A sala de controle guarda a gaveta com a chave da van.'], 'search'),
     g('base', 'Base militar', ['base', 'militar', 'muro', 'portao', 'cadeado', 'soldado', 'farda', 'quartel', 'galpao', 'guarita', 'chave', 'veiculo'], [{ item: 'cutter', onde: 'caixas de ferramentas, oficinas, galpões e porta-malas (raro)' }, { lugar: 'a base', onde: 'rara, longe do início, em zona rural: procure um muro alto de concreto' }, { item: 'key', onde: 'duas gavetas da guarita, ao lado do portão' }], ['Corte o cadeado do portão: segure CORTAR 1,5 s com o alicate (o muro não se pula).', 'Dentro: soldados mortos de farda (alguns rastejam), galpões com caixas quase vazias e o pátio com jipe, caminhão e blindado, um heliporto com helicóptero e a pista com um jato.', 'Pegue as chaves na guarita: uma gaveta guarda as dos veículos de terra, a outra as do helicóptero e do jato. Sem armas: só dirigir e voar.', 'Escasso: munição, capacete e colete são raros; a mochila militar é rarissima.'], 'base'),
     g('helicoptero', 'Helicóptero', ['helicoptero', 'heli', 'voar', 'voo', 'pousar', 'pouso', 'altitude', 'subir', 'descer', 'querosene', 'rotor', 'sombra'], [{ item: 'key', onde: 'gaveta da guarita da base militar (a segunda)' }, { lugar: 'querosene', onde: 'tanques da base militar (sifão com mangueira + galão)' }], ['Entre no helicóptero (heliporto da base) com a chave. Joystick: direção. SUBIR/DESCER: altitude (até 40 m). Solte tudo para pairar.', 'Acima de 3 m os zumbis não veem nem atacam você; o rotor faz barulho até 10 m de altura e a altitude gasta querosene (1 L a cada 20 s).', 'Para pousar, desça devagar sobre chão livre: a sombra no chão fica verde quando o pouso é seguro e vermelha se for forte demais ou sem espaço. Só dá para sair pousado e parado.', 'Sem querosene o motor apaga e o helicóptero desce planando (PERDENDO ALTITUDE): procure chão livre.'], 'heli'),
-    g('jato', 'Jato', ['jato', 'aviao', 'pista', 'decolar', 'decolagem', 'pouso', 'pousar', 'voar', 'turbina', 'querosene', 'estol'], [{ item: 'key', onde: 'gaveta da guarita da base militar (a segunda)' }, { lugar: 'a pista da base', onde: 'decola e pousa só na pista da base ou numa rua reta' }, { lugar: 'querosene', onde: 'tanques da base militar' }], ['Entre no jato na pista da base e empurre o joystick para a frente em linha reta: aos 25 m/s ele decola sozinho. Fora da pista ele não passa de 20 m/s.', 'No ar ele nunca fica abaixo de 25 m/s (solto, mantém o rumo) e gasta 1 L de querosene a cada 10 s.', 'Para pousar, alinhe com a pista (ou uma rua reta, até 20°) e use DESCER: pousar fora é queda, com dano pesado e risco de explosão.', 'Sem querosene a turbina apaga e ele plana (PERDENDO ALTITUDE): mire numa pista ou rua reta.'], 'jato'),
-    g('militares', 'Veículos militares', ['jipe', 'caminhao', 'blindado', 'militar', 'veiculo', 'dirigir', 'chave', 'consumo'], [{ item: 'key', onde: 'gaveta da guarita da base militar' }, { item: 'gascan', onde: 'loja do posto, galpões e porta-malas' }], ['Jipe (mais rápido), caminhão (mala de 16 espaços) e blindado (muito forte): sem armas, só locomoção.', 'Dirigem como o carro, mas gastam mais gasolina (jipe 1,2×, caminhão 1,6×, blindado 2×).', 'Bater rápido também estraga: acima de 18 km/h. Nascem com pouca gasolina (0–4 L): sifone de outro veículo.'], 'militar'),
+    g('jato', 'Jato', ['jato', 'aviao', 'pista', 'decolar', 'decolagem', 'pouso', 'pousar', 'voar', 'turbina', 'querosene', 'estol'], [{ item: 'key', onde: 'gaveta da guarita da base militar (a segunda)' }, { lugar: 'a pista da base', onde: 'decola e pousa só na pista da base ou numa rua reta' }, { lugar: 'querosene', onde: 'tanques da base militar' }], ['Entre no jato na pista da base e empurre o joystick ATÉ O FIM em linha reta (puxar para trás no chão só freia): aos 25 m/s ele decola sozinho. Fora da pista ele não passa de 20 m/s.', 'No ar ele nunca fica abaixo de 25 m/s (solto, mantém o rumo) e gasta 1 L de querosene a cada 10 s.', 'Para pousar, alinhe com a pista (ou uma rua reta, até 20°) e use DESCER: pousar fora é queda, com dano pesado e risco de explosão.', 'Sem querosene a turbina apaga e ele plana (PERDENDO ALTITUDE): mire numa pista ou rua reta.'], 'jato'),
+    g('militares', 'Veículos militares', ['jipe', 'caminhao', 'blindado', 'militar', 'veiculo', 'dirigir', 'chave', 'consumo'], [{ item: 'key', onde: 'gaveta da guarita da base militar' }, { item: 'gascan', onde: 'loja do posto, galpões e porta-malas' }], ['Jipe (mais rápido), caminhão (mala de 16 espaços) e blindado (muito forte): sem armas, só locomoção.', 'Dirigem como o carro (o jipe vira mais rápido; o caminhão e o blindado viram e aceleram devagar), mas gastam mais gasolina (jipe 1,2×, caminhão 1,6×, blindado 2×).', 'Bater rápido também estraga: acima de 18 km/h. Nascem com pouca gasolina (0–4 L): sifone de outro veículo.'], 'militar'),
     g('querosene', 'Querosene', ['querosene', 'aviacao', 'tanque', 'galao', 'mangueira', 'sifao', 'aeronave', 'combustivel'], [{ item: 'hose', onde: 'loja do posto, galpões e porta-malas' }, { item: 'gascan', onde: 'loja do posto, galpões e porta-malas' }, { lugar: 'tanque de querosene', onde: 'só na base militar (2 tanques de 20 L, não repõem)' }], ['Chegue na tampa do tanque da base e segure SIFONAR com mangueira + galão vazio.', 'Gasolina e querosene não se misturam: o galão guarda o tipo e só esvaziando ele fica livre.', 'Querosene é combustível do helicóptero e do jato (1 L a cada 20 s e a cada 10 s de voo); carro e molotov não usam.', 'É finito: 2 tanques de 20 L por base, sem reposição. Aeronaves já nascem com 2–5 L.'], 'kero'),
     g('sobreviventes', 'Sobreviventes', ['sobrevivente', 'npc', 'gente', 'amigo', 'hostil', 'losango', 'pistola', 'atirar', 'mira', 'fugir', 'bando'], [{ lugar: 'sobreviventes', onde: 'raros, a pé, perto de casas; sozinhos ou em bando' }], ['Um losango sobre a cabeça diz quem é: verde = AMIGO, vermelho = HOSTIL.', 'Hostil só percebe você a 5 m, de frente (2 m se você estiver agachado) e na sua tela. Com pistola ele mira 0,8 s (traço vermelho no chão) antes de atirar: saia da linha ou fique atrás de uma casa.', 'Ele erra mais quando você corre ou está longe. Ferido (menos de 30 de vida) ou sem arma, ele foge.', 'Amigo não luta por você: se você acertá-lo, o grupo inteiro vira hostil. Zumbis atacam sobreviventes, e eles atiram nos zumbis.'], 'npc'),
     g('bandos', 'Bandos e cobertura', ['bando', 'bandos', 'lider', 'seguidor', 'cobertura', 'esconder', 'flanquear', 'casa', 'agachar', 'sobrevivente'], [], ['Sobreviventes andam sozinhos ou em bando de 2 a 3: o líder (o único que pode ter pistola) e os seguidores com cano ou de mãos vazias.', 'Os seguidores acompanham o líder e dividem o alvo dele. Mate o líder armado e os outros fogem por 6 s; quem tem mais vida vira o novo líder.', 'Hostil com pistola se esconde atrás de um canto de casa, agacha e sai só para mirar (0,8 s). Contorne a casa pelo outro lado (flanquear) para acertá-lo.'], 'bando'),

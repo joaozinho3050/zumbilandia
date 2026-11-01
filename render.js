@@ -461,8 +461,9 @@ function carOwnDraw(c, p, dt, now, trunk) {
   const acc = (v - st.v) / Math.max(dt, 0.001); st.v = v;
   const k = Math.min(1, dt * 8), bump = RM === 1 ? Math.sin(now / 90) * 0.004 * Math.min(1, Math.abs(v) / 5) : 0;
   st.pitch += (Math.max(-0.08, Math.min(0.08, acc * 0.01)) * RM - st.pitch) * k;
-  st.roll += (-inp.mx * Math.abs(v) * 0.005 * RM - st.roll) * k;
-  st.steer += (-inp.mx * 0.5 - st.steer) * Math.min(1, dt * 10);
+  const w = p.car ? c._w || 0 : 0; // velocidade angular real (G): vale para a direcao facil e a classica
+  st.roll += (-w * Math.abs(v) * 0.0024 * RM - st.roll) * k;
+  st.steer += (-Math.max(-1, Math.min(1, w / 2)) * 0.5 * Math.sign(v) - st.steer) * Math.min(1, dt * 10);
   o.g.position.set(c.x, 0, c.y); o.g.rotation.y = -c.dir;
   const hp = (c.hp ?? 100) / (G.VEH[c.kind || 'car'].hp / 100); // vida em % do tipo (estagios de dano iguais para todos)
   if (o.cid !== c.id) { o.cid = c.id; o.hop = 0; o.hp0 = hp; }
