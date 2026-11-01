@@ -198,6 +198,10 @@ const ITEMS = {
     add(g, Sph(0.07, 6, 5), 0x4a5a2a, 0.12, 0.12, 0.05); add(g, Cyl(0.13, 0.13, 0.03, 10), c.metal, -0.01, 0.21, 0, 0.18, 0, 0.12); },
   bandage: (g, c) => { add(g, Cyl(0.16, 0.16, 0.14, 12), c.wall, 0, 0.07, 0);
     add(g, Box(0.16, 0.02, 0.05), c.can, 0, 0.15, 0); add(g, Box(0.05, 0.02, 0.16), c.can, 0, 0.15, 0); },
+  radio: (g, c) => { add(g, Box(0.5, 0.3, 0.2), 0x4a5266, 0, 0.15, 0); add(g, Cyl(0.09, 0.09, 0.03, 10), c.metal, -0.1, 0.17, 0.11, Math.PI / 2, 0, 0); add(g, Cyl(0.012, 0.012, 0.4, 6), c.metal, 0.2, 0.5, 0, 0, 0, -0.2); add(g, Box(0.14, 0.03, 0.03), 0xf2d16b, 0.14, 0.2, 0.11); add(g, Cyl(0.015, 0.015, 0.14, 6), c.metal, 0.3, 0.17, 0, 0, 0, Math.PI / 2); }, // radio de manivela: caixa azul-acinzentada, alto-falante, antena e manivela
+  plank: (g, c) => { add(g, Box(0.9, 0.06, 0.18), 0xb98b56, 0, 0.03, 0, 0, 0.35, 0); add(g, Box(0.9, 0.06, 0.18), 0x9b6a3c, 0, 0.09, 0, 0, -0.3, 0); add(g, Box(0.04, 0.02, 0.04), c.metal, 0.3, 0.13, 0.02); }, // duas tabuas cruzadas com prego
+  repairkit: (g, c) => { add(g, Box(0.5, 0.22, 0.34), 0xd9534f, 0, 0.11, 0); add(g, Box(0.3, 0.04, 0.06), c.metal, 0, 0.24, 0); add(g, Cyl(0.03, 0.03, 0.42, 8), c.metal, 0, 0.3, 0, 0, 0, 1.0); add(g, Cyl(0.06, 0.06, 0.04, 8), c.metal, 0.17, 0.46, 0, Math.PI / 2, 0, 0); }, // caixa vermelha com chave inglesa
+  bandage_r: (g, c) => { add(g, Cyl(0.15, 0.15, 0.12, 10), 0xd8c9a0, 0, 0.06, 0); add(g, Cyl(0.155, 0.155, 0.03, 10), 0xb07a5a, 0, 0.09, 0); add(g, Box(0.05, 0.14, 0.26), 0xd8c9a0, 0.1, 0.13, 0, 0, 0.5, 0); }, // atadura improvisada: rolo de pano amarrado com tira
   ammo: (g, c) => { add(g, Box(0.36, 0.16, 0.22), c.wood, 0, 0.08, 0); add(g, Box(0.1, 0.18, 0.24), c.shirt, 0, 0.08, 0);
     for (const x of [-0.12, 0.12]) { add(g, Cyl(0.045, 0.045, 0.12, 8), c.metal, x, 0.2, 0); add(g, Sph(0.045, 8, 6), 0xf2d16b, x, 0.26, 0); } },
   key: (g, c) => { const K = 0xf2d16b;

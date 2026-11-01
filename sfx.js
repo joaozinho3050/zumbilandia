@@ -39,7 +39,7 @@
     o.frequency.setValueAtTime(f0, t);
     if (f1 !== f0) o.frequency.exponentialRampToValueAtTime(f1, t + dur);
     env(g, t, dur, vol);
-    o.connect(g).connect(master);
+    o.connect(g).connect(dest || master);
     o.start(t); o.stop(t + dur);
     nodes.push(o, g);
     return o;
@@ -168,6 +168,7 @@
   }
 
   const npcSt = new Map(); // passos de NPC: ultima posicao e instante por id
+  let dest = null; // saida alternativa (StereoPanner do gemido); osc/noise usam master se nulo
   let moanAt = -1e9, dragAt = -1e9; // hordeMoan: 1 voz por vez; drag: >= 1,5 s entre arrastos
   let dmgAt = -1e9; // carDmg: no máximo 1 lata a cada 150 ms
   const SND = {
@@ -225,13 +226,21 @@
     step: (vol) => voice(0.06, (t, n) => noise(n, t, 0.05, vol || 0.25, 'lowpass', 400, 0.5)),
     pant: () => voice(0.5, (t, n) => noise(n, t, 0.5, 0.14, 'lowpass', 700, 0.6, 0.15)), // respiração ofegante: ruído filtrado suave
     crouch: () => voice(0.18, (t, n) => noise(n, t, 0.18, 0.12, 'bandpass', 2500, 0.8, 0.05)), // roçar de roupa
-    groan: () => voice(1.3, (t, n) => {
+    hammer: () => voice(0.7, (t, n) => [0, 0.22, 0.44].forEach((d) => { osc(n, 'triangle', 190, 90, t + d, 0.09, 0.4); noise(n, t + d, 0.05, 0.25, 'bandpass', 1800, 1, 0.002); })), // 3 marteladas
+    repair: () => voice(0.7, (t, n) => { [0, 0.12, 0.24, 0.36, 0.48].forEach((d) => noise(n, t + d, 0.05, 0.18, 'bandpass', 3200, 2, 0.002)); osc(n, 'sine', 1500, 1100, t + 0.5, 0.15, 0.08); }), // catraca e tilintar de chave inglesa
+    crank: () => voice(0.9, (t, n) => { for (let k = 0; k < 7; k++) noise(n, t + k * 0.12, 0.05, 0.16, 'bandpass', 2600, 2, 0.002); }), // manivela: catraca
+    radioOn: () => voice(1.5, (t, n) => noise(n, t, 1.4, 0.07, 'bandpass', 1400, 0.7, 0.25)), // estatica baixa
+    radio: () => voice(0.6, (t, n) => { osc(n, 'square', 1000, 1000, t, 0.12, 0.07); osc(n, 'square', 1250, 1250, t + 0.2, 0.18, 0.07); noise(n, t, 0.5, 0.05, 'bandpass', 1800, 0.8, 0.05); }), // bipe de mensagem sobre estatica
+    drip: () => voice(0.12, (t, n) => osc(n, 'sine', 900, 380, t, 0.1, 0.12)), // pingo de sangue: bolha curta que cai
+    rare: () => voice(0.5, (t, n) => { osc(n, 'sine', 1320, 1320, t, 0.18, 0.12); osc(n, 'sine', 1760, 1760, t + 0.09, 0.3, 0.1); }), // ding ao pegar item raro
+    groan: (pan) => voice(1.3, (t, n) => {
+      if (pan && ctx.createStereoPanner) { const sp = ctx.createStereoPanner(); sp.pan.value = Math.max(-1, Math.min(1, pan)); sp.connect(master); n.push(sp); dest = sp; } // gemido pela posicao na tela
       const o = osc(n, 'sine', 110, 80, t, 1.2, 0.22);
       const l = ctx.createOscillator(), lg = ctx.createGain(); // vibrato
       l.frequency.value = 6; lg.gain.value = 7;
       l.connect(lg).connect(o.frequency);
       l.start(t); l.stop(t + 1.2);
-      n.push(l, lg);
+      n.push(l, lg); dest = null;
     }),
     drop: () => voice(0.14, (t, n) => { // baque curto no chão
       osc(n, 'sine', 110, 55, t, 0.12, 0.35);
@@ -438,7 +447,7 @@
           if (now - groanAt >= 3 && G.zombies) {
             for (const z of G.zombies) {
               if (z.state === 'chase' && Math.hypot(z.x - p.x, z.y - p.y) < 10) {
-                groanAt = now; SND.groan(); break;
+                groanAt = now; { const s = window.R && R.toScreen && R.toScreen(z.x, 0, z.y); SND.groan(s ? (s.x / innerWidth - 0.5) * 2 : 0); } break;
               }
             }
           }

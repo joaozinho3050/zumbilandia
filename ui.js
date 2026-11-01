@@ -16,6 +16,9 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
 .bar i{position:absolute;inset:0;border-radius:4px;transform-origin:left;background:currentColor}
 #hp,#hunger,#stamina,#armor{left:var(--ml)}
 #hp{top:var(--mt);color:var(--vida)}#hp .bar{width:140px}
+#bleed{left:calc(var(--ml) + 200px);top:var(--mt);color:var(--vida)}#bleed .bar{width:36px}
+.ip .slot.glow{border-color:var(--municao);box-shadow:0 0 10px 2px var(--municao)}
+#radio{left:calc(var(--ml) + 250px);top:var(--mt);color:var(--texto)}#radio .bar{width:36px}
 #sick{left:calc(var(--ml) + 150px);top:calc(var(--mt) + 44px);color:#8fd16a}#sick .bar{width:36px}
 #hunger{top:calc(var(--mt) + 44px);color:var(--fome)}#hunger .bar{width:100px}
 #stamina{top:calc(var(--mt) + 88px);color:var(--folego);height:28px}#stamina .bar{width:100px;height:6px}
@@ -23,8 +26,8 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
 .pulse{animation:pulso 1s ease-in-out infinite}
 @keyframes pulso{50%{transform:scale(1.06)}}
 #time{top:var(--mt);right:calc(var(--mr) + 112px);height:48px;display:flex;align-items:center;font:20px 'Pixelify Sans',monospace;text-shadow:var(--sombra-texto)}
-#hint{top:56px;left:50%;transform:translateX(-50%);max-width:min(60vw,calc(100vw - 2 * (var(--mr) + 236px)));display:flex;align-items:center;gap:var(--esp-2);min-height:36px;padding:0 var(--esp-3);background:var(--superficie);border:2px solid var(--borda);border-radius:14px;box-shadow:var(--sombra);font-size:16px;pointer-events:auto}
-#hint span{overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;line-height:1.15;font-size:15px;padding:3px 0}
+#hint{top:48px;left:50%;transform:translateX(-50%);max-width:min(60vw,calc(100vw - 2 * (var(--mr) + 236px)));display:flex;align-items:center;gap:var(--esp-2);min-height:30px;padding:0 var(--esp-3);opacity:.92;background:var(--superficie);border:2px solid var(--borda);border-radius:14px;box-shadow:var(--sombra);font-size:16px;pointer-events:auto}
+#hint span{overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;line-height:1.15;font-size:13px;padding:2px 0}
 #hint button{display:none;min-width:48px;min-height:48px;border:0;background:none;color:var(--municao);font:inherit;font-size:14px;text-decoration:underline}
 #hint.g button{display:block}
 #hud .pop{position:absolute;left:0;top:0;width:80px;text-align:center;font:12px 'Pixelify Sans',monospace;color:var(--texto);text-shadow:var(--sombra-texto),0 0 3px #15121a;pointer-events:none;opacity:0}
@@ -152,6 +155,7 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
 
   const ICON = {
     heart: '<path d="M12 20s-7-4.5-7-10a4 4 0 0 1 7-2.5A4 4 0 0 1 19 10c0 5.5-7 10-7 10z"/>',
+    radio: '<path d="M4 10h16v9H4z"/><path d="M8 10l9-6M8 15h4"/>',
     drop: '<path d="M12 4c3 4 6 7 6 10a6 6 0 0 1-12 0c0-3 3-6 6-10z"/>',
     apple: '<path d="M12 8c-3-2-7 0-6 5 .8 4 3 7 6 7s5.2-3 6-7c1-5-3-7-6-5z"/><path d="M12 8c0-2 1-3 3-4"/>',
     bolt: '<path d="M13 3L5 14h6l-1 7 8-11h-6z"/>',
@@ -185,17 +189,17 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
   // near.type -> [icone, rotulo <= 8 letras]
   const ACAO = {
     crate: ['search', 'BUSCAR'], tomb: ['hand', 'PEGAR'], enter: ['door', 'ENTRAR'], exit: ['exit', 'SAIR'],
-    trunk: ['trunk', 'MALA'], car: ['door', 'ENTRAR'], siphon: ['pump', 'SIFONAR'], pour: ['pump', 'DESPEJAR'], search: ['search', 'BUSCAR'], drop: ['hand', 'PEGAR'], npc: ['man', 'FALAR'], fence: ['jump', 'PULAR'], cut: ['hand', 'CORTAR'], locked: ['door', 'TRANCADA'], tank: ['pump', 'SIFONAR']
+    trunk: ['trunk', 'MALA'], car: ['door', 'ENTRAR'], siphon: ['pump', 'SIFONAR'], pour: ['pump', 'DESPEJAR'], search: ['search', 'BUSCAR'], drop: ['hand', 'PEGAR'], npc: ['man', 'FALAR'], fence: ['jump', 'PULAR'], cut: ['hand', 'CORTAR'], fixdoor: ['hand', 'CONSERTAR'], locked: ['door', 'TRANCADA'], tank: ['pump', 'SIFONAR']
   };
-  const acaoDe = (n) => (n.type === 'door' || n.type === 'crate') && n.locked ? (n.cut ? ACAO.cut : ACAO.locked) : n.act ? ACAO[n.act] : n.type === 'stairs' ? ['stairs', n.up ? 'SUBIR' : 'DESCER'] : n.type === 'door' ? (n.open ? ['door', 'FECHAR'] : ['door', 'ABRIR']) : ACAO[n.type] || ['hand', 'AÇÃO'];
-  const NOME = { food: 'Comida', bandage: 'Bandagem', ammo: 'Munição', rag: 'Trapo', wire: 'Arame', bottle: 'Garrafa', hose: 'Mangueira', cutter: 'Alicate', gascan: 'Galão', key: 'Chave', pipe: 'Cano', pipe_r: 'Cano reforçado', food_bad: 'Comida estragada', pistol: 'Pistola', molotov: 'Molotov', helmet: 'Capacete', jacket: 'Jaqueta', shinguards: 'Caneleiras', bag_school: 'Mochila escolar', bag_hiking: 'Mochila de trilha', bag_military: 'Mochila militar' };
+  const acaoDe = (n) => (n.type === 'door' || n.type === 'crate') && n.locked ? (n.cut ? ACAO.cut : ACAO.locked) : n.act && ACAO[n.act] ? ACAO[n.act] : n.type === 'stairs' ? ['stairs', n.up ? 'SUBIR' : 'DESCER'] : n.type === 'door' ? (n.open ? ['door', 'FECHAR'] : ['door', 'ABRIR']) : ACAO[n.type] || ['hand', 'AÇÃO'];
+  const NOME = { food: 'Comida', bandage: 'Bandagem', bandage_r: 'Atadura', radio: 'Rádio', plank: 'Tábua', repairkit: 'Kit de reparo', ammo: 'Munição', rag: 'Trapo', wire: 'Arame', bottle: 'Garrafa', hose: 'Mangueira', cutter: 'Alicate', gascan: 'Galão', key: 'Chave', pipe: 'Cano', pipe_r: 'Cano reforçado', food_bad: 'Comida estragada', pistol: 'Pistola', molotov: 'Molotov', helmet: 'Capacete', jacket: 'Jaqueta', shinguards: 'Caneleiras', bag_school: 'Mochila escolar', bag_hiking: 'Mochila de trilha', bag_military: 'Mochila militar' };
   const CNOME = { fridge: 'Geladeira', cabinet: 'Armário', wardrobe: 'Guarda-roupa', drawer: 'Gaveta', shelf: 'Gôndola', box: 'Caixa', box_mercado: 'Caixa', box_posto: 'Caixa', box_galpao: 'Caixa', box_militar: 'Caixa militar', toolbox: 'Caixa de ferramentas', toolbox_oficina: 'Bancada', pshelf: 'Prateleira', medcart: 'Carrinho', medcab: 'Armarinho', gunlocker: 'Armário de armas', desk: 'Recepção', locker: 'Armário', sacristy: 'Armário da sacristia', trunk: 'Porta-malas', tomb: 'Tumba', corpse: 'Corpo' };
   const ARMA = { pipe: 'CANO', pipe_r: 'CANO+', pistol: 'PISTOLA', molotov: 'MOLOTOV' };
   const durMax = (id) => id === 'cutter' ? 4 : ((window.G && G.DUR) || {})[id]; // durabilidade cheia: G.DUR (+ alicate, que nao e armadura)
 
   const held = { atk: false, act: false, up: false, down: false }, keys = new Set(), last = {}, E = {};
   const joy = { id: null, cx: 0, cy: 0, mx: 0, my: 0, run: false };
-  let vazioTxt = 'Vazio', tapT = null, intT = 0, pend = false, hintGuia = '', crouchPend = false, root, armorUntil = 0, hintUntil = 0, hintNear = '', hintAt = 0, hintQ = [], flashWUntil = 0, toastUntil = 0, flashUntil = 0, menuEl, startEl, confirmEl, deadEl, tourEl, tourStep = -1, tourPos, contEl, contSig = '', hp = null;
+  let glow = null, vazioTxt = 'Vazio', tapT = null, intT = 0, pend = false, hintGuia = '', crouchPend = false, root, armorUntil = 0, hintUntil = 0, hintNear = '', hintAt = 0, hintQ = [], flashWUntil = 0, toastUntil = 0, flashUntil = 0, menuEl, startEl, confirmEl, deadEl, tourEl, tourStep = -1, tourPos, contEl, contSig = '', hp = null;
 
   const put = (k, v, fn) => { if (last[k] !== v) { last[k] = v; fn(v); } };
   const el = (tag, id, parent, html, cls) => {
@@ -295,9 +299,9 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
     const p = window.G.player, inv = p.inv || [], it = inv[selInv];
     let det = '<span class="dim">Toque num item.</span>';
     if (it) {
-      const usa = it.id === 'food' || it.id === 'food_bad' || it.id === 'bandage', d = durOf(it);
+      const usa = it.id === 'food' || it.id === 'food_bad' || it.id === 'bandage' || it.id === 'bandage_r' || it.id === 'radio', d = durOf(it);
       det = '<div class="irow"><canvas class="spin" width="160" height="160"></canvas><div class="acts">' +
-        (usa ? '<button class="btn" data-a="use" data-v="' + selInv + '">' + (it.id === 'bandage' ? 'CURAR' : 'COMER') + '</button>' : '') + (equipavel(it.id) ? '<button class="btn" data-a="eq" data-v="' + it.id + '">EQUIPAR</button>' : '') + '<button class="btn" data-a="drop" data-v="' + selInv + '">LARGAR</button></div></div><h3>' + nm(it.id) + ' ×' + (it.qty || 1) + (d != null ? ' · dur ' + it.dur : '') + '</h3>' + card(it) + '<div class="dim">' + (usa ? 'Toque de novo para usar.' : equipavel(it.id) ? 'Toque de novo para equipar.' : ['pistol','bat','pipe','pipe_r','molotov'].includes(it.id) ? 'Arma — troque com o botão ARMA.' : 'Material para fabricar ou usar no mundo.') + '</div>';
+        (usa ? '<button class="btn" data-a="use" data-v="' + selInv + '">' + (it.id === 'bandage' ? 'CURAR' : it.id === 'bandage_r' ? 'ESTANCAR' : it.id === 'radio' ? 'OUVIR' : 'COMER') + '</button>' : '') + (equipavel(it.id) ? '<button class="btn" data-a="eq" data-v="' + it.id + '">EQUIPAR</button>' : '') + '<button class="btn" data-a="drop" data-v="' + selInv + '">LARGAR</button></div></div><h3>' + nm(it.id) + ' ×' + (it.qty || 1) + (d != null ? ' · dur ' + it.dur : '') + '</h3>' + card(it) + '<div class="dim">' + (usa ? 'Toque de novo para usar.' : equipavel(it.id) ? 'Toque de novo para equipar.' : ['pistol','bat','pipe','pipe_r','molotov'].includes(it.id) ? 'Arma — troque com o botão ARMA.' : 'Material para fabricar ou usar no mundo.') + '</div>';
     }
     panes.inv.innerHTML = bagCol(p, (x, i) => ({ a: 'data-a="slot" data-v="' + i + '"', sel: i === selInv, dur: durOf(x) })) + '<div class="col">' + det + '</div>';
     // item selecionado girando em 3D (mesmo renderer do jogo)
@@ -407,10 +411,22 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
     try { window.R && R.demo && R.demo(ent.querySelector('canvas'), e.demo); } catch (er) {}
   }
 
+  // dicas calmas (dono): criticas e respostas a uma acao passam na hora; as outras: 1 por id, 1 a cada 25 s, sem fila (as excedentes somem); modo "so importantes" bloqueia as nao criticas. O guia continua mostrando tudo
+  const hintMode = () => { try { return localStorage['zl1.dicas'] === 'crit' ? 'crit' : 'all'; } catch (e) { return 'all'; } };
+  const hintSeen = new Set();
+  let hintLast = -1e9;
+  function hintIn(ev, now) {
+    const crit = ev.crit || (window.G.HINT_CRIT || []).includes(ev.id);
+    if (crit) { hintQ.length = 0; hintQ.push(ev); hintUntil = 0; return; } // substitui a que estiver na tela
+    const k = window.G.seed + ':' + ev.id;
+    if (hintSeen.has(k) || hintMode() === 'crit' || now - hintLast < 25000 || hintUntil || hintQ.length) return;
+    hintSeen.add(k); hintLast = now; hintQ.push(ev);
+  }
+  window.__hintIn = (ev, now) => hintIn(ev, now); // teste
   function renderSettings() {
     const m = !!(window.SFX && SFX.muted && SFX.muted());
     const zm = zoomPct();
-    panes.settings.innerHTML = '<h3>Ajustes</h3><button class="btn" data-a="mute">Som: ' + (m ? 'mudo' : 'ligado') + '</button> <label class="zoom">Câmera <input type="range" min="50" max="170" step="10" value="' + zm + '" aria-label="Distância da câmera"><b>' + zm + ' %</b></label> <button class="btn" data-a="exit">Sair para o início</button> <button class="btn" data-a="delw">Apagar este mundo</button><p class="ver" data-a="ver">Versão ' + ((document.querySelector('meta[name=versao]') || {}).content || 'dev') + '</p>' + (window.G.dev && window.G.dev.on ? '<button class="btn" data-a="dev">Modo dev</button>' : '');
+    panes.settings.innerHTML = '<h3>Ajustes</h3><button class="btn" data-a="mute">Som: ' + (m ? 'mudo' : 'ligado') + '</button> <button class="btn" data-a="dicas">Dicas: ' + (hintMode() === 'crit' ? 'só importantes' : 'todas') + '</button> <label class="zoom">Câmera <input type="range" min="50" max="170" step="10" value="' + zm + '" aria-label="Distância da câmera"><b>' + zm + ' %</b></label> <button class="btn" data-a="exit">Sair para o início</button> <button class="btn" data-a="delw">Apagar este mundo</button><p class="ver" data-a="ver">Versão ' + ((document.querySelector('meta[name=versao]') || {}).content || 'dev') + '</p>' + (window.G.dev && window.G.dev.on ? '<button class="btn" data-a="dev">Modo dev</button>' : '');
     bindZoom();
   }
 
@@ -545,7 +561,7 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
     else
     if (a === 'slot') {
       const i = +v, it = G.player.inv[i];
-      if (i === selInv && it && (it.id === 'food' || it.id === 'food_bad' || it.id === 'bandage')) { G.useItem(i); selInv = -1; toggleMenu(false); } else if (i === selInv && it && equipavel(it.id)) { G.equip(it.id); selInv = -1; } else selInv = i;
+      if (i === selInv && it && (it.id === 'food' || it.id === 'food_bad' || it.id === 'bandage' || it.id === 'bandage_r' || it.id === 'radio')) { G.useItem(i); selInv = -1; toggleMenu(false); } else if (i === selInv && it && equipavel(it.id)) { G.equip(it.id); selInv = -1; } else selInv = i;
     } else if (a === 'es') { // Equipar: 1o toque seleciona (cartao), 2o toque faz a acao (vestir / tirar)
       const k = v[0], x = v.slice(2), it = k === 'e' ? G.player.equip[x] : G.player.inv[+x];
       if (selEq !== v) selEq = v; else { if (k === 'e') G.unequip(x); else if (it && equipavel(it.id)) G.equip(it.id); selEq = ''; }
@@ -557,6 +573,7 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
     else if (a === 'craft') { if (G.craft && G.craft(v) !== false) say('Fabricou: ' + nm(G.recipes.find((r) => r.id === v).out)); }
     else if (a === 'guide') { guideOpen = v; return listGuide(); }
     else if (a === 'mute') toggleMute();
+    else if (a === 'dicas') { try { localStorage['zl1.dicas'] = hintMode() === 'crit' ? 'all' : 'crit'; } catch (e) {} renderSettings(); }
     else if (a === 'exit') { try { G.save(); } catch (er) {} toggleMenu(false); return openStart(); }
     else if (a === 'delw') { toggleMenu(false); return UI._askDelete(G.slot); }
     showTab(curTab);
@@ -685,6 +702,8 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
     E.hp = el('div', 'hp', hud, svg('heart') + '<div class="bar"><i></i></div>', 'pill');
     E.hunger = pill('hunger', 'apple', 0, 0, hud);
     E.sick = pill('sick', 'drop', 0, 0, hud);
+    E.bleed = pill('bleed', 'drop', 0, 0, hud);
+    E.radio = pill('radio', 'radio', 0, 0, hud);
     E.stamina = el('div', 'stamina', hud, '<div class="bar"><i></i></div>', 'pill hidden');
     E.armor = pill('armor', 'shield', 0, 0, hud);
     E.time = el('div', 'time', hud, '00:00');
@@ -810,11 +829,13 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
         flashUntil = now + 400; armorUntil = now + 3000;
         try { navigator.vibrate && navigator.vibrate(60); } catch (e) {}
       } else if (ev.type === 'equip') armorUntil = now + 3000;
+      else if (ev.type === 'radio') { E.toast.textContent = 'Rádio: ' + ev.text; toastUntil = now + 7000; }
+      else if (ev.type === 'rare') glow = { id: ev.id, until: now + 500 };
       else if (ev.type === 'open') { if (ev.empty) { vazioTxt = ['Vazio', 'Nada aqui', 'Já levaram tudo', 'Só poeira'][Math.random() * 4 | 0]; E.toast.textContent = vazioTxt; toastUntil = now + 2000; } }
       else if (ev.type === 'cidade') { E.toast.textContent = 'Você chegou a ' + ev.name; toastUntil = now + 3000; }
       else if (ev.type === 'bairro') { E.toast.textContent = ev.name; toastUntil = now + 2500; }
       else if (ev.type === 'full') { E.toast.textContent = 'Mochila cheia'; toastUntil = now + 2000; }
-      else if (ev.type === 'hint') { if (hintQ.length < 3) hintQ.push(ev); } // fila FIFO (max 3): duas dicas no mesmo quadro nao se perdem
+      else if (ev.type === 'hint') hintIn(ev, now);
       else if (ev.type === 'miss') pop('Errou', ev.x, ev.y, now);
       else if (ev.type === 'headshot' || ev.type === 'legshot') { // retorno do tiro: texto pequeno sobre o zumbi atingido (dono: em cima dele, sem atrapalhar)
         const z = G.zombies.find((q) => q.id === ev.id) || (G.dying || []).find((q) => q.id === ev.id) || (ev.x !== undefined ? ev : null);
@@ -827,7 +848,7 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
 
     const nk = p.near ? p.near.type + p.near.id : '';
     if (hintUntil && (now > hintUntil || (nk !== hintNear && now - hintAt >= 1500))) hintUntil = 0; // troca de alvo so fecha dica ja mostrada >= 1,5 s
-    if (!hintUntil && hintQ.length) { const h = hintQ.shift(); E.hint.firstChild.textContent = h.text; E.hint.classList.toggle('g', !!h.guia); hintGuia = h.guia || ''; hintAt = now; hintUntil = now + (h.ms || 4000); hintNear = nk; }
+    if (!hintUntil && hintQ.length) { const h = hintQ.shift(); E.hint.firstChild.textContent = h.text; E.hint.classList.toggle('g', !!h.guia); hintGuia = h.guia || ''; hintAt = now; hintUntil = now + (h.ms || 3500); hintNear = nk; }
     put('hint', hintUntil > 0, (v) => E.hint.classList.toggle('hidden', !v));
     put('toast', now < toastUntil, (v) => E.toast.classList.toggle('hidden', !v));
     put('flash', now < flashUntil, (v) => E.flash.classList.toggle('hidden', !v));
@@ -843,6 +864,10 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
 
     const hp = Math.round(p.hp || 0), hu = Math.round(p.hunger || 0);
     put('hp', hp, (v) => { fill(E.hp, v / 100); E.hp.classList.toggle('pulse', v < 30); });
+    put('bleed', p.bleed ? 1 : 0, (v) => E.bleed.classList.toggle('hidden', !v)); // gota vermelha enquanto sangra
+    put('radio', p.radio > 0 ? 1 : 0, (v) => E.radio.classList.toggle('hidden', !v)); if (p.radio > 0) fill(E.radio, p.radio / 600); // radio ligado: barra dos 10 min
+    if (p.bleed) fill(E.bleed, 1 - (G._bleed || 0) / 3);
+    if (glow) { const on = now < glow.until, ss = [...document.querySelectorAll('.ip .slot')].filter((x) => x.getAttribute('aria-label') === nm(glow.id)); if (ss.length) ss[ss.length - 1].classList.toggle('glow', on); if (!on) glow = null; } // brilho de 0,5 s no slot do item raro
     put('sick', p.sick > 0 ? Math.round(p.sick) : -1, (v) => { E.sick.classList.toggle('hidden', v < 0); if (v >= 0) fill(E.sick, v / 30); }); // enjoo
     put('hu', hu < 50 ? hu : -1, (v) => { E.hunger.classList.toggle('hidden', v < 0); if (v >= 0) { fill(E.hunger, v / 100); E.hunger.classList.toggle('pulse', v < 20); } });
     const st = p.stamina == null ? 100 : Math.round(p.stamina);
@@ -869,7 +894,7 @@ font-family:'Atkinson Hyperlegible',sans-serif;color:var(--texto);touch-action:n
     const gc = (p.inv || []).find((i) => i.id === 'gascan'), sf = p.action && p.action.type === 'siphon';
     const sa = sf ? Math.min(1, ((p.action.act === 'pour' ? (G.cars.find((c) => c.id === p.action.id) || {}).fuel : gc && gc.fuel) || 0) / 10)
       : car && car.burn > 0 ? Math.min(1, Math.max(0, 1 - car.burn / 5)) // incendio: 5 s ate explodir
-      : p.action && p.action.type === 'search' ? Math.min(1, Math.max(0, p.action.t || 0)) : p.action && p.action.type === 'cut' ? Math.min(1, Math.max(0, (p.action.t || 0) / 1.5)) : p.action && p.action.type === 'stairs' ? Math.min(1, Math.max(0, (p.action.t || 0) / 0.8)) : -1;
+      : p.action && p.action.type === 'search' ? Math.min(1, Math.max(0, p.action.t || 0)) : p.action && p.action.type === 'work' ? Math.min(1, Math.max(0, (p.action.t || 0) / p.action.dur)) : p.action && p.action.type === 'cut' ? Math.min(1, Math.max(0, (p.action.t || 0) / 1.5)) : p.action && p.action.type === 'stairs' ? Math.min(1, Math.max(0, (p.action.t || 0) / 0.8)) : -1;
     put('ring', sa < 0 ? -1 : Math.round(sa * 100), (v) => {
       E.ring.classList.toggle('hidden', v < 0);
       if (v >= 0) E.ring.firstElementChild.setAttribute('stroke-dashoffset', String(1 - v / 100));

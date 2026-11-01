@@ -57,7 +57,7 @@ const stairRy = S => Math.abs(S.h) > Math.abs(S.w) ? (S.ly1 > S.ly0 ? 0 : Math.P
 const dummy = new THREE.Object3D(), zR = new THREE.Matrix4(), zM = new THREE.Matrix4(), zB = new THREE.Matrix4(), zQ = new THREE.Quaternion(), zE = new THREE.Euler(), zV = new THREE.Vector3(), zS = new THREE.Vector3(1, 1, 1);
 const shots = [], hits = [], wc0 = new THREE.Color(), nT = new THREE.Matrix4(), nAr = new THREE.Matrix4();
 const milIM = {}, airIM = {}; let rotIM, shIM; // aeronaves: IM por tipo (cap 6) + rotor do heli (IM proprio) + sombra/marca de pouso (1 IM)
-let sIM, hIM, nB, nA, nW = {}, nMk, nAim = null, nData = new Map(), spillIM, flash, devLn = null, devEl = null, devCh = '', devT = 0, devN = 0, own, ownId = null, lidA = 0, cSm = { x: 0, y: 0, d: 1, a: 0 }, sPool = [], sT = 0, fireIM, flameIM, flights = [], bottle = null;
+let blIM, bls = [], shakeT = 0, sIM, hIM, nB, nA, nW = {}, nMk, nAim = null, nData = new Map(), spillIM, flash, devLn = null, devEl = null, devCh = '', devT = 0, devN = 0, own, ownId = null, lidA = 0, cSm = { x: 0, y: 0, d: 1, a: 0 }, sPool = [], sT = 0, fireIM, flameIM, flights = [], bottle = null;
 const OWN_LAMP = new THREE.MeshBasicMaterial({ color: 0xfff3b0, transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false, fog: false });
 const OWN_BEAM = new THREE.MeshBasicMaterial({ color: 0xfff3b0, transparent: true, opacity: 0.14, depthWrite: false, fog: false });
 const SMOKE = new THREE.MeshBasicMaterial({ color: 0xbfc4cc }), BOOM = new THREE.MeshBasicMaterial({ color: 0xff8a2b });
@@ -326,6 +326,10 @@ function pose(rig, mv, act, t, k) {
   else if (act === 'shot') P.armR.rotation.x = -1.45 + 0.25 * Math.max(0, 1 - t / 0.15);
   else if (act === 'search') { const w = Math.sin(t * 14); P.armL.rotation.x = -1 + 0.5 * w; P.armR.rotation.x = -1 - 0.5 * w; P.body.rotation.x = 0.15; }
   else if (act === 'eat') { P.armR.rotation.x = -2.3 * sm(u(0.2)) + 0.15 * Math.sin(t * 20); if (sickBend) P.body.rotation.x = 0.7 * RM * Math.sin(Math.PI * u(0.6)); } // comida estragada com enjoo: curva o tronco
+  else if (act === 'crank') { P.body.rotation.x = 0.25; P.armL.rotation.x = -0.8; P.armR.rotation.x = -1.2 + 0.5 * Math.sin(t * 12); P.armR.rotation.z = 0.4 * Math.cos(t * 12); } // gira a manivela
+  else if (act === 'listen') { P.armL.rotation.x = -2.6 * sm(u(0.25)); P.armL.rotation.z = -0.5; P.body.rotation.z = 0.06; } // mao no ouvido ao receber a mensagem
+  else if (act === 'hammer') { const w = Math.max(0, Math.sin(t * 10)); P.body.rotation.x = 0.3; P.armR.rotation.x = -1.6 + 1.3 * w; P.armL.rotation.x = -0.9; } // martelar: braco direito bate
+  else if (act === 'repair') { const w = Math.sin(t * 9); P.body.rotation.x = 0.55; P.body.position.y -= 0.22; for (const l of [P.legL, P.legR]) { l.rotation.x = -0.9; l.scale.y = 0.75; l.position.y = 0.4; } P.armL.rotation.x = -1.2 + 0.2 * w; P.armR.rotation.x = -1.3 - 0.2 * w; } // agachado mexendo no motor
   else if (act === 'heal') { P.armL.rotation.x = -1.3 * sm(u(0.2)); P.armR.rotation.x = -1 * sm(u(0.2)) + 0.2 * Math.sin(t * 14); }
   else if (act === 'stairs') { const w = Math.sin(t * 14); P.legL.rotation.x = -0.9 * Math.max(0, w); P.legR.rotation.x = -0.9 * Math.max(0, -w); P.armL.rotation.x = 0.5 * w; P.armR.rotation.x = -0.5 * w; P.body.position.y += 0.05 * Math.abs(w); P.body.rotation.x = 0.12; }
   else if (act === 'equip') { const e = Math.sin(Math.PI * u(0.2)); playerG.scale.setScalar(1 + 0.1 * e); playerG.position.y = 0.12 * e; }
@@ -429,6 +433,7 @@ function init(canvas) {
 
   const sm = new THREE.LineBasicMaterial({ color: 0xffe066 }), hm = new THREE.MeshBasicMaterial({ color: 0xff8a3d }), hg = new THREE.IcosahedronGeometry(0.22, 0);
   for (let i = 0; i < 3; i++) { const l = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3(1, 0, 0)]), sm); l.visible = false; l.frustumCulled = false; l.userData.end = 0; scene.add(l); shots.push(l); }
+  blIM = new THREE.InstancedMesh(new THREE.CircleGeometry(1, 10).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0x5a1a1f, transparent: true, opacity: 0.8, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 }), 16); blIM.frustumCulled = false; blIM.count = 0; blIM.visible = false; scene.add(blIM); // respingo/pingos de sangue: 1 call, <= 16
   hIM = new THREE.InstancedMesh(hg, hm, 4); hIM.frustumCulled = false; hIM.count = 0; hIM.visible = false; scene.add(hIM); // faiscas de acerto: 1 call (antes ate 4 malhas)
   for (let i = 0; i < 4; i++) { const m = new THREE.Object3D(); m.visible = false; m.userData.end = 0; hits.push(m); }
 
@@ -561,6 +566,10 @@ function draw(G) {
       const sh = doorSh.get(d.id), tr = sh && now < sh && RM === 1 ? Math.sin(now / 25) * 0.06 : 0; // pancada de zumbi: porta treme 0,3 s
       const L = Math.max(d.w, d.h), t = { x: ax ? d.x : d.x + d.w / 2, z: ax ? d.y + d.h / 2 : d.y, a, sx: L / 1.4, sz: 0.9 };
       doorT.set(d.id, t); place(doorIM[0], dn++, t.x, 0, t.z, a + tr, t.sx, d.broken ? 0.85 : 1, t.sz);
+      if (d.rf && !d.open && !d.broken && wallBase + wp + 2 <= 256) { // porta reforcada: 2 tabuas cruzadas (pecas da wallIM, so cor)
+        const px = ax ? d.x + L / 2 : d.x + d.w / 2, pz = ax ? d.y + d.h / 2 : d.y + L / 2;
+        for (const sg of [1, -1]) { dummy.position.set(px, 0.93, pz); dummy.rotation.set(0, a0, sg * 0.55); dummy.scale.set(L * 1.05, 0.14, sg > 0 ? 0.24 : 0.2); dummy.updateMatrix(); wallIM.setMatrixAt(wallBase + wp, dummy.matrix); wallIM.setColorAt(wallBase + wp++, wc0.set(0x9b6a3c)); }
+      }
       if (d.locked && ln < 128) {
         const o = ax ? (d.y < hy ? -1 : 1) : (d.x < hx ? -1 : 1), px = ax ? d.x + L - 0.3 : d.x + d.w / 2 + o * 0.22, pz = ax ? d.y + d.h / 2 + o * 0.22 : d.y + L - 0.3;
         const near = (px - p.x) ** 2 + (pz - p.y) ** 2 < 36, k = near && RM === 1 ? Math.sin(now / 220) : 0, sc = 3.2 * (1 + 0.1 * k);
@@ -860,7 +869,9 @@ function draw(G) {
       if (z) { m.position.set(z.x, 1, z.y); m.scale.setScalar(2.4); m.visible = true; m.userData.end = now + 220; }
     } else if (ev.type === 'hit') {
       const m = hits.find(s => !s.visible) || hits[0]; m.position.set(ev.x ?? p.x, 1, ev.y ?? p.y); m.visible = true; m.userData.end = now + 80;
-    }
+      bls.push({ x: (ev.x ?? p.x) + (Math.random() - 0.5) * 0.5, z: (ev.y ?? p.y) + (Math.random() - 0.5) * 0.5, r: 0.35, T: 0.3, t: 0 }); // respingo escuro 0,3 s
+    } else if (ev.type === 'drip') bls.push({ x: ev.x + (Math.random() - 0.5) * 0.3, z: ev.y + (Math.random() - 0.5) * 0.3, r: 0.13, T: 5, t: 0 }); // pingo no chao
+    if (ev.type === 'hurt' || ev.type === 'shot' || ev.type === 'blast') shakeT = 0.15; // tremor de camera
   }
   for (const g of padFall) if (g.visible) { const u = g.userData; u.t += dt; u.vy -= 14 * dt; g.position.x += u.vx * dt; g.position.z += u.vz * dt; g.position.y = Math.max(0.05, g.position.y + u.vy * dt); if (g.position.y <= 0.05) { u.vy = 0; u.vx *= 0.8; u.vz *= 0.8; } g.rotation.x += 9 * dt * (g.position.y > 0.06); g.rotation.z += 6 * dt * (g.position.y > 0.06); if (u.t > 1.6) g.visible = false; }
   for (const m of brk) if (m.visible) { const u = m.userData; if (now >= u.end) m.visible = false; else { u.vy -= 14 * dt; m.position.x += u.vx * dt; m.position.y = Math.max(0.05, m.position.y + u.vy * dt); m.position.z += u.vz * dt; m.rotation.x += 8 * dt; m.rotation.z += 6 * dt; } }
@@ -868,6 +879,11 @@ function draw(G) {
   for (const m of nzRings) if (m.visible) { const u = m.userData; u.t += dt; const k = u.t / 0.6; if (k >= 1) m.visible = false; else { m.scale.setScalar(u.r * (RM === 1 ? 0.3 + 0.7 * k : 1)); m.material.opacity = 0.55 * (1 - k); } } // anel de ruido: cresce ate o raio e some em 0,6 s (reduced-motion: ja no raio)
   for (const o of shots) if (o.visible && now >= o.userData.end) o.visible = false;
   for (const o of hits) if (o.visible && now >= o.userData.end) { o.visible = false; o.scale.setScalar(1); }
+  { // respingos e pingos: <= 16, mais novos vencem; reduced-motion: sem encolher
+    while (bls.length > 16) bls.shift();
+    let n = 0; for (let i = bls.length - 1; i >= 0; i--) { const b = bls[i]; b.t += dt; if (b.t >= b.T) { bls.splice(i, 1); continue; } place(blIM, n++, b.x, 0.03, b.z, 0, b.r * (RM === 1 && b.T < 1 ? 0.5 + 0.5 * Math.min(1, b.t / 0.08) : 1), 1, b.r * (RM === 1 && b.T < 1 ? 0.5 + 0.5 * Math.min(1, b.t / 0.08) : 1)); }
+    blIM.count = n; blIM.visible = n > 0; blIM.instanceMatrix.needsUpdate = true;
+  }
   { let n = 0; for (const o of hits) if (o.visible) { o.updateMatrix(); hIM.setMatrixAt(n++, o.matrix); } hIM.count = n; hIM.visible = n > 0; hIM.instanceMatrix.needsUpdate = true; }
 
   // camera ~55 graus
@@ -879,7 +895,8 @@ function draw(G) {
   const d = camera.userData.d * cSm.d, el = EL, fx = p.x + cSm.x, fy = p.y + cSm.y;
   scene.fog.near = d + 14; scene.fog.far = d + 34;
   if (Math.abs(camera.far - (d + 70)) > 2) { camera.far = d + 70; camera.updateProjectionMatrix(); }
-  camera.position.set(fx, 0.5 + cH + cSm.a + d * Math.sin(el), fy + d * Math.cos(el));
+  const sh = shakeT > 0 && RM === 1 ? 0.12 * (shakeT / 0.15) : 0; shakeT = Math.max(0, shakeT - dt); // tremor 0,15 s (desligado com prefers-reduced-motion)
+  camera.position.set(fx + (sh ? (Math.random() - 0.5) * sh : 0), 0.5 + cH + cSm.a + d * Math.sin(el) + (sh ? (Math.random() - 0.5) * sh : 0), fy + d * Math.cos(el));
   camera.lookAt(fx, 0.5 + cH + cSm.a, fy);
   if (devLn) devUpdate(p, now);
   renderer.render(scene, camera);
@@ -964,7 +981,7 @@ function spin(canvas, id) {
   spinCv = canvas; spinId = id; spinRaf = requestAnimationFrame(spinTick);
 }
 // demos de acao: jogador de armadura completa repetindo a acao num loop de 1,2 s (mesmo renderer, mesmo RT do spin)
-const DEMO = { run: ['run'], crouch: ['crouch'], jump: ['idle', 'jump'], stairs: ['idle', 'stairs'], equip: ['idle', 'equip'], siphon: ['crouch', 'siphon'], tank: ['crouch', 'siphon'], cut: ['crouch', 'cut'], throw: ['idle', 'throw'], craft: ['idle', 'craft'], search: ['idle', 'search'] };
+const DEMO = { run: ['run'], crouch: ['crouch'], jump: ['idle', 'jump'], stairs: ['idle', 'stairs'], equip: ['idle', 'equip'], siphon: ['crouch', 'siphon'], tank: ['crouch', 'siphon'], cut: ['crouch', 'cut'], throw: ['idle', 'throw'], craft: ['idle', 'craft'], search: ['idle', 'search'], heal: ['idle', 'heal'], hammer: ['crouch', 'hammer'], radio: ['idle', 'crank'], repair: ['crouch', 'repair'] };
 function demoPose(t) {
   const [mv, act] = DEMO[spinId], s = t / 1000, c = s % 1.2, rig = demoRig;
   for (const n in rig.P) { rig.P[n].position.copy(rig.P[n].userData.p0); rig.P[n].rotation.set(0, 0, 0); rig.P[n].scale.set(1, 1, 1); }

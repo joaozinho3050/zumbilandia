@@ -96,7 +96,8 @@
     return z;
   }
 
-  const STACK = { food: 5, food_bad: 5, bandage: 5, rag: 10, wire: 10, ammo: 24, bottle: 3 };
+  const STACK = { food: 5, food_bad: 5, bandage: 5, rag: 10, wire: 10, ammo: 24, bottle: 3, bandage_r: 5, plank: 4 };
+  const RARE = new Set(['radio', 'repairkit', 'food', 'ammo', 'bandage', 'cutter', 'pistol', 'pipe_r', 'molotov']); // item raro: ding e brilho no slot
   const BAG = { bag_school: 4, bag_hiking: 8, bag_military: 12 }; // espacos extras da mochila equipada (equip.back)
   const capOf = p => 8 + ((p.equip && p.equip.back && BAG[p.equip.back.id]) || 0);
   // poe ate q unidades de it em list (limite cap slots; empilha ate STACK); devolve quantas coube
@@ -110,14 +111,17 @@
   function addItem(item) {
     const p = G.player, q = item.qty === undefined ? 1 : item.qty;
     if (item.id === 'food_bad') hint('foodBad', 'Comida estragada: mata pouca fome e pode enjoar', 'food_bad');
+    if (item.id === 'radio') hint('radio', 'Rádio de manivela: use na mochila para ouvir onde há sobreviventes ou hordas', 'radio');
     if (DUR[item.id]) hint('armor', 'Armadura: abra Equipar no MENU para vestir', 'armor');
     item.qty = q - put(p.inv, capOf(p), item, q);
+    if (item.qty < q || q === 0) { if (RARE.has(item.id)) G.events.push({ type: 'rare', id: item.id }); } // ding + brilho ao pegar item raro
     if (item.qty > 0) G.events.push({ type: 'full' });
     return item.qty === 0;
   }
   const DUR = { helmet: 20, jacket: 20, shinguards: 10 }, PART = { helmet: 'head', jacket: 'torso', shinguards: 'legs', bag_school: 'back', bag_hiking: 'back', bag_military: 'back' };
   const RECIPES = [{ id: 'pipe_r', out: 'pipe_r', ing: [{ id: 'pipe', qty: 1 }, { id: 'wire', qty: 1 }] },
-    { id: 'molotov', out: 'molotov', ing: [{ id: 'bottle', qty: 1 }, { id: 'rag', qty: 1 }, { id: 'gascan', qty: 1, keep: true, fuel: 2 }] }]; // galao fica, gasta 2 L
+    { id: 'molotov', out: 'molotov', ing: [{ id: 'bottle', qty: 1 }, { id: 'rag', qty: 1 }, { id: 'gascan', qty: 1, keep: true, fuel: 2 }] }, // galao fica, gasta 2 L
+    { id: 'bandage_r', out: 'bandage_r', ing: [{ id: 'rag', qty: 3 }] }]; // atadura improvisada: so estanca sangramento (pano e renovavel: curar com ela seria cura infinita)
   // shortcut: o cano inicial nao e item da mochila; conta como 1 pipe disponivel (nao e consumido), ate haver loot de pipe
   const countOf = (p, id) => p.inv.reduce((n, i) => n + (i.id === id ? i.qty : 0), 0);
   const avail = (p, id) => countOf(p, id) + (id === 'pipe' ? 1 : 0);
@@ -133,7 +137,7 @@
   function hint(id, text, guia) { if (!G.hints[id]) { G.hints[id] = 1; G.events.push(guia ? { type: 'hint', id, text, guia } : { type: 'hint', id, text }); } }
   const noise = (x, y, r) => G.events.push({ type: 'noise', x, y, r }); // anel de ruido (so visual): origem e raio que alertou
   // anim do jogador: act dura ACT[act] s (search dura enquanto p.action; dead ate renascer)
-  const ACT = { swing: 0.25, shot: 0.15, eat: 1.5, heal: 2, equip: 0.4, craft: 0.8, pick: 0.4, drop: 0.4, hurt: 0.3, windup: 1.0, jump: 0.6, climb: 2, throw: 0.4, cut: 1.5, stairs: 0.8 };
+  const ACT = { swing: 0.25, shot: 0.15, eat: 1.5, heal: 2, equip: 0.4, craft: 0.8, pick: 0.4, drop: 0.4, hurt: 0.3, windup: 1.0, jump: 0.6, climb: 2, throw: 0.4, cut: 1.5, stairs: 0.8, hammer: 2, repair: 3, crank: 3, listen: 2.2 };
   function setAct(p, act) { if (p.anim.act === 'dead' && act !== 'dead') return; p.anim.act = act; p.anim.t = 0; }
   function setCrouch(p, on) { if (p.crouch !== on) { p.crouch = on; G.events.push({ type: 'crouch', on }); } }
 
@@ -155,7 +159,7 @@
     if (car) { car.speed = 0; if (veh(car).air) car.alt = car.vz = 0; else if (pt) car.dir = pt.d; G.events.push({ type: 'engine', on: false, id: car.id }); } // aeronave: cai direto no chao (shortcut)
     p._eng = false;
     Object.assign(p, { x: 23, y: 23, hp: 100, hunger: Math.max(25, p.hunger), inv: [], weapon: 'pipe', equip: {}, car: null, action: null, near: null, open: null, floor: 0 }); // mochila (equip.back) ja foi para a tumba
-    G._hunger = G._starve = 0; G._regen = 0; G._hurtT = G.t;
+    G._hunger = G._starve = 0; G._regen = G._bleed = 0; G._hurtT = G.t; p.bleed = 0; p.radio = p.rmsg = 0;
     Object.assign(p, { stamina: 100, crouch: false, running: false, noise: 0 }); G._hp = 100; G._rw = false;
     setAct(p, 'dead');
     G.lastLife = G.t - (p.born || 0); G.best = Math.max(G.best || 0, G.lastLife); p.born = G.t;
@@ -422,12 +426,35 @@
     const sees = (x, y, dr) => { const o = dr && [dr.open, dr.locked]; if (dr) { dr.open = true; dr.locked = false; } const b = blocked(p.x, p.y, x, y, undefined, p.floor || 0); if (dr) { dr.open = o[0]; dr.locked = o[1]; } return !b; };
     if (t.type === 'door') {
       const dr = G.houses.flatMap(h => h.doors || []).find(d => d.id === t.id);
-      return dr && dBox(dr, p.x, p.y) <= 2.5 && sees(dr.x + dr.w / 2, dr.y + dr.h / 2, dr) ? { near: { type: 'door', id: dr.id, open: dr.open, locked: !!dr.locked }, dr } : null;
+      return dr && dBox(dr, p.x, p.y) <= 2.5 && sees(dr.x + dr.w / 2, dr.y + dr.h / 2, dr) ? { near: doorNear(p, dr), dr } : null;
     }
     if (t.type === 'npc') { const n = G.npcs.find(q => q.id === t.id); return n && n.fac === 'a' && n.hp > 0 && dist(n, p) <= 2.5 && !p.floor ? { near: { type: 'npc', id: n.id } } : null; } // toque no amigo = FALAR
     const l = t.type === 'drop' ? G.drops : t.type === 'crate' || t.type === 'tomb' ? G.crates : null, e = l && l.find(c => c.id === t.id);
     if (!e || e.scenery || (t.type === 'tomb') !== !!e.tomb) return null;
     return (e.w ? dBox(cbox(e), p.x, p.y) : dist(e, p)) <= 2.5 && sees(e.x, e.y) ? { near: e.locked ? { type: 'crate', id: e.id, locked: true } : { type: t.type, id: e.id } } : null;
+  }
+  // trabalho com as maos (segurar AÇÃO): reforcar porta fechada (2 tabuas + 1 arame, hp 300), consertar porta quebrada (idem), consertar carro (kit, +30 de vida)
+  const WORK = { reinforce: 2, fixdoor: 2, repair: 3 };
+  const hasMat = p => countOf(p, 'plank') >= 2 && countOf(p, 'wire') >= 1;
+  function doorAct(p, dr) { if (dr.locked || dr.gate || dr.base || !hasMat(p)) return undefined; if (dr.broken) return 'fixdoor'; if (!dr.open && !dr.rf) return 'reinforce'; return undefined; }
+  const doorNear = (p, dr) => { const o = { type: 'door', id: dr.id, open: dr.open, locked: !!dr.locked }, a = doorAct(p, dr); if (a) o.act = a; return o; };
+  function repairAct(p, c) { return countOf(p, 'repairkit') && (c.hp === undefined ? 100 : c.hp) < 100 && !c.burnt && !(c.burn > 0) && !veh(c).air && c.speed === 0 ? 'repair' : undefined; }
+  function updateWork(p, car, len, dt) {
+    const n = p.near, a = p.action;
+    if (a && a.type === 'work' && (!p.input.hold || len > 0.3 || !n || n.id !== a.id || n.act !== a.act || G.dead)) { p.action = null; return; }
+    if (!a && n && WORK[n.act] && p.input.hold && !car && !G.dead) { p.action = { type: 'work', act: n.act, id: n.id, t: 0, dur: WORK[n.act] }; setAct(p, n.act === 'repair' ? 'repair' : 'hammer'); }
+    const w = p.action; if (!w || w.type !== 'work') return;
+    p.noise = Math.max(p.noise, 3); if (w.t === 0) noise(p.x, p.y, 3); // barulho de 3 m
+    if ((w.t += dt) < w.dur) return;
+    p.action = null; p.input.hold = false;
+    if (w.act === 'repair') {
+      const c = G.cars.find(q => q.id === w.id); if (!c || !countOf(p, 'repairkit')) return;
+      take(p, 'repairkit', 1); c.hp = Math.min(100, (c.hp === undefined ? 100 : c.hp) + 30); G.events.push({ type: 'repair', id: c.id, hp: c.hp }); return;
+    }
+    const dr = G.houses.flatMap(h => h.doors || []).find(d => d.id === w.id); if (!dr || !hasMat(p)) return;
+    take(p, 'plank', 2); take(p, 'wire', 1);
+    if (w.act === 'fixdoor') { dr.broken = false; dr.rf = 0; dr.hp = 100; dr.open = false; G.events.push({ type: 'hammer', id: dr.id, fix: 1 }, { type: 'door', id: dr.id, open: false, gate: false, base: false }); }
+    else { dr.rf = 1; dr.hp = 300; G.events.push({ type: 'hammer', id: dr.id }); }
   }
   // CORTAR: segurar AÇÃO 1,5 s perto de porta trancada com alicate; joystick > 0,3 ou soltar cancela
   function updateCut(p, car, len, dt) {
@@ -555,13 +582,46 @@
     if (!nodur) for (const k of parts) if (--eq[k].dur <= 0) { G.events.push({ type: 'armorBreak', part: k }); delete eq[k]; hint('armorBreak', 'Sua armadura quebrou', 'armor'); }
   }
   // comer/curar: acao de 1,5/2 s; dano, corrida ou abrir conteiner cancela sem gastar o item
-  function cancelUse(p) { if (p.action && p.action.type === 'use') { p.action = null; if (p.anim.act === 'eat' || p.anim.act === 'heal') p.anim.act = null; } }
+  // sangramento (P7): 30 % por golpe de zumbi (hash do tempo, nao toca o rng()); -1 de vida a cada 3 s ate bandagem/atadura; nao em carro, imortal ou dev.noBleed
+  function startBleed(p, z) {
+    if (p.bleed || p.car || G.dev.god || G.dev.noBleed) return;
+    let h = 0; for (const c of String(z.id)) h = (h * 31 + c.charCodeAt(0)) | 0;
+    if (hash(G.seed, Math.floor(G.t * 20), h >>> 0, 9540) % 100 >= 30) return;
+    p.bleed = 1; G._bleed = 0; G.events.push({ type: 'bleed' });
+    hint('sangra', 'Sangrando — use bandagem ou faça atadura com 3 panos', 'bleed');
+  }
+  function cancelUse(p) { if (p.action && p.action.type === 'use') { p.action = null; if (p.anim.act === 'eat' || p.anim.act === 'heal' || p.anim.act === 'crank') p.anim.act = null; } }
+  // radio de manivela (P5, COERENCIA F): 3 s de manivela = 10 min ligado e UMA mensagem (a 8 s): so sobrevivente vivo ou horda a <= 1,5 km, nunca base nem landmark; nao gasta o item
+  const dir8 = (p, x, y) => ['leste', 'sudeste', 'sul', 'sudoeste', 'oeste', 'noroeste', 'norte', 'nordeste'][((Math.round(Math.atan2(y - p.y, x - p.x) / (Math.PI / 4)) % 8) + 8) % 8];
+  function radioMsg(p) {
+    let best = null; const take1 = (d, x, y, w) => { if (d <= 1500 && (!best || d < best.d)) best = { d, x, y, w }; };
+    for (const n of G.npcs) if (n.hp > 0) take1(dist(n, p), n.x, n.y, 'Sobreviventes');
+    const pcx = Math.floor(p.x / CH), pcy = Math.floor(p.y / CH);
+    for (let j = -10; j <= 10; j++) for (let i = -10; i <= 10; i++) { // chunks descarregados: so os que a chance do gen (cx,cy,9400) deixa ter sobrevivente
+      const cx = pcx + i, cy = pcy + j, key = cx + ',' + cy; if (G._ls.has(key)) continue;
+      if (hash(G.seed, cx, cy, 9400) / 4294967296 >= 0.06) continue;
+      const dd = (G.chunks[key] || {}).npcs || {};
+      for (const n of gen(cx, cy).npcs || []) if (dd[n.id] !== null) { const q = dd[n.id] || n; if (!(q.hp <= 0)) take1(hypot2(n.x + cx * CH - p.x, n.y + cy * CH - p.y), n.x + cx * CH, n.y + cy * CH, 'Sobreviventes'); }
+    }
+    const hx0 = Math.floor(p.x / HC), hy0 = Math.floor(p.y / HC);
+    for (let j = -7; j <= 7; j++) for (let i = -7; i <= 7; i++) { // hordas: posicao pura por formula; so as que ainda tem membros vivos
+      const gid = (hx0 + i) + ',' + (hy0 + j); if (hordeN(gid) - ((G.hordes[gid] || {}).k || 0) <= 0) continue;
+      const P = hordePos(gid, G.t); take1(dist(P, p), P.x, P.y, 'Horda');
+    }
+    if (!best) return 'Só estática. Ninguém por perto.';
+    return best.w + ' a ' + dir8(p, best.x, best.y) + ', uns ' + Math.max(100, Math.round(best.d / 100) * 100) + ' m.';
+  }
   function finishUse(p) {
     const a = p.action; p.action = null;
     const s = p.inv.find(i => i.id === a.id); if (!s) return;
+    if (a.id === 'radio') { p.radio = 600; p.rmsg = 8; G.events.push({ type: 'radioOn' }); return; }
     if (a.id === 'food') { p.hunger = Math.min(100, p.hunger + 30); G.events.push({ type: 'eat', bad: false }); }
     else if (a.id === 'food_bad') { p.hunger = Math.min(100, p.hunger + 10); G.events.push({ type: 'eat', bad: true }); if (rng() < 0.4) { p.sick = 30; G.events.push({ type: 'sick' }); hint('sick', 'Enjoo: sem correr e fôlego lento por 30 s', 'food_bad'); } }
-    else { p.hp = Math.min(100, p.hp + 25); G.events.push({ type: 'heal' }); }
+    else {
+      if (a.id === 'bandage') p.hp = Math.min(100, p.hp + 25); // atadura improvisada (bandage_r) so estanca: nao cura
+      G.events.push({ type: 'heal' });
+      if (p.bleed) { p.bleed = 0; G._bleed = 0; G.events.push({ type: 'bleedStop' }); }
+    }
     if (--s.qty <= 0) p.inv.splice(p.inv.indexOf(s), 1);
   }
   function hurt(z, dmg) {
@@ -667,7 +727,7 @@
     z.zc = Math.max(0, (z.zc || 0) - dt);
     if (z.wu > 0 && (d > rC || fd || al)) z.wu = 0; // saiu do alcance (ou do andar): cancela, sem dano
     if (z.wu > 0) { // windup parado; ao fim fere se ainda no alcance
-      if ((z.wu -= dt) <= 1e-9) { z.wu = 0; z.zc = 1.8; if (!blocked(z.x, z.y, p.x, p.y, undefined, fl)) { const dm = p.car ? 8 : 15; hurtPlayer(dm); G.events.push({ type: 'hurt', id: z.id, d: dm }); } }
+      if ((z.wu -= dt) <= 1e-9) { z.wu = 0; z.zc = 1.8; if (!blocked(z.x, z.y, p.x, p.y, undefined, fl)) { const dm = p.car ? 8 : 15; hurtPlayer(dm); G.events.push({ type: 'hurt', id: z.id, d: dm }); startBleed(p, z); } }
     } else if (d <= rW && !h && !fd && !al && z.zc <= 0) { z.wu = cw ? 1.2 : 1.0; G.events.push({ type: 'windup', id: z.id }); }
     let mv = z.state === 'chase' ? 'walk' : 'idle';
     if (z.state === 'idle' && z.hg && z.ho && !fd) { // membro de horda parado: anda ate a posicao do grupo + deslocamento (sem pathTo; preso = espera)
@@ -720,7 +780,7 @@
         if (w && w.dr && dBox(w.dr, z.x, z.y) < 0.75) { // porta fechada no caminho: zumbi nao abre, bate 25/s (soma entre zumbis; 100 hp, trancada 200) ate quebrar
           const dr = w.dr; dr.hp -= 25 * dt;
           if (!(G.t < dr.nht)) { dr.nht = G.t + 0.8; G.events.push({ type: 'doorHit', id: dr.id, hp: Math.max(0, Math.round(dr.hp)) }); if (d < 12) hint('doorHit', 'Zumbis estão quebrando a porta — ela cede aos poucos', 'porta'); }
-          if (dr.hp <= 0) { dr.hp = 0; dr.broken = dr.open = true; dr.locked = false; z.way = null; G.events.push({ type: 'doorBreak', id: dr.id }); }
+          if (dr.hp <= 0) { dr.hp = 0; dr.rf = 0; dr.broken = dr.open = true; dr.locked = false; z.way = null; G.events.push({ type: 'doorBreak', id: dr.id }); }
           return;
         }
         z.bang = 0;
@@ -912,7 +972,7 @@
     if (n.fac === 'h' && !p.car && !fl && !G._al && !G.dead) {
       if ((rt.pt -= 0.1) <= 0) { rt.pt = 0.25; rt.see = scr && d <= (p.crouch ? 2 : NPC_SEE) && nfront(n, p) && !blocked(n.x, n.y, p.x, p.y); }
       const heard = rt.heard > 0 && scr && d <= Math.min(NPC_SEE, G.viewR);
-      if (rt.see || heard) { if (pl <= 0 && !rt.sh) { rt.sh = 1; G.events.push({ type: 'npcShout', id: n.id }, { type: 'hint', id: 'npcShout', text: 'Sobrevivente: "Sai daqui!"' }); } pl = Math.max(pl, 2); }
+      if (rt.see || heard) { if (pl <= 0 && !rt.sh) { rt.sh = 1; G.events.push({ type: 'npcShout', id: n.id }); hint('npcShout', 'Sobrevivente: "Sai daqui!"'); } pl = Math.max(pl, 2); }
       else pl -= 0.1;
       if (d > NPC_SEE + 0.5 || !scr) pl = 0; // perde o alvo a > 5 m (ou fora da tela)
       if (pl <= 0 && scr && !n.lead) for (const m of G.npcs) if (m !== n && m.gid === n.gid && m.rt && m.rt.pl > 0 && dist(m, n) <= 8) { pl = m.rt.pl; break; } // alvo compartilhado no bando: o seguidor acompanha o alarme do lider
@@ -1064,7 +1124,7 @@
     const vel = wantRun ? (p.hunger < 25 ? 3.6 : 4.2) : p.crouch ? 1.5 : 3, ox = p.x, oy = p.y;
     if (car) (veh(car).air ? flyCar : driveCar)(p, car, mx, my, dt);
     else if (jp) { const a = p.action; a.t += dt; const f = Math.min(1, a.t / ACT.jump); p.x = a.x0 + (a.x1 - a.x0) * f; p.y = a.y0 + (a.y1 - a.y0) * f; if (f >= 1) p.action = null; }
-    else if (len > 0.01 && !(p.action && (p.action.type === 'cut' || p.action.type === 'stairs') && len <= 0.3)) { p.dir = Math.atan2(my, mx); move(p, mx * vel * dt, my * vel * dt); } // cortando: zona morta 0,3 do joystick
+    else if (len > 0.01 && !(p.action && (p.action.type === 'cut' || p.action.type === 'stairs' || p.action.type === 'work') && len <= 0.3)) { p.dir = Math.atan2(my, mx); move(p, mx * vel * dt, my * vel * dt); } // cortando: zona morta 0,3 do joystick
     G._al = !!car && car.alt > ALOFT; // predicado unico (aloft): zumbi nao ve nem ataca
     const dm = hypot2(p.x - ox, p.y - oy), real = !car && dm > 0.5 * vel * dt; // deslocamento real (parado na parede nao conta)
     p.running = wantRun && real; G._rw = p.running;
@@ -1087,6 +1147,14 @@
       if (G._starve >= 5) { G._starve -= 5; p.hp -= 1; }
     }
     if (p.hunger < 30) hint('hunger', 'Com fome — coma algo da mochila', 'hunger');
+    if (p.radio > 0) { // rádio ligado 10 min; mensagem unica 8 s depois da manivela
+      p.radio = Math.max(0, p.radio - dt);
+      if (p.rmsg > 0 && (p.rmsg -= dt) <= 0) { p.rmsg = 0; const text = radioMsg(p); G.events.push({ type: 'radio', text }); noise(p.x, p.y, 3); setAct(p, 'listen'); }
+    }
+    if (p.bleed) { // -1 de vida a cada 3 s (imortal: so o pingo); morrer sangrando passa pela morte de sempre
+      G._bleed += dt;
+      while (G._bleed >= 3) { G._bleed -= 3; if (!G.dev.god) p.hp -= 1; G.events.push({ type: 'drip', x: p.x, y: p.y }); }
+    }
     if (p.hp < 100 && p.hp > 0 && p.hunger > 60 && !p.bleed && G.t - G._hurtT >= 10) { // regeneracao (P1): +1 a cada 20 s bem alimentado, 10 s depois do ultimo dano, sem sangrar
       G._regen += dt;
       if (G._regen >= 20) { G._regen -= 20; p.hp = Math.min(100, p.hp + 1); hint('regen', 'Bem alimentado, você se recupera devagar', 'hunger'); }
@@ -1134,7 +1202,7 @@
       const o = dr.open, lk = dr.locked; dr.open = true; dr.locked = false; // a propria porta nao tapa a linha ate ela
       const vis = !(p.floor) && !blocked(p.x, p.y, dr.x + dr.w / 2, dr.y + dr.h / 2);
       dr.open = o; dr.locked = lk;
-      if (vis) { bd = d; p.near = { type: 'door', id: dr.id, open: dr.open, locked: !!dr.locked }; nd = dr; }
+      if (vis) { bd = d; p.near = doorNear(p, dr); nd = dr; }
     }));
     // tocar para vasculhar: input.target {type,id} valido (<= 2,5 m, sem parede no meio) vira o alvo; persiste enquanto ha acao (vasculhar 1 s)
     if (inp.target) { if (!p.action) p._tg = inp.target; inp.target = null; }
@@ -1143,6 +1211,8 @@
       if (nd.gate) hint('garagem', 'Portão da garagem: toque AÇÃO para abrir. Carro dentro? A chave está em algum móvel da casa', 'garagem');
       if (nd.locked && nd.base) { const cut = p.inv.some(i => i.id === 'cutter'); hint(cut ? 'cut' : 'portaoBase', cut ? 'Portão com cadeado: segure CORTAR 1,5 s com o alicate' : 'Portão com cadeado — alicate em caixas de ferramentas e oficinas', 'base'); }
       else if (nd.locked) { const cut = p.inv.some(i => i.id === 'cutter'); hint(cut ? 'cut' : 'locked', cut ? 'Porta trancada: segure CORTAR 1,5 s com o alicate' : 'Trancada com cadeado — procure um alicate corta-cadeado em caixas de ferramentas nas casas, oficinas, galpões e porta-malas', cut ? 'cutter' : 'locked'); }
+      else if (nd.broken) hint('portaConserta', hasMat(p) ? 'Segure a AÇÃO para consertar a porta (2 tábuas + 1 arame)' : 'Porta quebrada: dá para consertar com 2 tábuas e 1 arame', 'refugio');
+      else if (!nd.open && p.near.act === 'reinforce') hint('portaReforca', 'Segure a AÇÃO para reforçar a porta (2 tábuas + 1 arame): aguenta 3× mais', 'refugio');
       else if (!nd.open) hint('door', 'Toque AÇÃO para abrir', 'porta');
     }
     if (!car && !p.near) { // mala (traseira, com loot) ganha de carro; litros do tanque em near.fuel
@@ -1155,7 +1225,7 @@
       }
       const t = tk || nc;
       if (t && tk && (t.speed !== 0)) {} // MALA so com carro parado
-      else if (t) { p.near = { type: tk ? 'trunk' : 'car', id: t.id, fuel: t.fuel, act: siphonAct(p, t) }; hint('car', 'Carro: toque ENTRAR (precisa da chave) e dirija com o joystick', 'car'); }
+      else if (t) { p.near = { type: tk ? 'trunk' : 'car', id: t.id, fuel: t.fuel, act: siphonAct(p, t) || (tk ? undefined : repairAct(p, t)) }; hint('car', 'Carro: toque ENTRAR (precisa da chave) e dirija com o joystick', 'car'); if (!tk && (t.hp === undefined ? 100 : t.hp) < 50) hint('carroConserta', 'Carro quebrado: um kit de reparo (galpão ou oficina) devolve 30 de vida — segure a AÇÃO perto dele', 'conserto'); }
     }
     let nf = null; // cerca encostada, so sem porta/movel/item perto
     if (!car && !p.near) { let fd = 0.8; for (const f of G.fences) { if (f.wall) continue; const d = dBox(f, p.x, p.y); if (d < fd) { fd = d; nf = f; } } }
@@ -1209,7 +1279,7 @@
             else { G.events.push({ type: 'locked', id: dr.id }); hint('locked', 'Trancada com cadeado — procure um alicate corta-cadeado em caixas de ferramentas nas casas, oficinas, galpões e porta-malas', 'locked'); }
           } else if (!dr.open) { dr.open = true; G.events.push({ type: 'door', id: dr.id, open: true, gate: !!dr.gate, base: !!dr.base }); }
           else if (dr.broken) hint('doorBroken', 'Porta quebrada — não fecha mais', 'porta');
-          else if ([p].concat(G.zombies).some(e => dBox(dr, e.x, e.y) < 1)) G.events.push({ type: 'hint', id: 'doorBusy', text: 'Saia da porta para fechar' });
+          else if ([p].concat(G.zombies).some(e => dBox(dr, e.x, e.y) < 1)) hint('doorBusy', 'Saia da porta para fechar');
           else { dr.open = false; G.events.push({ type: 'door', id: dr.id, open: false, gate: !!dr.gate, base: !!dr.base }); }
         } else if (n.type === 'drop') {
           const dp = G.drops.find(d => d.id === n.id), it = Object.assign({}, dp.item);
@@ -1237,6 +1307,7 @@
     }
 
     updateCut(p, car, len, dt);
+    updateWork(p, car, len, dt);
     if (!p.action) p._tg = null;
     G.aim = null; { const a = aimOf(p); if (a) { G.aim = { id: a.id, x: a.x, y: a.y, hs: p.weapon === 'pistol' && dist(a, p) <= 4 && len <= 0.01 }; hint('mira', 'Anel amarelo = alvo: ATACAR vira você para ele', 'atacar'); } }
     if (inp.attack && G.cd <= 0 && !car) playerAttack(p);
@@ -1270,7 +1341,7 @@
     const an = p.anim; an.t += dt;
     if (p.hp < G._hp && !an.act) setAct(p, 'hurt');
     G._hp = p.hp;
-    if (an.act === 'search' || an.act === 'siphon' || an.act === 'cut' || an.act === 'stairs' ? !p.action && !p.open : an.act && an.act !== 'dead' && an.t >= ACT[an.act]) an.act = null;
+    if (an.act === 'search' || an.act === 'siphon' || an.act === 'cut' || an.act === 'stairs' || an.act === 'hammer' || an.act === 'repair' || an.act === 'crank' ? !p.action && !p.open : an.act && an.act !== 'dead' && an.t >= ACT[an.act]) an.act = null;
     if (p.hp <= 0) die();
     if ((G._as += dt) >= 10) { G._as = 0; if (typeof requestIdleCallback === 'function') requestIdleCallback(() => G.save(), { timeout: 2000 }); else G.save(); } // fora do quadro no navegador
   }
@@ -1482,6 +1553,8 @@
     box_militar: [['ammo', 8], ['bandage', 8], ['rag', 6], ['wire', 5], ['food', 2], ['helmet', 2], ['jacket', 1], [null, 68]], // galpao da base militar e porta-malas militar (escasso; sem pistola, sem alicate, sem gasolina); bag_military so por sorteio da base
   };
   const FOOD_X = new Set(['fridge', 'cabinet', 'shelf', 'box_mercado']); // geladeira, armario de cozinha, gondola e deposito do mercado (gv>=5)
+  const PLANK_T = { box_galpao: [0.06, 0.03], toolbox_oficina: [0.03, 0.04], box_mercado: [0.03, 0] }; // gv>=6: [chance da tabua, chance do kit de reparo] por movel, sorteio independente do loot (COERENCIA E); nunca em casa, sitio, delegacia ou porta-malas
+  const RADIO_T = { desk: 0.04, box_militar: 0.03 }; // gv>=7: chance de radio por movel (delegacia, galpao da base); porta-malas de carro comum 2 % (COERENCIA F)
   const FOOD_K = 0.01; // chance da comida extra por movel vazio (gv>=5); medido em 30 seeds (COERENCIA/PLANO)
   const SOLDIER = [['ammo', 5], ['bandage', 2], ['helmet', 1], ['jacket', 0.5], ['food', 1], [null, 90.5]]; // zumbi de farda ao morrer (soma 100; sem pistola)
   // dimensoes (w,h) de cada movel; SCEN = cenario (so colide, sem loot); ROOM = moveis de cada tipo de comodo, em ordem de prioridade
@@ -2297,6 +2370,15 @@
       const fr = mulberry32(hash(G.seed, cx, cy, 9510));
       o.crates.forEach(c => { const a = fr(), b = fr(); if (FOOD_X.has(c.kind) && !c.scenery && !c.tomb && !c.opened && !c.loot.length && a < FOOD_K) c.loot = [{ id: b < 0.54 ? 'food' : 'food_bad', qty: 1 }]; }); // 2 sorteios por movel (estavel); food:food_bad = 7:6 como a geladeira
     }
+    if (G.gv >= 7) { // bloco FINAL gv:7 (radio de manivela): RNG hash(seed,cx,cy,9530); so ACRESCENTA radio em desk (delegacia), box_militar (1 por base, no chunk central) e porta-malas; ids/r() intocados => gv 0-6 identico
+      const rr = mulberry32(hash(G.seed, cx, cy, 9530)), B = baseOfChunk(cx, cy), center = B && cx === Math.floor((B.x0 + 60) / CH) && cy === Math.floor((B.y0 + 60) / CH); let got = false;
+      o.crates.forEach(c => { const a = rr(), T = RADIO_T[c.kind]; if (!T || a >= T || c.scenery || c.tomb || c.opened) return; if (c.kind === 'box_militar') { if (!center || got) return; got = true; } c.loot.push({ id: 'radio', qty: 1 }); });
+      o.cars.forEach(c => { const a = rr(); if (a < 0.02 && !c.burnt && (!c.kind || c.kind === 'car')) c.trunk = [{ id: 'radio', qty: 1 }]; }); // 2 % da tabela do porta-malas (1 item so): o radio ocupa o lugar do sorteio
+    }
+    if (G.gv >= 6) { // bloco FINAL gv:6 (esconderijo e oficina): RNG hash(seed,cx,cy,9520), 2 sorteios por movel (estavel); so ACRESCENTA tabua/kit; ids, nid e r() intocados => gv 0-5 identico
+      const pr = mulberry32(hash(G.seed, cx, cy, 9520));
+      o.crates.forEach(c => { const a = pr(), b = pr(), T = PLANK_T[c.kind]; if (!T || c.scenery || c.tomb || c.opened) return; if (a < T[0]) c.loot.push({ id: 'plank', qty: 1 }); if (b < T[1]) c.loot.push({ id: 'repairkit', qty: 1 }); });
+    }
     // local -> mundo (roads ja nascem em mundo)
     const sh = e => { e.x += ox; e.y += oy; return e; };
     [o.houses, o.crates, o.zombies, o.trees, o.fences, o.props, o.tanks, o.npcs || []].forEach(l => l.forEach(sh));
@@ -2358,7 +2440,7 @@
     const tag = l => l.forEach(e => { e.ch = key; });
     for (const k of ['roads', 'ways', 'trees', 'fences', 'props']) { tag(g[k]); G[k].push(...g[k]); }
     g.fences.forEach((f, i) => { f.id = key + ':f:' + i; });
-    g.houses.forEach(h => h.doors.forEach(dr => { const v = dd0[dr.id]; if (v === undefined) return; if (typeof v === 'object') { dr.open = !!v.open; dr.locked = !!v.locked; if (v.hp !== undefined) dr.hp = v.hp; dr.broken = !!v.broken; } else dr.open = v; })); // v:3 {open,locked}
+    g.houses.forEach(h => h.doors.forEach(dr => { const v = dd0[dr.id]; if (v === undefined) return; if (typeof v === 'object') { dr.open = !!v.open; dr.locked = !!v.locked; if (v.hp !== undefined) dr.hp = v.hp; dr.broken = !!v.broken; dr.rf = v.rf ? 1 : 0; } else dr.open = v; })); // v:3 {open,locked}
     G.houses.push(...g.houses);
     g.tanks.forEach(t => { t.ch = key; const v = (d.tanks || {})[t.id]; if (v) Object.assign(t, v); G.tanks.push(t); });
     g.crates.forEach(c => { if (dc[c.id]) Object.assign(c, dc[c.id]); if (!Array.isArray(c.loot)) c.loot = []; c.loot = c.loot.filter(i => i && ITEM_IDS.includes(i.id)); G.crates.push(c); });
@@ -2382,7 +2464,7 @@
   // diff do chunk (sem descarregar); null se igual ao gen
   function diffOf(key) {
     const [cx, cy] = parse(key), g = G._gb.get(key) || gen(cx, cy), d = { crates: {}, cars: {}, zombies: {}, doors: {}, drops: {}, spills: {}, tanks: {}, npcs: {} };
-    G.houses.forEach(h => { if (h.ch === key) h.doors.forEach(dr => { const b = g.houses.find(q => q.id === h.id).doors.find(q => q.id === dr.id); if (dr.open !== b.open || !!dr.locked !== !!b.locked || dr.hp !== b.hp || !!dr.broken) d.doors[dr.id] = { open: dr.open, locked: !!dr.locked, hp: dr.hp, broken: !!dr.broken }; }); });
+    G.houses.forEach(h => { if (h.ch === key) h.doors.forEach(dr => { const b = g.houses.find(q => q.id === h.id).doors.find(q => q.id === dr.id); if (dr.open !== b.open || !!dr.locked !== !!b.locked || dr.hp !== b.hp || !!dr.broken || dr.rf) d.doors[dr.id] = { open: dr.open, locked: !!dr.locked, hp: dr.hp, broken: !!dr.broken, rf: dr.rf ? 1 : 0 }; }); });
     G.tanks.forEach(t => { const b = t.ch === key && g.tanks.find(q => q.id === t.id); if (b && b.fuel !== t.fuel) d.tanks[t.id] = { fuel: t.fuel }; }); // tanque sifonado
     G.crates.forEach(c => {
       if (c.ch !== key) return;
@@ -2481,7 +2563,7 @@
     }
   }
 
-  const GV_NOVO = 5; // UNICO ponto do gv do mundo novo (B=5, E=6, F=7); mundo salvo mantem o seu
+  const GV_NOVO = 7; // UNICO ponto do gv do mundo novo (B=5, E=6, F=7); mundo salvo mantem o seu
   // novo mundo (st undefined) ou estado salvo
   function start(seed, slot, st) {
     G.gv = st ? (st.gv || 0) : GV_NOVO; // gv:5 = comida extra em cozinha/mercado (P1); gv:4 = NPCs sobreviventes; gv:1 = densidade/rastejantes; gv:2 = auditoria (tanque seco, saqueadas, alarme, corpo, lata, pichacao, janelas); gv:3 = base militar; mundo salvo mantem o seu gv (gen antigo intocado)
@@ -2491,7 +2573,7 @@
     G.seed = seed; G.slot = slot; G._pe = false; // evento pendente de painel não vaza para o mundo novo
     rng = mulberry32(seed);
     G.t = st.t > 0 ? st.t : 0; G.bairro = null; G.cidade = null; G.dead = false; G.cd = 0; G.nextId = st.nextId > 0 ? st.nextId : 0;
-    G._hunger = G._starve = G._spawn = G._as = 0; G._bad = 0; G._regen = 0; G._hurtT = -1e9;
+    G._hunger = G._starve = G._spawn = G._as = 0; G._bad = 0; G._regen = G._bleed = 0; G._hurtT = -1e9;
     G.dying = []; G._hp = 100; G._rw = false;
     G.hints = st.hints || {}; G.chunks = st.chunks || {}; G.hordes = st.hordes || {}; G._hq = []; G._hseen = {}; G.hordeNear = null; G._hmn = 0; G._hnext = 0;
     G.events = []; G.queue = []; G.loaded = []; G._ls = new Set(); G.chunkGen = (G._ep = (G._ep || 0) + 1) * 1e5; // epoca nova: o render nunca confunde mundo novo com o antigo (chunks velhos) G._gb = new Map(); G._gp = {}; G._ws = null; G.fires = []; G.flights = []; G.spills = [];
@@ -2499,7 +2581,7 @@
     const p = G.player = { x: num(s0.x, 23), y: num(s0.y, 23), dir: num(s0.dir, 0), hp: num(s0.hp, 100), hunger: num(s0.hunger, 100),
       inv: Array.isArray(s0.inv) ? s0.inv : [{ id: 'food', qty: 1 }], weapon: s0.weapon || 'pipe', equip: s0.equip && typeof s0.equip === 'object' && !Array.isArray(s0.equip) ? s0.equip : {}, car: s0.car || null,
       born: num(s0.born, G.t), input: { mx: 0, my: 0, attack: false, interact: false, run: false, crouch: false, hold: false, target: null, up: false, down: false }, near: null, open: null,
-      stamina: Math.max(0, Math.min(100, num(s0.stamina, 100))), crouch: !!s0.crouch, floor: s0.floor === 1 ? 1 : 0, running: false, noise: 0, anim: { move: 'idle', act: null, t: 0 }, inside: null, action: null };
+      bleed: s0.bleed ? 1 : 0, radio: Math.max(0, Math.min(600, num(s0.radio, 0))), rmsg: Math.max(0, Math.min(8, num(s0.rmsg, 0))), stamina: Math.max(0, Math.min(100, num(s0.stamina, 100))), crouch: !!s0.crouch, floor: s0.floor === 1 ? 1 : 0, running: false, noise: 0, anim: { move: 'idle', act: null, t: 0 }, inside: null, action: null };
     const ok = i => i && typeof i === 'object' && ITEM_IDS.includes(i.id) && !(i.dur <= 0) && (i.qty === undefined || Number.isFinite(i.qty)); // peca quebrada nao volta; sem dur = cheia; id desconhecido/qty lixo (save adulterado) cai fora
     p.inv = p.inv.filter(ok); for (const k in p.equip) if (!ok(p.equip[k])) delete p.equip[k]; else if (p.equip[k].dur === undefined) p.equip[k].dur = DUR[p.equip[k].id];
     Object.defineProperty(p, 'ammo', { get() { return ammoOf(p); } }); // compat 0.1: ui.js le p.ammo
@@ -2555,6 +2637,10 @@
     g('mochila', 'Mochila', ['mochila', 'inventario', 'slots', 'cheia', 'pilha', 'limite'], [], ['A mochila tem 8 slots; itens iguais empilham até o limite.', 'Armas, armaduras, chaves, galões e mangueira ocupam 1 slot cada.', 'Cheia: nada novo é coletado, só completa pilhas.'], 'food'),
     g('drop', 'Largar item', ['largar', 'soltar', 'chao', 'jogar', 'pegar', 'dropar'], [], ['Na mochila, escolha o item e toque LARGAR (1 unidade).', 'Para recolher, chegue perto e toque PEGAR.', 'Itens no chão somem em 5 minutos.'], 'food'),
     g('armor', 'Armadura', ['armadura', 'capacete', 'jaqueta', 'caneleira', 'equipar', 'proteger', 'durabilidade'], [{ item: 'helmet', onde: 'guarda-roupas (raro) e policiais' }, { item: 'jacket', onde: 'guarda-roupas (raro)' }, { item: 'shinguards', onde: 'guarda-roupas (muito raro)' }], ['Abra Equipar no MENU e toque na peça para vestir.', 'Cada peça reduz 20 % do dano (máx. 60 %).', 'Cada golpe absorvido gasta durabilidade; a peça quebra e some.'], 'equip'),
+    g('bleed', 'Sangramento', ['sangrar', 'sangramento', 'sangue', 'ferida', 'atadura', 'bandagem', 'estancar', 'mordida'], [{ item: 'bandage', onde: 'armarinho de remédios, gavetas e prateleiras (raro): estanca e cura +25' }, { item: 'rag', onde: 'guarda-roupas, gavetas e armários (3 viram uma atadura)' }], ['Golpe de zumbi pode abrir uma ferida (30 %): você perde 1 de vida a cada 3 s, sem fim sozinho.', 'Bandagem estanca e cura 25. Atadura improvisada (3 panos, em Fabricar) só estanca.', 'Usar leva 2 s parado. Enquanto sangra a vida não se regenera.'], 'heal'),
+    g('refugio', 'Esconderijo', ['esconderijo', 'base', 'porta', 'reforcar', 'tabua', 'martelo', 'consertar', 'barricada', 'quebrada'], [{ item: 'plank', onde: 'caixas de galpão, bancadas de oficina e depósitos de mercado (muito raro)' }, { item: 'wire', onde: 'gavetas, caixas e armários' }], ['Perto de uma porta fechada, segure a AÇÃO 2 s: REFORÇAR gasta 2 tábuas + 1 arame e a porta aguenta 3× mais.', 'Porta quebrada: segure a AÇÃO 2 s para consertar (mesmo custo).', 'Martelar faz barulho de 3 m.'], 'hammer'),
+    g('conserto', 'Consertar carro', ['consertar', 'carro', 'reparo', 'kit', 'vida', 'batida', 'amassado'], [{ item: 'repairkit', onde: 'caixas de galpão e bancadas de oficina (raro)' }], ['Fora do carro, perto dele, segure a AÇÃO 3 s: +30 de vida (máximo 100).', 'Gasta o kit. Faz barulho de 3 m.', 'Os estágios de dano voltam conforme a vida sobe.'], 'repair'),
+    g('radio', 'Rádio', ['radio', 'manivela', 'sobreviventes', 'horda', 'mensagem', 'ouvir', 'estatica'], [{ item: 'radio', onde: 'mesa da delegacia, galpão da base militar e porta-malas (muito raro)' }], ['Na mochila, toque OUVIR: gire a manivela 3 s parado.', 'Fica ligado 10 min e traz UMA mensagem: onde há sobreviventes ou uma horda (até 1,5 km). Nunca diz o que há dentro de casas, nem da base.', 'Faz barulho de 3 m ao receber. Só outra manivela depois dos 10 min.'], 'radio'),
     g('craft', 'Fabricar', ['fabricar', 'receita', 'craft', 'criar', 'combinar'], [{ item: 'wire', onde: 'gavetas, caixas e armários' }, { item: 'pipe', onde: 'você já começa com um' }], ['Abra Fabricar no MENU: veja os ingredientes, mesmo sem tê-los.', 'Com tudo na mochila, toque FABRICAR.'], 'craft'),
     g('pipe_r', 'Cano reforçado', ['cano reforcado', 'arame', 'cano', 'taco', 'melhorar'], [{ item: 'pipe', onde: 'você já começa com um' }, { item: 'wire', onde: 'gavetas, caixas e armários' }], ['Junte cano + arame em Fabricar.', 'Dano 35 (cano comum: 25), mesmo ritmo.', 'Troque de arma com o botão de arma.'], 'craft'),
     g('zombie', 'Zumbis', ['zumbi', 'inimigo', 'corredor', 'horda', 'perigo', 'fugir'], [], ['Zumbis ouvem você de longe; agache para passar quieto.', 'Corredores são mais rápidos: só a corrida escapa.', 'Ao morder, param um instante: bata ou saia do alcance.'], 'pipe'),
@@ -2596,15 +2682,16 @@
     g('troca', 'Falar e trocar', ['troca', 'trocar', 'falar', 'conversar', 'amigo', 'escambo', 'preco', 'bandagem', 'comida', 'sobrevivente'], [{ item: 'rag', onde: '6 trapos por 1 comida' }, { item: 'food', onde: '2 comidas por 1 bandagem' }, { item: 'ammo', onde: '3 munições por 1 bandagem' }], ['Chegue a 2 m de um AMIGO (losango verde) e toque FALAR: ele diz 1 frase verdadeira (horda perto, base militar ou um móvel com loot).', 'Se ele tem algo para trocar, abre a tela dividida: à esquerda a oferta e o preço, à direita sua mochila. Toque a linha para trocar.', 'Cada sobrevivente troca uma única vez, e só oferece o que carrega.'], 'troca'),
     g('corponpc', 'Corpos de sobreviventes', ['corpo', 'sobrevivente', 'saquear', 'saque', 'loot', 'cadaver', 'morto', 'pistola', 'municao'], [{ item: 'ammo', onde: 'corpo de sobrevivente armado (raro)' }, { item: 'food', onde: 'corpo de sobrevivente (raro)' }], ['Sobrevivente morto cai e vira um corpo saqueável: toque BUSCAR e fique parado 1 s.', 'O corpo tem só o que o sobrevivente carregava (e sobrou de munição), em tela dividida com a mochila.', 'O corpo some em 5 minutos de jogo e o sobrevivente nunca volta.'], 'npcCorpo'),
   ];
-  const ITEM_DESC = { food: 'Comida enlatada ou embalada. Mata a fome.', food_bad: 'Lata de geladeira sem energia, já passada. Mata pouca fome e pode enjoar.', bandage: 'Pano limpo para estancar ferimentos. Cura vida.', rag: 'Pedaço de pano velho. Serve de pavio e para fabricar.', wire: 'Rolo de arame. Reforça o cano.', ammo: 'Munição de pistola. Cada tiro gasta uma.', bottle: 'Garrafa de vidro vazia. Base do molotov.', jacket: 'Jaqueta grossa que protege o tronco. Gasta ao levar dano.', helmet: 'Capacete que protege a cabeça. Gasta ao levar dano.', shinguards: 'Caneleiras que protegem as pernas. Gastam ao levar dano.', bag_school: 'Mochila escolar de costas: poucos espaços extras.', bag_hiking: 'Mochila de trilha: mais espaços extras.', pistol: 'Arma de fogo. Acerta de longe, mas o tiro chama zumbis a 5 m.', cutter: 'Alicate corta-cadeado. Abre porta trancada; quebra após alguns usos.', pipe: 'Cano de ferro. Arma corpo a corpo de curto alcance.', hose: 'Mangueira de borracha. Com um galão, sifona gasolina de carros.', gascan: 'Galão para gasolina. Mostra quanto combustível carrega.', pipe_r: 'Cano reforçado com arame. Bate mais forte.', molotov: 'Garrafa incendiária. Fogo em área; queima você também.', key: 'Chave de um carro específico. Sem ela o carro não liga.', bag_military: 'Mochila militar: o maior espaço extra de costas.' };
-  const ITEM_IDS = [...new Set([...Object.keys(STACK), ...Object.values(FURN).flatMap(t => t.map(x => x[0]).filter(Boolean)), ...RECIPES.map(r => r.out), 'pipe', 'pistol', 'key', 'hose', 'gascan', 'cutter', 'molotov', 'pipe_r', 'helmet', 'jacket', 'shinguards', 'bag_school', 'bag_hiking', 'bag_military'])];
+  const ITEM_DESC = { food: 'Comida enlatada ou embalada. Mata a fome.', food_bad: 'Lata de geladeira sem energia, já passada. Mata pouca fome e pode enjoar.', bandage: 'Pano limpo para estancar ferimentos. Cura vida.', rag: 'Pedaço de pano velho. Serve de pavio e para fabricar.', wire: 'Rolo de arame. Reforça o cano.', ammo: 'Munição de pistola. Cada tiro gasta uma.', bottle: 'Garrafa de vidro vazia. Base do molotov.', jacket: 'Jaqueta grossa que protege o tronco. Gasta ao levar dano.', helmet: 'Capacete que protege a cabeça. Gasta ao levar dano.', shinguards: 'Caneleiras que protegem as pernas. Gastam ao levar dano.', bag_school: 'Mochila escolar de costas: poucos espaços extras.', bag_hiking: 'Mochila de trilha: mais espaços extras.', pistol: 'Arma de fogo. Acerta de longe, mas o tiro chama zumbis a 5 m.', cutter: 'Alicate corta-cadeado. Abre porta trancada; quebra após alguns usos.', pipe: 'Cano de ferro. Arma corpo a corpo de curto alcance.', hose: 'Mangueira de borracha. Com um galão, sifona gasolina de carros.', gascan: 'Galão para gasolina. Mostra quanto combustível carrega.', pipe_r: 'Cano reforçado com arame. Bate mais forte.', molotov: 'Garrafa incendiária. Fogo em área; queima você também.', key: 'Chave de um carro específico. Sem ela o carro não liga.', bag_military: 'Mochila militar: o maior espaço extra de costas.', bandage_r: 'Atadura de 3 panos. Estanca sangramento, mas não cura vida.', radio: 'Rádio de manivela. Gire 3 s: fica ligado 10 min e conta onde há sobreviventes ou uma horda (até 1,5 km).', plank: 'Tábua de madeira. Com arame, reforça ou conserta portas.', repairkit: 'Kit de reparo: devolve 30 de vida a um carro. Uso único.' };
+  const ITEM_IDS = [...new Set([...Object.keys(STACK), ...Object.values(FURN).flatMap(t => t.map(x => x[0]).filter(Boolean)), ...RECIPES.map(r => r.out), 'pipe', 'pistol', 'key', 'hose', 'gascan', 'cutter', 'molotov', 'pipe_r', 'helmet', 'jacket', 'shinguards', 'bag_school', 'bag_hiking', 'bag_military', 'plank', 'repairkit', 'radio'])];
 
   const G = window.G = {
     t: 0, map: { chunk: CH }, nextId: 0, ref: [0, 0], chunkGen: 0, _ls: new Set(), _pk: '',
     chunks: {}, loaded: [], queue: [], fires: [], spills: [], flights: [], npcs: [], _gb: new Map(), _gp: {}, explored: [], roads: [], cars: [], trees: [], fences: [], drops: [], props: [], tanks: [], _pc: [], recipes: RECIPES, guide: GUIDE, ITEM_IDS, ITEM_DESC, HOLD_MS: 400, capOf, DUR, bairroAt, cidadeAt, fridge2: FRIDGE2, graf: GRAF, hurtPlayer, gen, infestAt, hordePos, loot: FURN, free, ways: [], onRoad: (x, y, m) => onRoadIn(G.roads, G.ways, x, y, m), zone, layout: layoutOf, center, cityAt, cityLM, _plans: { PLANS, lpRot }, _memo: MEMO,
     // dev (fora do save): so existe na memoria; UI liga com 7 toques na versao
     dev: {
-      on: false, god: false, noclip: false, noMiss: false, speed: 1,
+      on: false, god: false, noclip: false, noMiss: false, noBleed: false, speed: 1,
+      bleed() { const p = G.player; if (G.dead) return false; p.bleed = 1; G._bleed = 0; G.events.push({ type: 'bleed' }); hint('sangra', 'Sangrando — use bandagem ou faça atadura com 3 panos', 'bleed'); return true; },
       spawnItem(id, n, type) { if (G.dead) return false; const it = mkItem(rng, id); if (n > 1 && STACK[id]) it.qty = Math.min(n, STACK[id]); if (id === 'gascan') { it.fuel = 10; if (type === 'kero') it.fuelType = 'kero'; } return addItem(it); }, // respeita mochila cheia; n so em pilhas (max da pilha)
       spawnZ(kind, n) { // 'walker' | 'runner' | 'police' | 'crawl' | 'limp' | 'horde' (10 'h:dev:' em perseguicao, nunca salvos), 6-10 m a frente
         const p = G.player; n = n || (kind === 'horde' ? 10 : 1);
@@ -2670,7 +2757,7 @@
       },
       fill() { const p = G.player; p.hp = p.hunger = p.stamina = 100; },
     },
-    GV_NOVO, VEH, NPC_TAB, TRADES, NPC_LOOT, baseAt, baseOfChunk, aloft, runwayOk, seed: 0, gv: 1, viewR: 7, hordes: {}, hordeNear: null, players: [], input: null, target: null, // compat 0.1: alias de players[0].input
+    HINT_CRIT: ['carFire', 'perdendo', 'sangra', 'bag', 'saveFull', 'npcFala', 'semPreco', 'doorBusy', 'ataduraSem'], GV_NOVO, VEH, NPC_TAB, TRADES, NPC_LOOT, baseAt, baseOfChunk, aloft, runwayOk, seed: 0, gv: 1, viewR: 7, hordes: {}, hordeNear: null, players: [], input: null, target: null, // compat 0.1: alias de players[0].input
     player: null, dying: [], zombies: [], crates: [], houses: [], events: [],
     dead: false, slot: 1, hints: {}, _as: 0, _dead: 0, cd: 0, _hunger: 0, _starve: 0, _spawn: 0,
 
@@ -2729,7 +2816,7 @@
           put2(c.ch, strip(c.burn > 0 ? Object.assign({}, c, { burnt: true, fuel: 0, trunk: [] }) : c));
           const om = /^(-?\d+,-?\d+):/.exec(id); if (om && om[1] !== c.ch && !G.loaded.includes(om[1])) put2(om[1], null);
         }
-        const pl = G.players.map(({ x, y, dir, hp, hunger, inv, weapon, equip, car, stamina, crouch, floor, born }) => ({ x: (air.find(c => c.id === car) || { x }).x, y: (air.find(c => c.id === car) || { y }).y, dir, hp, hunger, inv, weapon, equip, car, stamina, crouch, floor: floor || 0, born }));
+        const pl = G.players.map(({ x, y, dir, hp, hunger, inv, weapon, equip, car, stamina, crouch, floor, born, bleed, radio, rmsg }) => ({ x: (air.find(c => c.id === car) || { x }).x, y: (air.find(c => c.id === car) || { y }).y, dir, hp, hunger, inv, weapon, equip, car, stamina, crouch, floor: floor || 0, born, bleed: bleed ? 1 : 0, radio: radio > 0 ? Math.round(radio) : 0, rmsg: rmsg > 0 ? rmsg : 0 }));
         localStorage['zl1:s' + G.slot] = JSON.stringify({ v: 4, seed: G.seed, t: G.t, nextId: G.nextId, players: pl, hints: G.hints, explored: G.explored, chunks, gv: G.gv, hordes: G.hordes, best: G.best });
         return true;
       } catch (e) {
@@ -2766,9 +2853,11 @@
     },
 
     useItem(slot) { // comer/curar leva tempo: o efeito vem em finishUse
-      const p = G.player, s = p.inv[slot], dur = { food: 1.5, food_bad: 1.5, bandage: 2 }[s && s.id];
+      const p = G.player, s = p.inv[slot], dur = { food: 1.5, food_bad: 1.5, bandage: 2, bandage_r: 2, radio: 3 }[s && s.id];
       if (G.dead || !dur || p.action || p.open || p.car) return;
-      p.action = { type: 'use', id: s.id, t: 0, dur }; setAct(p, s.id === 'bandage' ? 'heal' : 'eat');
+      if (s.id === 'bandage_r' && !p.bleed) { hint('ataduraSem', 'Atadura improvisada só estanca sangramento: guarde para quando precisar', 'bleed'); return; }
+      if (s.id === 'radio' && (p.radio > 0 || G.dev.noRadio)) { hint('radioLigado', 'O rádio já está ligado: a próxima manivela só depois dos 10 min', 'radio'); return; }
+      p.action = { type: 'use', id: s.id, t: 0, dur }; setAct(p, s.id === 'radio' ? 'crank' : s.id[0] === 'b' ? 'heal' : 'eat'); if (s.id === 'radio') G.events.push({ type: 'crank' });
       hint('comer', 'Comer leva um tempo — procure um canto seguro', 'hunger');
     },
     switchWeapon() { // cicla so entre as armas que o jogador tem (o cano inicial sempre)
