@@ -46,6 +46,8 @@ input[type=range]{flex:1;min-height:var(--toque)}
     ['Personagem', 'Agachar', 'Ao ligar/desligar o agachar.', 'Ruído passa-faixa (2,5 kHz) suave, como roçar de roupa.', { type: 'crouch' }],
     ['Personagem', 'Dano recebido', 'Quando o jogador leva dano.', 'Triângulo caindo de 420 a 140 Hz em 0,25 s.', { type: 'hurt' }],
     ['Personagem', 'Morte do jogador', 'Quando a vida chega a zero.', 'Três triângulos (acorde 330/262/196 Hz) caindo 30%, longos (1,2 s).', { type: 'death' }],
+    ['Personagem', 'Comer', 'Ao terminar de comer (1,5 s).', 'Três estalos graves curtos (150 → 70 Hz) com ruído abafado.', { type: 'eat' }],
+    ['Personagem', 'Curar', 'Ao terminar de usar a bandagem (2 s).', 'Ruído filtrado (2,2 kHz), 0,25 s: rasgar pano.', { type: 'heal' }],
     ['Combate', 'Tiro', 'Ao disparar uma arma de fogo.', 'Ruído passa-alta (1,8 kHz) de estalo + triângulo grave caindo de 140 a 45 Hz.', { type: 'shot' }],
     ['Combate', 'Golpe no ar', 'Ao balançar uma arma corpo a corpo.', 'Ruído passa-faixa (900 Hz) com ataque lento, como um assobio de ar.', { type: 'swing' }],
     ['Combate', 'Acerto', 'Quando um golpe ou tiro atinge alguém.', 'Seno grave caindo de 150 a 45 Hz (pancada).', { type: 'hit' }],

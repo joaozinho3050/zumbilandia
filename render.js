@@ -57,7 +57,7 @@ const stairRy = S => Math.abs(S.h) > Math.abs(S.w) ? (S.ly1 > S.ly0 ? 0 : Math.P
 const dummy = new THREE.Object3D(), zR = new THREE.Matrix4(), zM = new THREE.Matrix4(), zB = new THREE.Matrix4(), zQ = new THREE.Quaternion(), zE = new THREE.Euler(), zV = new THREE.Vector3(), zS = new THREE.Vector3(1, 1, 1);
 const shots = [], hits = [], wc0 = new THREE.Color(), nT = new THREE.Matrix4(), nAr = new THREE.Matrix4();
 const milIM = {}, airIM = {}; let rotIM, shIM; // aeronaves: IM por tipo (cap 6) + rotor do heli (IM proprio) + sombra/marca de pouso (1 IM)
-let nB, nA, nW = {}, nMk, nAim = null, nData = new Map(), spillIM, flash, devLn = null, devEl = null, devCh = '', devT = 0, devN = 0, own, ownId = null, lidA = 0, cSm = { x: 0, y: 0, d: 1, a: 0 }, sPool = [], sT = 0, fireIM, flameIM, flights = [], bottle = null;
+let sIM, hIM, nB, nA, nW = {}, nMk, nAim = null, nData = new Map(), spillIM, flash, devLn = null, devEl = null, devCh = '', devT = 0, devN = 0, own, ownId = null, lidA = 0, cSm = { x: 0, y: 0, d: 1, a: 0 }, sPool = [], sT = 0, fireIM, flameIM, flights = [], bottle = null;
 const OWN_LAMP = new THREE.MeshBasicMaterial({ color: 0xfff3b0, transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false, fog: false });
 const OWN_BEAM = new THREE.MeshBasicMaterial({ color: 0xfff3b0, transparent: true, opacity: 0.14, depthWrite: false, fog: false });
 const SMOKE = new THREE.MeshBasicMaterial({ color: 0xbfc4cc }), BOOM = new THREE.MeshBasicMaterial({ color: 0xff8a2b });
@@ -351,7 +351,7 @@ function init(canvas) {
 
   ground = new THREE.Mesh(new THREE.PlaneGeometry(240, 240), cmat(0x8fd16a)); ground.rotation.x = -Math.PI / 2; scene.add(ground);
   RM = matchMedia('(prefers-reduced-motion: reduce)').matches ? 0.3 : 1;
-  const zp = makeZombieParts(); zIMs = ['body', 'legL', 'legR'].map(n => instanced(bake(zp[n]), 96));
+  const zp = makeZombieParts(); zIMs = [instanced(bake(zp.body), 96), instanced(bake(zp.legL), 192)]; // perna so uma: 2 instancias por zumbi (x=-0.15/+0.15)
   { // tinge so a roupa: vertices da cor da camisa viram branco + tint=1; o shader multiplica so eles pela instanceColor (nenhuma call nova)
     const g = zIMs[0][0].geometry, c = g.attributes.color, t = new Float32Array(c.count), k = new THREE.Color(0xa77bd1);
     for (let i = 0; i < c.count; i++) if (Math.abs(c.getX(i) - k.r) + Math.abs(c.getY(i) - k.g) + Math.abs(c.getZ(i) - k.b) < 0.02) { t[i] = 1; c.setXYZ(i, 1, 1, 1); }
@@ -404,7 +404,8 @@ function init(canvas) {
   hl = new THREE.Mesh(undefined, new THREE.MeshBasicMaterial({ color: 0xf2d16b, side: THREE.BackSide, transparent: true, opacity: 0.8, depthWrite: false, fog: false })); hl.visible = false; hl.frustumCulled = false; scene.add(hl);
   buildPlayer({}); own = ownRig('car');
   const sg = new THREE.IcosahedronGeometry(1, 0);
-  for (let i = 0; i < 12; i++) { const m = new THREE.Mesh(sg, SMOKE); m.visible = false; m.userData = { t: 9 }; scene.add(m); sPool.push(m); }
+  sIM = new THREE.InstancedMesh(sg, new THREE.MeshBasicMaterial({ color: 0xffffff }), 12); sIM.frustumCulled = false; sIM.count = 0; sIM.visible = false; sIM.setColorAt(0, SMOKE.color); scene.add(sIM); // fumaca/poeira/explosao: 1 call (antes ate 12 malhas)
+  for (let i = 0; i < 12; i++) { const m = new THREE.Object3D(); m.visible = false; m.material = SMOKE; m.userData = { t: 9 }; sPool.push(m); }
   const mb = bake(makeItem('molotov')); // garrafa em voo (2 no ar, 4 calls)
   for (let i = 0; i < 2; i++) { const g = new THREE.Group(); g.add(...pair(mb)); g.visible = false; g.scale.setScalar(1.2); scene.add(g); flights.push(g); }
   const fg = new THREE.ConeGeometry(0.28, 1, 5).translate(0, 0.5, 0); // 4 fogos x 3 chamas, 2 calls
@@ -412,7 +413,7 @@ function init(canvas) {
   spillIM = new THREE.InstancedMesh(new THREE.CircleGeometry(1, 14).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0x14131a, transparent: true, opacity: 0.85, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 }), 4); spillIM.frustumCulled = false; spillIM.count = 0; scene.add(spillIM);
   flash = new THREE.Mesh(new THREE.IcosahedronGeometry(1, 1), new THREE.MeshBasicMaterial({ color: 0xffd98a, transparent: true, opacity: 0.8, depthWrite: false, fog: false })); flash.visible = false; flash.userData = { t: 9, r: 5 }; scene.add(flash);
   fireIM.frustumCulled = flameIM.frustumCulled = false; fireIM.count = flameIM.count = 0; scene.add(fireIM, flameIM);
-  const zq = makeZombieParts({ police: true }); zPs = ['body', 'legL', 'legR'].map(n => instanced(bake(zq[n]), 96));
+  const zq = makeZombieParts({ police: true }); zPs = [instanced(bake(zq.body), 96), instanced(bake(zq.legL), 192)];
   const rm = new THREE.MeshBasicMaterial({ color: 0xff5c57, transparent: true, opacity: 0.45, depthWrite: false, fog: false });
   ring = new THREE.Mesh(new THREE.RingGeometry(0.55, 0.75, 24).rotateX(-Math.PI / 2), rm); ring.visible = false; scene.add(ring);
   seenIM = new THREE.InstancedMesh(new THREE.OctahedronGeometry(0.11), new THREE.MeshBasicMaterial({ color: 0x8fd16a, fog: false }), 128); seenIM.frustumCulled = false; seenIM.count = 0; seenIM.visible = false; scene.add(seenIM); // 'visto': 1 draw call so quando ha movel vasculhado (grama 8fd16a)
@@ -428,7 +429,8 @@ function init(canvas) {
 
   const sm = new THREE.LineBasicMaterial({ color: 0xffe066 }), hm = new THREE.MeshBasicMaterial({ color: 0xff8a3d }), hg = new THREE.IcosahedronGeometry(0.22, 0);
   for (let i = 0; i < 3; i++) { const l = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3(1, 0, 0)]), sm); l.visible = false; l.frustumCulled = false; l.userData.end = 0; scene.add(l); shots.push(l); }
-  for (let i = 0; i < 4; i++) { const m = new THREE.Mesh(hg, hm); m.visible = false; m.userData.end = 0; scene.add(m); hits.push(m); }
+  hIM = new THREE.InstancedMesh(hg, hm, 4); hIM.frustumCulled = false; hIM.count = 0; hIM.visible = false; scene.add(hIM); // faiscas de acerto: 1 call (antes ate 4 malhas)
+  for (let i = 0; i < 4; i++) { const m = new THREE.Object3D(); m.visible = false; m.userData.end = 0; hits.push(m); }
 
   size(); addEventListener('resize', size);
 }
@@ -628,7 +630,7 @@ function draw(G) {
     dummy.scale.setScalar(sc); dummy.updateMatrix(); dummy.rotation.order = 'XYZ';
     zR.copy(dummy.matrix);
     zQ.setFromEuler(zE.set(d.ln + 0.35 * lk, 0, d.ro)); zM.compose(zV.set(0, 0.55, d.fw), zQ, zS); S[0][0].setMatrixAt(n, zB.multiplyMatrices(zR, zM)); if (!pol) S[0][0].setColorAt(n, lookC[d.lk]);
-    for (let i = 1; i < 3; i++) { zQ.setFromEuler(zE.set((i === 1 ? d.l1 : d.l2) + (lk && (i === 1) === ((k & 1) === 0) ? 0.9 * lk : 0), 0, 0)); zM.compose(zV.set(i === 1 ? -0.15 : 0.15, 0.55, 0), zQ, zS); S[i][0].setMatrixAt(n, zB.multiplyMatrices(zR, zM)); }
+    for (let i = 1; i < 3; i++) { zQ.setFromEuler(zE.set((i === 1 ? d.l1 : d.l2) + (lk && (i === 1) === ((k & 1) === 0) ? 0.9 * lk : 0), 0, 0)); zM.compose(zV.set(i === 1 ? -0.15 : 0.15, 0.55, 0), zQ, zS); S[1][0].setMatrixAt(2 * n + i - 1, zB.multiplyMatrices(zR, zM)); }
   };
   const upH = p.floor ? G.houses.find(h => h.id === p.inside) : null;
   for (const z of G.zombies) {
@@ -645,7 +647,7 @@ function draw(G) {
   }
   for (const y of G.dying) if (cn[0] + cn[1] < 96 && !seen.has(y.id)) poseZ(y.id, y.x, y.y, y.anim, 0, 1, false, false, undefined, 0, y.crawl ? { crawl: true } : undefined);
   if (zData.size > cn[0] + cn[1] + 32) for (const [k, d] of zData) if (d.f !== frame) zData.delete(k);
-  [zIMs, zPs].forEach((S, j) => { for (const [im, ik] of S) { im.count = ik.count = cn[j]; im.instanceMatrix.needsUpdate = true; ik.instanceMatrix = im.instanceMatrix; } });
+  [zIMs, zPs].forEach((S, j) => { S.forEach(([im, ik], q) => { im.count = ik.count = cn[j] * (q + 1); im.instanceMatrix.needsUpdate = true; ik.instanceMatrix = im.instanceMatrix; }); });
   if (zIMs[0][0].instanceColor) zIMs[0][0].instanceColor.needsUpdate = true;
 
   // sobreviventes (M5): <= 8 vivos + <= 4 corpos mais perto, nos IMs proprios (matriz so; sem mesh nova por quadro)
@@ -759,6 +761,7 @@ function draw(G) {
     }
   }
   for (const m of sPool) if (m.visible) { const u = m.userData; u.t += dt; const k = u.t / 0.9; if (k >= 1) m.visible = false; else { m.position.x += u.vx * dt; m.position.y += (u.vy ?? 0.7) * dt; m.position.z += u.vz * dt; m.scale.setScalar((u.sc || 1) * (0.08 + 0.2 * Math.min(1, k / 0.6)) * (k > 0.6 ? 1 - (k - 0.6) / 0.4 : 1)); } }
+  { let n = 0; for (const m of sPool) if (m.visible) { m.updateMatrix(); sIM.setMatrixAt(n, m.matrix); sIM.setColorAt(n++, m.material.color); } sIM.count = n; sIM.visible = n > 0; sIM.instanceMatrix.needsUpdate = true; sIM.instanceColor.needsUpdate = true; }
 
   // molotov em voo (arco) e fogo no chao (3 chamas por fogo, cap 4)
   flights.forEach((g, i) => { const f = G.flights[i]; g.visible = !!f; if (!f) return; const u = Math.min(1, f.t / f.T); g.position.set(f.x0 + (f.x - f.x0) * u, 0.9 + 3.2 * u * (1 - u) * 1 + 0.3 * u * 0, f.y0 + (f.y - f.y0) * u); g.rotation.set(u * 14, 0, u * 6); });
@@ -865,6 +868,7 @@ function draw(G) {
   for (const m of nzRings) if (m.visible) { const u = m.userData; u.t += dt; const k = u.t / 0.6; if (k >= 1) m.visible = false; else { m.scale.setScalar(u.r * (RM === 1 ? 0.3 + 0.7 * k : 1)); m.material.opacity = 0.55 * (1 - k); } } // anel de ruido: cresce ate o raio e some em 0,6 s (reduced-motion: ja no raio)
   for (const o of shots) if (o.visible && now >= o.userData.end) o.visible = false;
   for (const o of hits) if (o.visible && now >= o.userData.end) { o.visible = false; o.scale.setScalar(1); }
+  { let n = 0; for (const o of hits) if (o.visible) { o.updateMatrix(); hIM.setMatrixAt(n++, o.matrix); } hIM.count = n; hIM.visible = n > 0; hIM.instanceMatrix.needsUpdate = true; }
 
   // camera ~55 graus
   const dc = p.car && G.cars.find(c => c.id === p.car), k = 1 - Math.exp(-dt * 3);

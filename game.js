@@ -133,7 +133,7 @@
   function hint(id, text, guia) { if (!G.hints[id]) { G.hints[id] = 1; G.events.push(guia ? { type: 'hint', id, text, guia } : { type: 'hint', id, text }); } }
   const noise = (x, y, r) => G.events.push({ type: 'noise', x, y, r }); // anel de ruido (so visual): origem e raio que alertou
   // anim do jogador: act dura ACT[act] s (search dura enquanto p.action; dead ate renascer)
-  const ACT = { swing: 0.25, shot: 0.15, eat: 0.6, heal: 0.6, equip: 0.4, craft: 0.8, pick: 0.4, drop: 0.4, hurt: 0.3, windup: 1.0, jump: 0.6, climb: 2, throw: 0.4, cut: 1.5, stairs: 0.8 };
+  const ACT = { swing: 0.25, shot: 0.15, eat: 1.5, heal: 2, equip: 0.4, craft: 0.8, pick: 0.4, drop: 0.4, hurt: 0.3, windup: 1.0, jump: 0.6, climb: 2, throw: 0.4, cut: 1.5, stairs: 0.8 };
   function setAct(p, act) { if (p.anim.act === 'dead' && act !== 'dead') return; p.anim.act = act; p.anim.t = 0; }
   function setCrouch(p, on) { if (p.crouch !== on) { p.crouch = on; G.events.push({ type: 'crouch', on }); } }
 
@@ -552,7 +552,18 @@
     if (G.dev.god) return;
     const p = G.player, eq = p.equip || {}, parts = Object.keys(eq).filter(k => eq[k] && k !== 'back'); // mochila nao e armadura
     p.hp -= d * (1 - Math.min(0.6, 0.2 * parts.length));
+    cancelUse(p);
     if (!nodur) for (const k of parts) if (--eq[k].dur <= 0) { G.events.push({ type: 'armorBreak', part: k }); delete eq[k]; hint('armorBreak', 'Sua armadura quebrou', 'armor'); }
+  }
+  // comer/curar: acao de 1,5/2 s; dano, corrida ou abrir conteiner cancela sem gastar o item
+  function cancelUse(p) { if (p.action && p.action.type === 'use') { p.action = null; if (p.anim.act === 'eat' || p.anim.act === 'heal') p.anim.act = null; } }
+  function finishUse(p) {
+    const a = p.action; p.action = null;
+    const s = p.inv.find(i => i.id === a.id); if (!s) return;
+    if (a.id === 'food') { p.hunger = Math.min(100, p.hunger + 30); G.events.push({ type: 'eat', bad: false }); }
+    else if (a.id === 'food_bad') { p.hunger = Math.min(100, p.hunger + 10); G.events.push({ type: 'eat', bad: true }); if (rng() < 0.4) { p.sick = 30; G.events.push({ type: 'sick' }); hint('sick', 'Enjoo: sem correr e fôlego lento por 30 s', 'food_bad'); } }
+    else { p.hp = Math.min(100, p.hp + 25); G.events.push({ type: 'heal' }); }
+    if (--s.qty <= 0) p.inv.splice(p.inv.indexOf(s), 1);
   }
   function hurt(z, dmg) {
     z.hp -= dmg;
@@ -1050,6 +1061,7 @@
     const wantRun = !car && !jp && !(p.sick > 0) && !!inp.run && len > 0.01 && (G._rw ? p.stamina > 0 : p.stamina >= 5);
     if (inp.crouch) { inp.crouch = false; if (!car && !wantRun) setCrouch(p, !p.crouch); } // borda: um toque, um liga/desliga
     if (wantRun) setCrouch(p, false);
+    if (p.action && p.action.type === 'use') { if (wantRun || G.dead) cancelUse(p); else if ((p.action.t += dt) >= p.action.dur) finishUse(p); }
     const vel = wantRun ? (p.hunger < 25 ? 3.6 : 4.2) : p.crouch ? 1.5 : 3, ox = p.x, oy = p.y;
     if (car) (veh(car).air ? flyCar : driveCar)(p, car, mx, my, dt);
     else if (jp) { const a = p.action; a.t += dt; const f = Math.min(1, a.t / ACT.jump); p.x = a.x0 + (a.x1 - a.x0) * f; p.y = a.y0 + (a.y1 - a.y0) * f; if (f >= 1) p.action = null; }
@@ -2538,7 +2550,7 @@
     g('horda', 'Horda', ['horda', 'grupo', 'bando', 'perseguicao', 'fugir', 'gemido', 'seta', 'grito'], [], ['Hordas de 8 a 15 zumbis vagam pelo mapa; uma seta vermelha na borda da tela mostra de onde vem (a menos de 25 m).', 'Zumbi que persegue a menos de 5 m grita e chama até 4 vizinhos parados: se você não fugir, vira horda.', 'Entre numa casa e feche a porta, ou agache e saia de lado. Barulho (tiro, motor) chama mais.', 'Os mortos da horda não voltam antes de 60 minutos de jogo.'], 'horde'),
     g('infestada', 'Áreas infestadas', ['infestada', 'calma', 'densidade', 'vermelho', 'regiao', 'mapa', 'zumbis', 'centro'], [], ['O mundo tem regiões calmas (metade dos zumbis), normais e infestadas (o dobro, e novos zumbis nascem mais rápido).', 'O centro das cidades costuma ser pior.', 'No Mapa, as regiões infestadas já exploradas ficam num tom vermelho.'], 'horde'),
     g('police', 'Policial zumbi', ['policial', 'policia', 'quepe', 'azul'], [{ item: 'ammo', onde: 'policiais mortos' }, { item: 'pistol', onde: 'policiais mortos (raro)' }, { item: 'helmet', onde: 'policiais mortos (muito raro)' }], ['Zumbi de camisa azul e quepe.', 'Ao morrer pode soltar munição, pistola, bandagem ou capacete.'], 'ammo'),
-    g('hunger', 'Fome', ['fome', 'comer', 'estomago', 'faminto'], [{ item: 'food', onde: 'geladeiras, armários e zumbis' }], ['A fome cai com o tempo.', 'Com fome zerada você perde vida e fôlego.', 'Coma pela mochila.'], 'food'),
+    g('hunger', 'Fome', ['fome', 'comer', 'estomago', 'faminto'], [{ item: 'food', onde: 'geladeiras, armários, mercados e sobreviventes' }], ['A fome cai com o tempo.', 'Com fome zerada você perde vida e fôlego.', 'Coma pela mochila: leva 1,5 s parado; dano ou correr cancela e não gasta o item.'], 'food'),
     g('fence', 'Cercas', ['cerca', 'pular', 'pulo', 'obstaculo', 'muro'], [], ['Cercas bloqueiam o caminho.', 'Perto de uma cerca, toque PULAR (gasta fôlego).', 'Zumbis levam alguns segundos para atravessar.'], 'jump'),
     g('map', 'Mapa', ['mapa', 'explorar', 'mundo', 'onde', 'localizar'], [], ['Abra o MENU e toque a aba Mapa.', 'Mostra os quarteirões que você já visitou.', 'O ponto vermelho é sua tumba.'], 'run'),
     g('cidades', 'Estradas e cidades', ['estrada', 'cidade', 'vila', 'posto', 'rural', 'sitio', 'viagem', 'caminho'], [], ['Estradas curvas ligam as cidades; fora delas só há pasto, árvores e sítios.', 'Sítios ficam na beira da estrada, com a porta virada para ela.', 'Postos de gasolina ficam na saída das cidades.', 'O Mapa mostra as estradas e os mercados.'], 'run'),
@@ -2740,14 +2752,11 @@
       if (!G.dead) { if (G.t >= G._hnext) { G._hnext = G.t + 1; hordeSync(); } if (cg === G.chunkGen) hordeSpawn(); }
     },
 
-    useItem(slot) {
-      const p = G.player, s = p.inv[slot];
-      if (G.dead || !s) return;
-      if (s.id === 'food') { p.hunger = Math.min(100, p.hunger + 30); setAct(p, 'eat'); }
-      else if (s.id === 'food_bad') { p.hunger = Math.min(100, p.hunger + 10); setAct(p, 'eat'); if (rng() < 0.4) { p.sick = 30; G.events.push({ type: 'sick' }); hint('sick', 'Enjoo: sem correr e fôlego lento por 30 s', 'food_bad'); } }
-      else if (s.id === 'bandage') { p.hp = Math.min(100, p.hp + 25); setAct(p, 'heal'); }
-      else return;
-      if (--s.qty <= 0) p.inv.splice(slot, 1);
+    useItem(slot) { // comer/curar leva tempo: o efeito vem em finishUse
+      const p = G.player, s = p.inv[slot], dur = { food: 1.5, food_bad: 1.5, bandage: 2 }[s && s.id];
+      if (G.dead || !dur || p.action || p.open || p.car) return;
+      p.action = { type: 'use', id: s.id, t: 0, dur }; setAct(p, s.id === 'bandage' ? 'heal' : 'eat');
+      hint('comer', 'Comer leva um tempo — procure um canto seguro', 'hunger');
     },
     switchWeapon() { // cicla so entre as armas que o jogador tem (o cano inicial sempre)
       const p = G.player, l = ['pipe'].concat(countOf(p, 'pipe_r') ? ['pipe_r'] : [], countOf(p, 'pistol') ? ['pistol'] : [], countOf(p, 'molotov') ? ['molotov'] : []);
