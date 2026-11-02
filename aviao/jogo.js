@@ -44,9 +44,11 @@ renderer.setPixelRatio(Q.pr); renderer.toneMapping = THREE.ACESFilmicToneMapping
 renderer.shadowMap.enabled = !!Q.sombra; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 const camera = new THREE.PerspectiveCamera(62, 1, 0.5, 30000);
 let escalaPontos = 1;
-const atualizaEscala = () => { escalaPontos = innerHeight * Q.pr / (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2)); };
-function redimensionar() { renderer.setSize(innerWidth, innerHeight, false); camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); atualizaEscala(); }
-addEventListener('resize', redimensionar);
+const atualizaEscala = () => { escalaPontos = (window.visualViewport ? visualViewport.height : innerHeight) * Q.pr / (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2)); };
+const vv = window.visualViewport; // tamanho da área visível de verdade (no Safari pode ser menor que a janela)
+const telaW = () => Math.round(vv ? vv.width : innerWidth), telaH = () => Math.round(vv ? vv.height : innerHeight);
+function redimensionar() { window.__ajustaTela?.(); renderer.setSize(telaW(), telaH(), false); camera.aspect = telaW() / telaH(); camera.updateProjectionMatrix(); atualizaEscala(); }
+addEventListener('resize', redimensionar); vv?.addEventListener('resize', redimensionar);
 
 await new Promise((r) => setTimeout(r, 30));
 const M = criarCenario(renderer, Q);
@@ -905,7 +907,7 @@ const poeAcel = (e) => { const r = acelEl.getBoundingClientRect(); if (jog.aviao
 acelEl.addEventListener('pointerdown', (e) => { som.iniciar(); acelEl.setPointerCapture(e.pointerId); poeAcel(e); });
 acelEl.addEventListener('pointermove', (e) => { if (acelEl.hasPointerCapture(e.pointerId)) poeAcel(e); });
 canvas.addEventListener('pointerdown', (e) => { som.iniciar(); if (estado !== 'voo' || toque.olha !== null) return; toque.olha = e.pointerId; toque.ox = e.clientX; toque.oy = e.clientY; canvas.setPointerCapture(e.pointerId); });
-canvas.addEventListener('pointermove', (e) => { if (e.pointerId !== toque.olha) return; ent.olhaX = clamp(ent.olhaX + (e.clientX - toque.ox) / innerWidth * 1.4, -1, 1); ent.olhaY = clamp(ent.olhaY + (e.clientY - toque.oy) / innerHeight, -0.6, 0.6); toque.ox = e.clientX; toque.oy = e.clientY; });
+canvas.addEventListener('pointermove', (e) => { if (e.pointerId !== toque.olha) return; ent.olhaX = clamp(ent.olhaX + (e.clientX - toque.ox) / telaW() * 1.4, -1, 1); ent.olhaY = clamp(ent.olhaY + (e.clientY - toque.oy) / telaH(), -0.6, 0.6); toque.ox = e.clientX; toque.oy = e.clientY; });
 const soltaOlha = (e) => { if (e.pointerId === toque.olha) toque.olha = null; };
 canvas.addEventListener('pointerup', soltaOlha); canvas.addEventListener('pointercancel', soltaOlha);
 const botao = (id, f) => $(id).addEventListener('pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); som.iniciar(); som.clique(); f(); });
@@ -993,7 +995,7 @@ function hud(dt) {
     const fora = atras || Math.abs(x) > 0.92 || Math.abs(y) > 0.88;
     if (fora) { const k = 0.9 / Math.max(Math.abs(x), Math.abs(y) / 0.95, 1e-3); x *= k; y *= k; }
     alvoEl.style.display = 'block'; alvoEl.classList.toggle('fora', fora);
-    alvoEl.style.transform = `translate(${(x * 0.5 + 0.5) * innerWidth}px,${(-y * 0.5 + 0.5) * innerHeight}px)` + (fora ? ` rotate(${Math.atan2(x, y)}rad)` : '');
+    alvoEl.style.transform = `translate(${(x * 0.5 + 0.5) * telaW()}px,${(-y * 0.5 + 0.5) * telaH()}px)` + (fora ? ` rotate(${Math.atan2(x, y)}rad)` : '');
     alvoEl.querySelector('span').textContent = fora ? '' : Math.round(alvoPos.distanceTo(p)) + ' m';
   } else alvoEl.style.display = 'none';
   // minimapa

@@ -9,14 +9,17 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#101820">
 <link rel="apple-touch-icon" href="../icon-180.png">
+<link rel="manifest" href="manifest.webmanifest">
 <style>
   @font-face{font-family:"Atkinson Hyperlegible";font-weight:400;font-display:swap;src:url(../lib/fonts/AtkinsonHyperlegible-Regular.woff2) format("woff2")}
   :root{--txt:#fff;--sub:rgba(255,255,255,.72);--fino:rgba(255,255,255,.28);--fundo:rgba(10,14,20,.32);--ouro:#ffd05a;--sl:env(safe-area-inset-left);--sr:env(safe-area-inset-right);--st:env(safe-area-inset-top);--sb:env(safe-area-inset-bottom)}
   html,body{margin:0;height:100%;overflow:hidden;background:#000;color:var(--txt);font-family:"Atkinson Hyperlegible",system-ui,sans-serif;touch-action:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
-  canvas#c{position:fixed;inset:0;width:100%;height:100%;display:block}
+  /* --vx/--vy/--vw/--vh = área que o Safari realmente mostra (visualViewport); evita jogo deslocado/cortado */
+  canvas#c,#hud,#menu,#titulo{position:fixed;left:var(--vx,0);top:var(--vy,0);width:var(--vw,100%);height:var(--vh,100%)}
+  canvas#c{display:block}
   button{font:inherit;color:inherit;cursor:pointer}
   .sombra{text-shadow:0 1px 3px rgba(0,0,0,.55)}
-  #hud{position:fixed;inset:0;pointer-events:none;transition:opacity .4s}
+  #hud{pointer-events:none;transition:opacity .4s}
   body.titulo #hud,body.foto #hud{opacity:0}
   body.titulo #hud *,body.foto #hud *{pointer-events:none!important}
   #inst{position:absolute;left:calc(16px + var(--sl));top:calc(12px + var(--st));line-height:1.1}
@@ -61,7 +64,7 @@
   body.ape #botoes{right:calc(18px + var(--sr))}
   #leme{position:absolute;left:calc(206px + var(--sl));bottom:calc(20px + var(--sb));display:flex;gap:8px}
   body.ape #leme{display:none}
-  #menu{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:rgba(6,10,16,.55);z-index:5;backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)}
+  #menu{display:none;align-items:center;justify-content:center;background:rgba(6,10,16,.55);z-index:5;backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)}
   body.menu #menu{display:flex}
   #painelMenu{width:min(760px,92vw);max-height:86vh;overflow:auto;padding:8px 6px;touch-action:pan-y}
   #painelMenu h2{margin:4px 0 8px;font-size:22px;font-weight:700}
@@ -83,7 +86,7 @@
   .aba:focus-visible{outline:2px solid #fff}
   #conteudoAba h3:first-child{margin-top:6px}
   #fechar{flex:0 0 auto;border-radius:999px;background:var(--ouro);color:#1b1b1b;border:0;padding:9px 18px;font-weight:700;font-size:14px}
-  #titulo{position:fixed;inset:0;display:none;flex-direction:column;align-items:center;justify-content:flex-end;padding-bottom:12vh;gap:12px;z-index:4;background:linear-gradient(0deg,rgba(0,8,20,.5),transparent 55%)}
+  #titulo{display:none;box-sizing:border-box;flex-direction:column;align-items:center;justify-content:flex-end;padding-bottom:12vh;gap:12px;z-index:4;background:linear-gradient(0deg,rgba(0,8,20,.5),transparent 55%)}
   body.titulo #titulo{display:flex}
   #titulo h1{margin:0;font-size:min(10vw,72px);letter-spacing:.04em;font-weight:700}
   #titulo p{margin:0;color:var(--sub);font-size:15px;text-align:center}
@@ -135,9 +138,31 @@
   <p>Jatos, caças, cargueiros e um arquipélago inteiro para explorar.</p>
   <button id="bVoar">Voar</button>
   <p id="dicas" style="font-size:12px"></p>
+  <p id="instalar" hidden style="font-size:12px;color:var(--ouro)">Para tela cheia no iPhone: toque em Compartilhar ⇧ e depois em "Adicionar à Tela de Início".</p>
 </div>
 <div id="carregando">Construindo as ilhas…</div>
 <div id="rot"><span style="font-size:40px">⟲</span><span>Gire o celular</span></div>
+<script>
+// Ajusta o jogo à área visível de verdade (barras do Safari, entalhe da câmera, zoom acidental)
+(function () {
+  var r = document.documentElement.style, v = window.visualViewport;
+  function ajusta() {
+    var w = v ? v.width : innerWidth, h = v ? v.height : innerHeight;
+    r.setProperty('--vx', (v ? v.offsetLeft : 0) + 'px'); r.setProperty('--vy', (v ? v.offsetTop : 0) + 'px');
+    r.setProperty('--vw', w + 'px'); r.setProperty('--vh', h + 'px');
+    if (window.scrollX || window.scrollY) window.scrollTo(0, 0);
+  }
+  ajusta(); window.__ajustaTela = ajusta;
+  if (v) { v.addEventListener('resize', ajusta); v.addEventListener('scroll', ajusta); }
+  addEventListener('resize', ajusta);
+  addEventListener('orientationchange', function () { // ao girar o iPhone, o Safari às vezes fica com zoom: reaplica o viewport
+    var m = document.querySelector('meta[name=viewport]'), c = m.content; m.content = c + ',minimum-scale=1'; setTimeout(function () { m.content = c; ajusta(); }, 350);
+  });
+  document.addEventListener('gesturestart', function (e) { e.preventDefault(); }); // sem zoom de pinça no meio do jogo
+  document.addEventListener('dblclick', function (e) { e.preventDefault(); }, { passive: false });
+  if (/iP(hone|ad|od)/.test(navigator.userAgent) && !navigator.standalone) document.addEventListener('DOMContentLoaded', function () { var i = document.getElementById('instalar'); if (i) i.hidden = false; });
+})();
+</script>
 <script>
 // Aviso claro se o aparelho não roda o jogo (WebGL 2) ou se der erro ao carregar
 (function () {
