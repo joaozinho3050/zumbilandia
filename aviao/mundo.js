@@ -15,14 +15,18 @@ export function vnoise(x, z) {
 export function fbm(x, z, o = 4) { let s = 0, a = 0.5, f = 1, n = 0; for (let i = 0; i < o; i++) { s += a * vnoise(x * f, z * f); n += a; a *= 0.5; f *= 2.03; } return s / n; }
 function ridged(x, z, o = 5) { let s = 0, a = 0.5, f = 1, n = 0; for (let i = 0; i < o; i++) { const v = 1 - Math.abs(vnoise(x * f, z * f) * 2 - 1); s += a * v * v; n += a; a *= 0.5; f *= 2.1; } return s / n; }
 
-export const MUNDO = 12000; // lado do terreno em metros (de -6000 a 6000)
+export const MUNDO = 18000; // lado do terreno em metros (de -9000 a 9000)
+export const CIDADE = { x: -6600, z: -2000 };                 // ilha da cidade, com prédios
+export const PISTA2 = { x: -5450, z0: -2950, z1: -1650, w: 45, h: 14 }; // aeroporto da cidade
+export const VULCAO = { x: 6400, z: -5200 };
+export const PORTA = { x: 1800, z: 6600, w: 40, c: 330, h: 19 };  // porta-aviões (convés)
 export const PISTA = { x: 0, z0: -650, z1: 1050, w: 45, h: 18 }; // pista norte-sul
 export const LAGO = { x: -150, z: -2300, r: 240, h: 330 };
 export const CANION = (x) => 420 + 300 * Math.sin((x - 3000) * 0.0025); // z do rio no cânion
 export const ATOL = { x: -2800, z: 2900, r: 560 };
 export const FAROL = { x: 2560, z: 2960 };
 
-const T = { h: 0, mesa: 0, mtn: 0 };
+const T = { h: 0, mesa: 0, mtn: 0, vulc: 0, cratera: 0 };
 // Altura do terreno (água = 0). Devolve também as máscaras de bioma em T.
 export function terreno(x, z) {
   const big = fbm(x * 0.0004 + 11, z * 0.0004 + 5, 3), det = fbm(x * 0.0025, z * 0.0025, 4) - 0.5;
@@ -54,6 +58,16 @@ export function terreno(x, z) {
     const fundo = LAGO.h - 4 - 14 * (1 - dl / LAGO.r);
     h = lerp(fundo, lerp(rim, h, smooth(LAGO.r * 1.5, LAGO.r * 2.2, dl)), smooth(LAGO.r * 0.85, LAGO.r * 1.08, dl));
   }
+  // ilha da cidade: quase plana, sobe um pouco nas bordas
+  const dCid = Math.hypot(wx - CIDADE.x, (wz - CIDADE.z) * 1.1) / (1750 * (0.85 + 0.3 * big));
+  h = lerp(h, 9 + det * 10 + big * 30 * smooth(0.35, 0.95, dCid), smooth(1, 0.78, dCid + det * 0.1));
+  // vulcão: cone com cratera
+  const dv = Math.hypot(x - VULCAO.x, z - VULCAO.z) + det * 120, mV = smooth(1650, 1100, dv);
+  const hv = Math.min(1050 * Math.pow(clamp(1 - dv / 1650, 0, 1), 1.6), 640 + Math.max(0, dv) * 0.5) + det * 30;
+  h = Math.max(h, lerp(-48, hv, mV));
+  T.vulc = smooth(1500, 600, dv); T.cratera = smooth(320, 200, dv);
+  // segunda pista (cidade)
+  { const dx2 = Math.max(Math.abs(x - PISTA2.x) - 90, 0), dz2 = Math.max(z - PISTA2.z1 - 60, PISTA2.z0 - 60 - z, 0); h = lerp(PISTA2.h, h, smooth(0, 200, Math.hypot(dx2, dz2))); }
   // pista: chão plano com borda suave
   // plano da pista até os hangares (o pátio fica nivelado com o chão)
   const dx = Math.max(x - PISTA.x - 300, PISTA.x - 110 - x, 0), dz = Math.max(z - PISTA.z1 - 60, PISTA.z0 - 60 - z, 0);
@@ -65,7 +79,7 @@ export const altura = (x, z) => terreno(x, z).h;
 
 // Cor do chão (r,g,b 0..1) dado altura e inclinação (ny = normal.y)
 export function corChao(x, z, ny, out) {
-  const { h, mesa } = terreno(x, z);
+  const { h, mesa, vulc, cratera } = terreno(x, z);
   const n = fbm(x * 0.008, z * 0.008, 3), n2 = vnoise(x * 0.06, z * 0.06);
   let r, g, b;
   if (h < -1) { // fundo do mar
@@ -82,9 +96,13 @@ export function corChao(x, z, ny, out) {
       const m = smooth(0.0, 0.4, mesa) * smooth(2, 10, h);
       r = lerp(r, band[0], m); g = lerp(g, band[1], m); b = lerp(b, band[2], m);
     }
-    const rock = smooth(0.8, 0.6, ny) * (1 - smooth(0.2, 0.6, mesa) * 0.6);
+    if (vulc > 0.02) { // rocha vulcânica escura, avermelhada perto da cratera
+      const k = vulc * smooth(20, 160, h), cr = cratera; // só a cratera fica avermelhada
+      r = lerp(r, 0.2, k) + cr * 0.35; g = lerp(g, 0.18, k) + cr * 0.06; b = lerp(b, 0.17, k);
+    }
+    const rock = smooth(0.8, 0.6, ny) * (1 - smooth(0.2, 0.6, mesa) * 0.6) * (1 - vulc);
     r = lerp(r, 0.46, rock); g = lerp(g, 0.43, rock); b = lerp(b, 0.40, rock);
-    const snow = smooth(430 + n * 120, 500 + n * 120, h) * smooth(0.45, 0.65, ny);
+    const snow = smooth(430 + n * 120, 500 + n * 120, h) * smooth(0.45, 0.65, ny) * (1 - vulc);
     r = lerp(r, 0.96, snow); g = lerp(g, 0.97, snow); b = lerp(b, 1.0, snow);
   }
   const v = 0.92 + n2 * 0.16;
@@ -102,10 +120,19 @@ export const LUGARES = [
   { id: 'canion', nome: 'Cânion Vermelho', x: 3000, z: 420, r: 900, y: 320, rumo: 270, desc: 'Um rio entre paredões vermelhos.' },
   { id: 'farol', nome: 'Farol da Ponta', x: FAROL.x, z: FAROL.z, r: 450, y: 160, rumo: 330, desc: 'O farol listrado na ilha de pedra.' },
   { id: 'atol', nome: 'Atol Turquesa', x: ATOL.x, z: ATOL.z, r: 800, y: 180, rumo: 60, desc: 'Laguna azul-clara e coqueiros.' },
+  { id: 'cidade', nome: 'Cidade das Torres', x: CIDADE.x, z: CIDADE.z, r: 900, y: 420, rumo: 90, desc: 'Prédios altos e um aeroporto na ilha oeste.' },
+  { id: 'aero2', nome: 'Aeroporto da Cidade', x: PISTA2.x, z: (PISTA2.z0 + PISTA2.z1) / 2, r: 500, y: 0, rumo: 0, desc: 'Segunda pista: voe de um aeroporto ao outro.' },
+  { id: 'vulcao', nome: 'Vulcão', x: VULCAO.x, z: VULCAO.z, r: 1100, y: 1300, rumo: 240, desc: 'Cratera fumegante no nordeste.' },
+  { id: 'porta', nome: 'Porta-aviões', x: PORTA.x, z: PORTA.z, r: 600, y: 220, rumo: 0, desc: 'Pouse no convés no meio do mar.' },
 ];
 
 // Desafios: argolas (x, z, altura acima do chão ou absoluta se 'abs')
+const cid = (dx, dz) => [CIDADE.x + dx, CIDADE.z + dz, 42]; // ruas da cidade: x e z terminados em 50
 export const DESAFIOS = [
+  { id: 'torres', nome: 'Corrida das Torres', desc: 'Voe pelas ruas, entre os prédios.', inicio: { x: CIDADE.x + 1300, z: CIDADE.z + 50, y: 90, rumo: 270 },
+    pts: [cid(650, 50), cid(350, 50), cid(50, 50), cid(50, -150), cid(50, -350), cid(-250, -350), cid(-450, -350), cid(-450, -50), cid(-450, 250), cid(-150, 250), cid(150, 250), cid(450, 250), cid(750, 250)] },
+  { id: 'vulcao', nome: 'Volta no Vulcão', desc: 'Contorne o vulcão e mergulhe na cratera.', inicio: { x: VULCAO.x + 2600, z: VULCAO.z + 1200, y: 500, rumo: 300 },
+    pts: [[VULCAO.x + 1500, VULCAO.z + 600, 120], [VULCAO.x + 900, VULCAO.z - 1300, 160], [VULCAO.x - 1200, VULCAO.z - 900, 160], [VULCAO.x - 1300, VULCAO.z + 700, 140], [VULCAO.x - 400, VULCAO.z + 300, 'abs', 900], [VULCAO.x, VULCAO.z, 'abs', 760], [VULCAO.x + 500, VULCAO.z - 300, 'abs', 900]] },
   { id: 'ilha', nome: 'Volta da Ilha', desc: 'Fácil: em volta do aeroporto e da vila.', inicio: { x: 0, z: 1600, y: 200, rumo: 0 },
     pts: [[0, 1100, 120], [-80, 300, 90], [0, -500, 90], [300, -1100, 140], [900, -700, 120], [1100, 100, 110], [800, 560, 90], [350, 900, 80], [0, 1500, 120]] },
   { id: 'canion', nome: 'Rio do Cânion', desc: 'Voe baixo entre os paredões!', inicio: { x: 4700, z: CANION(4700), y: 70, rumo: 270 },

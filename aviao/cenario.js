@@ -1,6 +1,6 @@
 // Cenário: céu, luz, terreno, mar, árvores, aeroporto, vila, balões, farol, barcos, pássaros, nuvens.
 import * as THREE from '../lib/three.module.min.js';
-import { MUNDO, PISTA, LAGO, ATOL, FAROL, LUGARES, CANION, terreno, corChao, fbm, rng, clamp, lerp, smooth } from './mundo.js';
+import { MUNDO, CIDADE, PISTA2, VULCAO, PORTA, PISTA, LAGO, ATOL, FAROL, LUGARES, CANION, terreno, corChao, fbm, rng, clamp, lerp, smooth } from './mundo.js';
 
 const C = (h) => new THREE.Color(h);
 export const HORAS = [
@@ -14,6 +14,7 @@ export function criarCenario(renderer, Q) {
   const cena = new THREE.Scene();
   const R = rng(1234);
   const out = { cena, animar: [], noite: 0 };
+  const luzP2 = [], luzC2 = [];
   const obst = []; // prédios sólidos: { x, z, r } círculo ou { x, z, hx, hz } caixa
   const dentro2D = (o, x, z, raio) => (o.r ? Math.hypot(x - o.x, z - o.z) < o.r + raio : Math.abs(x - o.x) < o.hx + raio && Math.abs(z - o.z) < o.hz + raio);
   out.bateObst = (x, z, raio) => obst.some((o) => dentro2D(o, x, z, raio));
@@ -73,6 +74,7 @@ export function criarCenario(renderer, Q) {
     renderer.toneMappingExposure = lerp(A.exp, B.exp, k);
     matNuvem.color.copy(C(A.nuvem)).lerp(C(B.nuvem), k);
     out.noite = lerp(A.lua ? 1 : 0, B.lua ? 1 : 0, k);
+    if (out.mPredio) out.mPredio.emissiveIntensity = smooth(0.2, 0.9, out.noite) * 0.9;
     luzesNoite.forEach((m) => { m.material.opacity = smooth(0.3, 0.9, out.noite); m.visible = out.noite > 0.05; });
     feixe.material.opacity = 0.02 + out.noite * 0.1;
     refazEnv();
@@ -80,17 +82,20 @@ export function criarCenario(renderer, Q) {
   const lerpAng = (a, b, t) => { let d = ((b - a + 540) % 360) - 180; return a + d * t; };
 
   // ---------- Terreno ----------
-  const N = Q.alta ? 360 : 240, cel = MUNDO / N;
+  const N = Q.alta ? 480 : Q.sombra ? 360 : 300, cel = MUNDO / N;
   const alt = new Float32Array((N + 1) * (N + 1));
   for (let j = 0; j <= N; j++) for (let i = 0; i <= N; i++) alt[j * (N + 1) + i] = terreno(-MUNDO / 2 + i * cel, -MUNDO / 2 + j * cel).h;
   const H = (i, j) => alt[clamp(j, 0, N) * (N + 1) + clamp(i, 0, N)];
-  out.chao = (x, z) => { // altura do chão como a malha desenha (bilinear)
+  const naPorta = (x, z) => Math.abs(x - PORTA.x) < PORTA.w / 2 && Math.abs(z - PORTA.z) < PORTA.c / 2;
+  out.naPorta = naPorta;
+  out.chao = (x, z) => (naPorta(x, z) ? PORTA.h : chaoT(x, z)); // o convés do porta-aviões conta como chão
+  const chaoT = (x, z) => { // altura do terreno como a malha desenha (bilinear)
     const fx = (x + MUNDO / 2) / cel, fz = (z + MUNDO / 2) / cel;
     if (fx < 0 || fz < 0 || fx >= N || fz >= N) return -50;
     const i = Math.floor(fx), j = Math.floor(fz), u = fx - i, v = fz - j;
     return lerp(lerp(H(i, j), H(i + 1, j), u), lerp(H(i, j + 1), H(i + 1, j + 1), u), v);
   };
-  out.normalY = (x, z) => { const e = cel; const a = out.chao(x - e, z), b = out.chao(x + e, z), c = out.chao(x, z - e), d = out.chao(x, z + e); return 2 * e / Math.hypot(a - b, 2 * e, c - d); };
+  out.normalY = (x, z) => { if (naPorta(x, z)) return 1; const e = cel; const a = out.chao(x - e, z), b = out.chao(x + e, z), c = out.chao(x, z - e), d = out.chao(x, z + e); return 2 * e / Math.hypot(a - b, 2 * e, c - d); };
   const gT = new THREE.PlaneGeometry(MUNDO, MUNDO, N, N); gT.rotateX(-Math.PI / 2);
   const pT = gT.attributes.position, cores = new Float32Array(pT.count * 3), cc = [0, 0, 0], col = new THREE.Color();
   for (let k = 0; k < pT.count; k++) {
@@ -130,7 +135,7 @@ export function criarCenario(renderer, Q) {
        vec3 mapN = normalize(vec3(n1.xy + n2.xy, n1.z * n2.z));
        mapN.xy *= 1.0 - smoothstep(600.0, 5000.0, length(vViewPosition)) * 0.8;`);
   };
-  const NA = Q.alta ? 220 : 150, gA = new THREE.PlaneGeometry(MUNDO, MUNDO, NA, NA); gA.rotateX(-Math.PI / 2);
+  const NA = Q.alta ? 300 : 200, gA = new THREE.PlaneGeometry(MUNDO, MUNDO, NA, NA); gA.rotateX(-Math.PI / 2);
   const pA = gA.attributes.position, cA = new Float32Array(pA.count * 4);
   const corAgua = (prof, o, k) => {
     const t = smooth(0, 16, prof), raso = [0.30, 0.86, 0.82], fundo = [0.02, 0.16, 0.30];
@@ -138,7 +143,7 @@ export function criarCenario(renderer, Q) {
     const esp = smooth(1.6, 0, prof); col.lerp(tmp.setRGB(0.9, 0.97, 1), esp * 0.5); // espuma na beira
     o[k] = col.r; o[k + 1] = col.g; o[k + 2] = col.b; o[k + 3] = prof < -0.5 ? 0 : lerp(0.42, 0.93, smooth(0, 22, prof)) + esp * 0.2;
   };
-  for (let k = 0; k < pA.count; k++) corAgua(-out.chao(pA.getX(k), pA.getZ(k)), cA, k * 4);
+  for (let k = 0; k < pA.count; k++) corAgua(-chaoT(pA.getX(k), pA.getZ(k)), cA, k * 4);
   gA.setAttribute('color', new THREE.BufferAttribute(cA, 4));
   cena.add(new THREE.Mesh(gA, matAgua));
   // mar de fora (anel até o horizonte)
@@ -220,10 +225,11 @@ export function criarCenario(renderer, Q) {
   for (let i = 0; i < 3; i++) coq.push([new THREE.SphereGeometry(0.35, 6, 4).translate(1.2 + Math.cos(i * 2.1) * 0.5, 10.2, Math.sin(i * 2.1) * 0.5), '#5a4024']);
   const geoCoq = juntar(coq);
   const matArv = new THREE.MeshLambertMaterial({ vertexColors: true });
-  const tipos = [{ g: geoPinho, max: Q.alta ? 3000 : 1500, l: [] }, { g: geoArv, max: Q.alta ? 3200 : 1600, l: [] }, { g: geoCoq, max: Q.alta ? 900 : 500, l: [] }];
+  const tipos = [{ g: geoPinho, max: Q.alta ? 4500 : 2200, l: [] }, { g: geoArv, max: Q.alta ? 4800 : 2400, l: [] }, { g: geoCoq, max: Q.alta ? 900 : 500, l: [] }];
   const vila = LUGARES.find((l) => l.id === 'vila');
-  for (let k = 0; k < 120000; k++) {
+  for (let k = 0; k < 220000; k++) {
     const x = (R() - 0.5) * MUNDO * 0.8, z = (R() - 0.5) * MUNDO * 0.8, t = terreno(x, z), h = out.chao(x, z);
+    if (naPorta(x, z) || t.vulc > 0.6 || Math.hypot(x - CIDADE.x, z - CIDADE.z) < 800 || (Math.abs(x - PISTA2.x) < 250 && z > PISTA2.z0 - 250 && z < PISTA2.z1 + 250)) continue;
     if (h < 1.5 || (Math.abs(x - PISTA.x) < 320 && z > PISTA.z0 - 300 && z < PISTA.z1 + 300)) continue;
     if (Math.hypot(x - vila.x, z - vila.z) < 260 || Math.hypot(x - FAROL.x, z - FAROL.z) < 40) continue;
     const ny = out.normalY(x, z), mata = fbm(x * 0.003 + 50, z * 0.003, 3);
@@ -381,7 +387,7 @@ export function criarCenario(renderer, Q) {
 
   // ---------- Nuvens ----------
   const matNuvem = new THREE.SpriteMaterial({ map: texNuvem(), transparent: true, depthWrite: false, opacity: 0.92 });
-  { const grupos = Q.alta ? 70 : 40;
+  { const grupos = Q.alta ? 120 : 70;
     for (let k = 0; k < grupos; k++) {
       const cx = (R() - 0.5) * MUNDO * 1.1, cz = (R() - 0.5) * MUNDO * 1.1, cy = 650 + R() * 600, n = 5 + Math.floor(R() * 7), larg = 120 + R() * 220;
       for (let i = 0; i < n; i++) {
@@ -396,7 +402,7 @@ export function criarCenario(renderer, Q) {
   { const g = new THREE.IcosahedronGeometry(1, 1); { const p = g.attributes.position; for (let i = 0; i < p.count; i++) { const k = 0.75 + 0.5 * Math.abs(Math.sin(p.getX(i) * 7.1 + p.getZ(i) * 3.3)); p.setXYZ(i, p.getX(i) * k, p.getY(i) * k * 0.7, p.getZ(i) * k); } g.computeVertexNormals(); }
     const n = Q.alta ? 900 : 500, im = new THREE.InstancedMesh(g, new THREE.MeshLambertMaterial({ color: 0xffffff }), n); let k = 0;
     for (let t = 0; t < 40000 && k < n; t++) {
-      const x = (R() - 0.5) * MUNDO * 0.75, z = (R() - 0.5) * MUNDO * 0.75, h = out.chao(x, z); if (h < 0.5) continue;
+      const x = (R() - 0.5) * MUNDO * 0.75, z = (R() - 0.5) * MUNDO * 0.75, h = out.chao(x, z); if (h < 0.5 || naPorta(x, z)) continue;
       const ny = out.normalY(x, z), tr = terreno(x, z), praia = h < 5 && R() < 0.08, morro = (tr.mtn > 0.4 || tr.mesa > 0.4) && ny < 0.9 && R() < 0.5, campo = h > 10 && R() < 0.01;
       if (!(praia || morro || campo)) continue; if (Math.abs(x - PISTA.x) < 300 && z > PISTA.z0 - 200 && z < PISTA.z1 + 200) continue;
       const s = (morro ? 2 + R() * 6 : 0.8 + R() * 2.2);
@@ -491,7 +497,7 @@ export function criarCenario(renderer, Q) {
       let nt = 0, nf = 0, np = 0;
       for (let j = 0; j < LADO; j++) for (let i = 0; i < LADO; i++) {
         const gx = cx + i - LADO / 2, gz = cz + j - LADO / 2, x = (gx + hsh(gx, gz, 1)) * CEL, z = (gz + hsh(gx, gz, 2)) * CEL, h = out.chao(x, z);
-        if (h < 2.5 || h > 430 || (x > PISTA.x - 30 && x < PISTA.x + 260 && z > PISTA.z0 - 30 && z < PISTA.z1 + 30)) continue; // sem grama na pista, pátio e taxiway
+        if (h < 2.5 || h > 430 || naPorta(x, z) || (x > PISTA.x - 30 && x < PISTA.x + 260 && z > PISTA.z0 - 30 && z < PISTA.z1 + 30)) continue; // sem grama na pista, pátio e taxiway
         const ny = out.normalY(x, z); if (ny < 0.85 || Math.hypot(x - 3000, (z - 400) * 1.1) < 1450) continue; // fora do planalto vermelho (conta barata no lugar de terreno())
         const r = hsh(gx, gz, 3), s = 0.7 + hsh(gx, gz, 4) * 0.9;
         q.setFromEuler(e.set(0, r * 6.28, 0)); mt.compose(ps.set(x, h - 0.05, z), q, sc.set(s, s * (0.8 + r * 0.6), s));
@@ -502,6 +508,68 @@ export function criarCenario(renderer, Q) {
       for (const [im, c] of [[imT, nt], [imF, nf], [imP, np]]) { im.count = c; im.instanceMatrix.needsUpdate = true; if (im.instanceColor) im.instanceColor.needsUpdate = true; }
     };
   }
+  // ---------- Cidade das Torres: prédios numa grade de ruas (blocos de 100 m) ----------
+  const mPredio = (() => {
+    const c = document.createElement('canvas'); c.width = 64; c.height = 64; const g = c.getContext('2d');
+    g.fillStyle = '#8a8f95'; g.fillRect(0, 0, 64, 64); g.fillStyle = '#2c3a48'; for (let y = 6; y < 64; y += 16) for (let x = 6; x < 64; x += 16) g.fillRect(x, y, 10, 9);
+    const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.colorSpace = THREE.SRGBColorSpace;
+    const c2 = document.createElement('canvas'); c2.width = 64; c2.height = 64; const g2 = c2.getContext('2d'); g2.fillStyle = '#000'; g2.fillRect(0, 0, 64, 64);
+    for (let y = 6; y < 64; y += 16) for (let x = 6; x < 64; x += 16) if (Math.random() < 0.55) { g2.fillStyle = Math.random() < 0.7 ? '#ffd99a' : '#cfe6ff'; g2.fillRect(x, y, 10, 9); }
+    const t2 = new THREE.CanvasTexture(c2); t2.wrapS = t2.wrapT = THREE.RepeatWrapping;
+    return new THREE.MeshLambertMaterial({ map: t, vertexColors: true, emissive: 0xffffff, emissiveMap: t2, emissiveIntensity: 0 });
+  })();
+  out.mPredio = mPredio;
+  { const pos = [], nor = [], uv = [], cor = [], c3 = new THREE.Color(), tons = ['#9aa0a6', '#b8b2a6', '#7f8a96', '#c9c4bb', '#6f7f8f', '#a89f92'];
+    for (let i = -7; i <= 7; i++) for (let j = -7; j <= 7; j++) {
+      const x = CIDADE.x + i * 100, z = CIDADE.z + j * 100, dc = Math.hypot(i, j); if (dc > 7.2 || R() < 0.12) continue;
+      const h0 = out.chao(x, z); if (h0 < 3) continue;
+      const w = 34 + R() * 30, d = 34 + R() * 30, alt = (25 + R() * 40) * (1 + 2.6 * Math.max(0, 1 - dc / 5)) * (R() < 0.12 ? 1.6 : 1);
+      const g = new THREE.BoxGeometry(w, alt, d).toNonIndexed(); g.translate(x, h0 - 2 + alt / 2, z);
+      const u = g.attributes.uv, n = g.attributes.normal;
+      for (let k = 0; k < u.count; k++) { const ny = Math.abs(n.getY(k)) > 0.5, larg = Math.abs(n.getX(k)) > 0.5 ? d : w; u.setXY(k, ny ? 0.02 : u.getX(k) * larg / 16, ny ? 0.02 : u.getY(k) * alt / 4); }
+      c3.set(tons[Math.floor(R() * tons.length)]);
+      pos.push(...g.attributes.position.array); nor.push(...n.array); uv.push(...u.array); for (let k = 0; k < u.count; k++) cor.push(c3.r, c3.g, c3.b);
+      obst.push({ x, z, hx: w / 2, hz: d / 2, h: alt });
+      if (alt > 110) { luzP2.push(x, h0 + alt + 2, z); luzC2.push(1, 0.1, 0.1); } // luz vermelha no topo dos altos
+    }
+    const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2)); g.setAttribute('color', new THREE.Float32BufferAttribute(cor, 3));
+    const predios = new THREE.Mesh(g, mPredio); predios.receiveShadow = true; cena.add(predios);
+    luzesNoite.push(pontosLuz(luzP2, luzC2, 14));
+    // ruas: asfalto seguindo o relevo entre os prédios
+    for (const ori of [0, 1]) for (let k = -7; k <= 6; k++) {
+      const gg = new THREE.PlaneGeometry(ori ? 1500 : 26, ori ? 26 : 1500, ori ? 30 : 1, ori ? 1 : 30); gg.rotateX(-Math.PI / 2);
+      const p = gg.attributes.position, ox = CIDADE.x + (ori ? 0 : k * 100 + 50), oz = CIDADE.z + (ori ? k * 100 + 50 : 0);
+      for (let q = 0; q < p.count; q++) { const xx = p.getX(q) + ox, zz = p.getZ(q) + oz; p.setXYZ(q, xx, out.chao(xx, zz) + 0.3, zz); }
+      gg.computeVertexNormals(); const rua = new THREE.Mesh(gg, new THREE.MeshLambertMaterial({ color: 0x4a4d52, polygonOffset: true, polygonOffsetFactor: -2 })); rua.receiveShadow = true; cena.add(rua);
+    }
+  }
+  // ---------- Aeroporto da Cidade (2ª pista) ----------
+  { const compr2 = PISTA2.z1 - PISTA2.z0, p2 = new THREE.Mesh(new THREE.PlaneGeometry(PISTA2.w, compr2), new THREE.MeshLambertMaterial({ map: texPista(compr2), polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 }));
+    p2.rotation.x = -Math.PI / 2; p2.position.set(PISTA2.x, PISTA2.h + 0.05, (PISTA2.z0 + PISTA2.z1) / 2); p2.receiveShadow = true; cena.add(p2);
+    const ps2 = [], cs2 = []; for (let z = PISTA2.z0; z <= PISTA2.z1; z += 50) for (const sx of [-1, 1]) { ps2.push(PISTA2.x + sx * 24, PISTA2.h + 0.5, z); cs2.push(1, 0.95, 0.8); }
+    luzesNoite.push(pontosLuz(ps2, cs2, 7)); }
+  // ---------- Vulcão: lago de lava na cratera (brilha) ----------
+  { const lava = new THREE.Mesh(new THREE.CircleGeometry(150, 32).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0xff5a14 })); lava.position.set(VULCAO.x, out.chao(VULCAO.x, VULCAO.z) + 4, VULCAO.z); cena.add(lava);
+    out.animar.push((t) => lava.material.color.setHSL(0.04 + Math.sin(t * 1.3) * 0.01, 1, 0.5 + Math.sin(t * 2.1) * 0.05));
+    out.vulcao = lava.position; }
+  // ---------- Porta-aviões ----------
+  { const P = PORTA, g = new THREE.Group(); g.position.set(P.x, 0, P.z); cena.add(g);
+    const casco = new THREE.Mesh(new THREE.BoxGeometry(P.w * 0.8, P.h + 8, P.c * 0.92), new THREE.MeshLambertMaterial({ color: 0x5e656c })); casco.position.y = (P.h - 8) / 2; g.add(casco);
+    const proa = new THREE.Mesh(new THREE.ConeGeometry(P.w * 0.4, 40, 4, 1).rotateX(-Math.PI / 2).rotateZ(Math.PI / 4), new THREE.MeshLambertMaterial({ color: 0x5e656c })); proa.scale.set(1, 0.9, 1); proa.position.set(0, P.h / 2 - 2, -P.c * 0.46 - 18); g.add(proa);
+    const c = document.createElement('canvas'); c.width = 128; c.height = 1024; const gx = c.getContext('2d');
+    gx.fillStyle = '#3c4044'; gx.fillRect(0, 0, 128, 1024); gx.strokeStyle = '#f2f2f2'; gx.lineWidth = 3; gx.setLineDash([24, 18]);
+    gx.beginPath(); gx.moveTo(64, 1000); gx.lineTo(64, 40); gx.stroke(); gx.setLineDash([]); gx.fillStyle = '#f2d050'; gx.fillRect(4, 0, 4, 1024); gx.fillRect(120, 0, 4, 1024);
+    gx.fillStyle = '#f2f2f2'; for (let i = 0; i < 6; i++) gx.fillRect(18 + i * 16, 960, 8, 50); gx.font = 'bold 60px sans-serif'; gx.textAlign = 'center'; gx.save(); gx.translate(64, 860); gx.fillText('62', 0, 0); gx.restore();
+    for (const y of [700, 730, 760, 790]) { gx.fillStyle = '#c8c8c8'; gx.fillRect(16, y, 96, 3); } // cabos de parada
+    const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8;
+    const conves = new THREE.Mesh(new THREE.PlaneGeometry(P.w, P.c).rotateX(-Math.PI / 2), new THREE.MeshLambertMaterial({ map: t })); conves.position.y = P.h + 0.05; conves.receiveShadow = true; g.add(conves);
+    const ilha = new THREE.Mesh(new THREE.BoxGeometry(8, 22, 34), new THREE.MeshLambertMaterial({ color: 0x6b7279 })); ilha.position.set(P.w / 2 + 4, P.h + 11, 30); g.add(ilha);
+    const mastro = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.6, 18, 6), new THREE.MeshLambertMaterial({ color: 0x4a4f55 })); mastro.position.set(P.w / 2 + 4, P.h + 31, 30); g.add(mastro);
+    const radar = new THREE.Mesh(new THREE.BoxGeometry(6, 1.2, 0.5), new THREE.MeshLambertMaterial({ color: 0xdddddd })); radar.position.set(P.w / 2 + 4, P.h + 37, 30); g.add(radar);
+    out.animar.push((tt) => { radar.rotation.y = tt * 2; });
+    const lp = [], lc = []; for (let z = -P.c / 2; z <= P.c / 2; z += 22) for (const sx of [-1, 1]) { lp.push(P.x + sx * (P.w / 2 - 1), P.h + 0.4, P.z + z); lc.push(0.3, 1, 0.4); }
+    luzesNoite.push(pontosLuz(lp, lc, 5));
+    obst.push({ x: P.x + P.w / 2 + 4, z: P.z + 30, hx: 4, hz: 17, h: P.h + 40 }); }
   luzesNoite.forEach((p) => cena.add(p));
   out.luzesNoite = luzesNoite;
   return out;

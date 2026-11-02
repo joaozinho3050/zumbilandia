@@ -60,8 +60,11 @@ const checagens = () => {
   // 7. combate: inimigos atiram; míssil trava e derruba
   J.comecarDesafio(J.DESAFIO_COMBATE); const eu = J.jog.aviao; ok('combate começa', J.inimigos.length === 3 && eu.misseis === 4);
   const ini = J.inimigos[0]; eu.pos.copy(ini.pos).add(new V(0, 0, 1200).applyQuaternion(ini.q)); eu.q.copy(ini.q); eu.dir.set(0, 0, -1).applyQuaternion(eu.q); eu.V = ini.V; eu.vAnt.copy(eu.velocidade(new V()));
-  ok('míssil trava', J.alvoTravado(eu) === ini); J.dispararMissil(eu); for (let i = 0; i < 60 * 12 && ini.vivo; i++) J.passo(1 / 60);
+  ok('míssil trava', J.alvoTravado(eu) === ini); ini.flares = 0; eu.sincronizar(); J.dispararMissil(eu); /* sem flares no inimigo: teste sempre igual */ for (let i = 0; i < 60 * 12 && ini.vivo; i++) J.passo(1 / 60);
   ok('míssil derruba o inimigo', !ini.vivo);
+  // 8. mapa novo: aeroporto da cidade e porta-aviões
+  J.nascerLugar(J.LUGARES.find((l) => l.id === 'aero2')); ok('aeroporto da cidade', J.jog.aviao.chao && J.jog.vivo);
+  ok('convés é chão', J.chao(1800, 6600) === 19);
   return res;
 };
 
