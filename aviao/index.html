@@ -9,7 +9,6 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#101820">
 <link rel="apple-touch-icon" href="../icon-180.png">
-<script type="importmap">{"imports":{"three":"../lib/three.module.min.js"}}</script>
 <style>
   @font-face{font-family:"Atkinson Hyperlegible";font-weight:400;font-display:swap;src:url(../lib/fonts/AtkinsonHyperlegible-Regular.woff2) format("woff2")}
   :root{--txt:#fff;--sub:rgba(255,255,255,.72);--fino:rgba(255,255,255,.28);--fundo:rgba(10,14,20,.32);--ouro:#ffd05a;--sl:env(safe-area-inset-left);--sr:env(safe-area-inset-right);--st:env(safe-area-inset-top);--sb:env(safe-area-inset-bottom)}
@@ -112,6 +111,8 @@
       <button class="bt" id="tFuma" data-m="piloto">≋<small>fumaça</small></button>
       <button class="bt" id="tFreio" data-m="piloto">■<small>freio</small></button>
       <button class="bt" id="tCam">◎<small>câmera</small></button>
+      <button class="bt" id="tPorta" hidden>⊓<small>rampa</small></button>
+      <button class="bt" id="tSoltar" hidden>⇲<small>soltar</small></button>
       <button class="bt" id="tPular" data-m="ape">⤒<small>pular</small></button>
       <button class="bt" id="tEntrar" data-m="ape">⇩<small>entrar</small></button>
       <button class="bt" id="tGarras" data-m="ape">⋔<small>garras</small></button>
@@ -129,6 +130,16 @@
 </div>
 <div id="carregando">Construindo as ilhas…</div>
 <div id="rot"><span style="font-size:40px">⟲</span><span>Gire o celular</span></div>
+<script>
+// Aviso claro se o aparelho não roda o jogo (WebGL 2) ou se der erro ao carregar
+(function () {
+  var c = document.getElementById('carregando');
+  function msg(t) { if (c && c.parentNode) { c.style.opacity = 1; c.style.padding = '24px'; c.style.textAlign = 'center'; c.textContent = t; } }
+  try { var gl = document.createElement('canvas').getContext('webgl2'); if (!gl) msg('Este aparelho não tem WebGL 2, que o jogo precisa. Atualize o iOS/navegador ou use outro aparelho.'); } catch (e) {}
+  window.addEventListener('error', function (e) { msg('Erro ao carregar o jogo: ' + (e.message || e)); });
+  window.addEventListener('unhandledrejection', function (e) { msg('Erro ao carregar o jogo: ' + (e.reason && e.reason.message || e.reason)); });
+})();
+</script>
 <script type="module" src="jogo.js"></script>
 </body>
 </html>

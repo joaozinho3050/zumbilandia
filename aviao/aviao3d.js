@@ -1,6 +1,6 @@
 // Modelo 3D do avião "Andorinha": tudo feito em código, com peças móveis.
 // Frente = -Z, cima = +Y, direita = +X. Origem ~ centro de gravidade.
-import * as THREE from 'three';
+import * as THREE from '../lib/three.module.min.js';
 
 export const PINTURAS = [
   { nome: 'Clássico', base: '#f3ead8', acc: '#c8282e', faixa: '#1d2b4a', barriga: '#e2d6bd', ponta: '#f2c230' },
@@ -273,7 +273,7 @@ export function criarAviao(pintura = PINTURAS[0], comPainel = true) {
     if (ax < 1.95) { const e = est(ax); if (z > e.le && z < e.le + e.c) r.push(e.y + e.c * 0.07); }
     return r;
   };
-  parts.envergadura = 10.6;
+  parts.envergadura = 10.6; parts.raioCorpo = 0.75; parts.saida = new THREE.Vector3(1.4, 0, 2.3);
   mesclar(A);
 
     A.userData.parts = parts;

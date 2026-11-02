@@ -1,5 +1,5 @@
 // Cenário: céu, luz, terreno, mar, árvores, aeroporto, vila, balões, farol, barcos, pássaros, nuvens.
-import * as THREE from 'three';
+import * as THREE from '../lib/three.module.min.js';
 import { MUNDO, PISTA, LAGO, ATOL, FAROL, LUGARES, CANION, terreno, corChao, fbm, rng, clamp, lerp, smooth } from './mundo.js';
 
 const C = (h) => new THREE.Color(h);

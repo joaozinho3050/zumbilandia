@@ -1,6 +1,6 @@
 // Aviões de guerra e cargueiro, inspirados em aviões reais (proporções em metros).
 // Frente = -Z, cima = +Y, direita = +X.
-import * as THREE from 'three';
+import * as THREE from '../lib/three.module.min.js';
 import { perfil, loft, flipGeo, articulada, brilho, uvPorAltura, criarPiloto, pernaTrem, mesclar, criarAviao, PINTURAS } from './aviao3d.js';
 
 const mapD = (s, z, y) => [s, y, z], mapE = (s, z, y) => [-s, y, z], mapV = (s, z, y) => [y, s, z];
@@ -175,7 +175,7 @@ export function criarJato(p = PINT_JATO[0]) {
   parts.alturaTrem = 2.42;
   luzes(A, parts, 4.66, 0.08, asa(4.6).le - 0.2, new THREE.Vector3(0, 4.2, 6.0), new THREE.Vector3(0, 3.3, 7.0));
   const lampF = brilho('#fff6dd', 1.2); lampF.position.set(0, -1.6, -3.0); A.add(lampF); parts.lampFarol = lampF;
-  parts.cauda = new THREE.Vector3(0, 0, Z1 + 1.2); parts.entrada = new THREE.Vector3(0, 1.1, -3.9); parts.envergadura = 9.5;
+  parts.cauda = new THREE.Vector3(0, 0, Z1 + 1.2); parts.entrada = new THREE.Vector3(0, 1.1, -3.9); parts.envergadura = 9.5; parts.raioCorpo = 0.95; parts.saida = new THREE.Vector3(1.6, 0, -5.4);
   parts.superficies = (x, z) => {
     const ax = Math.abs(x), r = [];
     if (ax < 0.55 && z > -6 && z < 5.5) r.push(z > -3 && z < 4.6 ? 1.0 : rf(z) * 0.92);
@@ -273,7 +273,7 @@ export function criarWarbird(p = PINT_WAR[0]) {
   parts.alturaTrem = 2.3; parts.atitude = 0.17; // nariz pra cima no chão
   luzes(A, parts, 5.72, -0.06, asa(5.6).le + 0.3, new THREE.Vector3(0, 0.75, 2.4), new THREE.Vector3(0, 1.6, 4.8));
   const lampF = brilho('#fff6dd', 1.2); lampF.position.set(-2.4, -0.4, -1.4); A.add(lampF); parts.lampFarol = lampF;
-  parts.cauda = new THREE.Vector3(0, 0.4, Z1 + 0.3); parts.entrada = new THREE.Vector3(0, 1.15, 0.2); parts.envergadura = 11.3;
+  parts.cauda = new THREE.Vector3(0, 0.4, Z1 + 0.3); parts.entrada = new THREE.Vector3(0, 1.15, 0.2); parts.envergadura = 11.3; parts.raioCorpo = 0.75; parts.saida = new THREE.Vector3(1.5, 0, -3.0);
   parts.superficies = (x, z) => {
     const ax = Math.abs(x), r = [];
     if (ax < 0.45 && z > Z0 + 0.3 && z < Z1 - 0.3) { let y = rf(z) * 1.18 + Math.max(0, z - 0.8) * 0.05; const k = (z - 0.15) / 1.25; if (Math.abs(k) < 1) y = Math.max(y, 0.64 + 0.5 * Math.sqrt(1 - k * k)); r.push(y); }
@@ -379,7 +379,7 @@ export function criarCargueiro(p = PINT_CARGA[0]) {
   const pil = criarPiloto('classico'); pil.position.set(-0.7, 0.85, -12.0); A.add(pil); parts.piloto = pil; parts.cachecol = pil.userData.cachecol;
   const pil2 = criarPiloto('classico'); pil2.position.set(0.7, 0.85, -12.0); A.add(pil2);
   painelVivo(A, parts, new THREE.Vector3(-0.7, 1.15, -13.0), -0.25, 0.9);
-  parts.cauda = new THREE.Vector3(0, 1.5, BAIA.fim + 10.5); parts.entrada = new THREE.Vector3(0, BAIA.piso + 1.0, -6); parts.envergadura = 40.4;
+  parts.cauda = new THREE.Vector3(0, 1.5, BAIA.fim + 10.5); parts.entrada = new THREE.Vector3(-2.4, -1.0, -10); parts.envergadura = 40.4; parts.raioCorpo = 2.2; parts.saida = new THREE.Vector3(-3.8, 0, -10); parts.entradaVoo = new THREE.Vector3(0, BAIA.piso, BAIA.frente + 0.6);
   parts.superficies = (x, z) => {
     const ax = Math.abs(x), r = [];
     if (ax < 1.0 && z > -12 && z < BAIA.fim) r.push(R);
