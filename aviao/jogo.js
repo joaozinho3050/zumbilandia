@@ -236,9 +236,13 @@ function bater(a, agua, motivo) {
 // cargueiro gigante NPC: voa sozinho em círculo; a porta abre e fecha; dá pra pilotar e devolver ao piloto automático
 const ESC_GIG = 5.5;
 const npc = new Aero('gigante', 0, ESC_GIG);
-npc.npc = { R: 3300, cx: 0, cz: 300, alt: 560, ang: 0.6, s: 1, blend: 0 }; npc.V = 66; npc.trem = npc.tremAlvo = 0; npc.chao = false; npc.acel = 0.7; npc.rpm = 0.8; npc.portaAlvo = 1; npc.abre = 1;
+npc.npc = { R: 3300, cx: 0, cz: 300, alt: 560, ang: 0.6, s: 1, blend: 0, v: 66 }; npc.V = 66; npc.trem = npc.tremAlvo = 0; npc.chao = false; npc.acel = 0.7; npc.rpm = 0.8; npc.portaAlvo = 1; npc.abre = 1;
 npc.P.entrada = new THREE.Vector3(0, BAIA.piso, BAIA.frente + 0.35); // painel de comando na frente da baía
 const alvoNPC = { p: V3(), q: new THREE.Quaternion() };
+// tráfego aéreo: aviões com piloto NPC fazendo circuitos pelo arquipélago
+for (const [t, pi, cx, cz, R, alt, v, s] of [['andorinha', 1, -1200, -700, 900, 380, 48, 1], ['guerra', 1, 2400, 1200, 1300, 450, 75, -1], ['cargueiro', 2, -300, 2600, 2200, 700, 70, 1], ['caca', 2, 0, -1500, 2600, 1000, 130, -1]]) {
+  const a = new Aero(t, pi); a.npc = { R, cx, cz, alt, ang: Math.random() * 6.28, s, blend: 0, v }; a.chao = false; a.trem = a.tremAlvo = 0; a.acel = 0.7; a.rpm = 0.8; a.V = v; a.trafego = true;
+}
 function voarNPC(a, dt) {
   const n = a.npc; n.ang += n.s * a.V / n.R * dt;
   const x = n.cx + Math.cos(n.ang) * n.R, z = n.cz + Math.sin(n.ang) * n.R, tg = tmpV.set(-Math.sin(n.ang), 0, Math.cos(n.ang)).multiplyScalar(n.s);
@@ -248,8 +252,8 @@ function voarNPC(a, dt) {
   if (n.blend > 0) { // voltando suave para o circuito depois que o jogador pilotou
     n.blend = Math.max(0, n.blend - dt / 6); // 6 s: a pegada aumenta até grudar na rota (antes ficava ~110 m atrás pra sempre)
     const k = 1 - Math.exp(-dt * (0.6 + 40 * (1 - n.blend))); a.pos.lerp(alvoNPC.p, k); a.q.slerp(alvoNPC.q, k);
-    a.V = lerp(a.V, 66, k); a.dir.set(0, 0, -1).applyQuaternion(a.q);
-  } else { a.vs = Math.cos(n.ang * 3) * 3 * 25 * a.V / n.R; a.pos.copy(alvoNPC.p); a.q.copy(alvoNPC.q); a.dir.copy(tg).multiplyScalar(66).setY(a.vs).normalize(); a.V = Math.hypot(66, a.vs); }
+    a.V = lerp(a.V, n.v, k); a.dir.set(0, 0, -1).applyQuaternion(a.q);
+  } else { a.vs = Math.cos(n.ang * 3) * 3 * 25 * a.V / n.R; a.pos.copy(alvoNPC.p); a.q.copy(alvoNPC.q); a.dir.copy(tg).multiplyScalar(n.v).setY(a.vs).normalize(); a.V = Math.hypot(n.v, a.vs); }
   a.queda = 0; a.acel = 0.7; a.trem = a.tremAlvo = 0; a.flap = 0;
 }
 function pilotoAutomatico(a) { // devolve o cargueiro ao NPC a partir de onde ele está
@@ -289,7 +293,7 @@ function checarBaia(a, dt) {
     a.preso.q.setFromEuler(new THREE.Euler(0, new THREE.Euler().setFromQuaternion(a.preso.q, 'YXZ').y, 0, 'YXZ'));
     a.acel = 0; S.feitos.baia = 1; salvar(); som.vitoria();
     mensagem('Você entrou no cargueiro!', 'Saia do avião (⇪) para andar, fechar a rampa ou pilotar o cargueiro', 5);
-    if (desafio && desafio.d.id === 'baia') terminarDesafio(true);
+    if (desafio && desafio.d.id === 'baia') terminarDesafio('baia');
   }
 }
 function presoNoNPC(a, dt) {
@@ -310,12 +314,90 @@ function soltarAviao() { // dentro do cargueiro: o avião sai de ré pela rampa
   a.preso.soltando = true; a.preso.vrel = 0; a.tremAlvo = 1; mensagem('Soltando...', 'O avião sai de ré pela rampa', 1.5);
 }
 
+function colisaoNoAr(a) { // dois aviões se tocando no ar: os dois caem (o cargueiro gigante tem regra própria na baía)
+  for (const o of frota) {
+    if (o === a || o === npc || !o.vivo || o.chao || o.preso) continue;
+    const r = (a.P.envergadura * a.esc + o.P.envergadura * o.esc) * 0.33;
+    if (a.pos.distanceToSquared(o.pos) < r * r) { bater(o, false); return bater(a, false, 'Colisão no ar!'); }
+  }
+}
+// ---------- Tiros (caça a jato e caça da 2ª Guerra) e alvos ----------
+const balas = [], alvos = [];
+let cadT = 0, canoI = 0;
+function atirar(a, dt) {
+  const W = a.T.armas; if (!W || !a.vivo || a.preso) return;
+  cadT -= dt; if (cadT > 0) return; cadT = 1 / W.cadencia;
+  const c = W.canos[canoI++ % W.canos.length], p = a.obj.localToWorld(V3().set(...c));
+  const v = a.velocidade(V3()).addScaledVector(tmpV.set(0, 0, -1).applyQuaternion(a.q), W.vel).add(tmpV.set((Math.random() - 0.5) * 6, (Math.random() - 0.5) * 6, 0));
+  balas.push({ p, v, t: 0 }); fogo.emitir(p, a.velocidade(tmpV2), tmpC.set(0xffd27a), 2.5, 0.5, 1, 0.06, 0); som.tiro();
+}
+function atualizarBalas(dt) {
+  for (let i = balas.length - 1; i >= 0; i--) {
+    const b = balas[i], ant = tmpV3.copy(b.p); b.t += dt; b.v.y -= 9.8 * dt; b.p.addScaledVector(b.v, dt);
+    fogo.emitir(b.p, tmpV.set(0, 0, 0), tmpC.set(0xffc060), 1.1, 0.4, 0.9, 0.05, 0); // traçante
+    let fim = b.t > 2.2;
+    for (let k = alvos.length - 1; k >= 0 && !fim; k--) { // segmento da bala contra a esfera do alvo
+      const al = alvos[k], seg = tmpV2.copy(b.p).sub(ant), u = clamp(tmpV.copy(al.g.position).sub(ant).dot(seg) / Math.max(seg.lengthSq(), 1e-6), 0, 1);
+      if (tmpV.copy(ant).addScaledVector(seg, u).distanceTo(al.g.position) < al.r) { acertou(al, k); fim = true; }
+    }
+    const h = M.chao(b.p.x, b.p.z);
+    if (!fim && b.p.y < Math.max(h, 0)) { fumaca.emitir(b.p, tmpV.set(0, 3, 0), tmpC.set(h < 0 ? 0xf4fbff : 0x9a8a70), 1, 4, 0.6, 0.8); fim = true; }
+    if (fim) balas.splice(i, 1);
+  }
+}
+function criarAlvos(cx, cz, n) {
+  const c = document.createElement('canvas'); c.width = 64; c.height = 32; const g = c.getContext('2d');
+  for (let i = 0; i < 8; i++) { g.fillStyle = i % 2 ? '#ffffff' : '#e8322a'; g.fillRect(i * 8, 0, 8, 32); }
+  const tx = new THREE.CanvasTexture(c); tx.colorSpace = THREE.SRGBColorSpace;
+  const mat = new THREE.MeshStandardMaterial({ map: tx, roughness: 0.5 }), anel = new THREE.MeshBasicMaterial({ color: 0xffd05a });
+  for (let i = 0; i < n; i++) {
+    const a = i / n * Math.PI * 2 + Math.random() * 0.4, d = 300 + Math.random() * 900, x = cx + Math.cos(a) * d, z = cz + Math.sin(a) * d;
+    const g = new THREE.Group(); g.position.set(x, Math.max(M.chao(x, z), 0) + 110 + Math.random() * 220, z);
+    const esf = new THREE.Mesh(new THREE.SphereGeometry(5, 16, 12), mat); esf.castShadow = true; g.add(esf);
+    const ar = new THREE.Mesh(new THREE.TorusGeometry(7.5, 0.35, 6, 32), anel); ar.rotation.x = Math.PI / 2; g.add(ar);
+    cena.add(g); alvos.push({ g, r: 8, y0: g.position.y, f: Math.random() * 6 });
+  }
+}
+function limparAlvos() { for (const al of alvos) cena.remove(al.g); alvos.length = 0; }
+function acertou(al, k) {
+  explosao(al.g.position.clone(), false, 0.6); cena.remove(al.g); alvos.splice(k, 1);
+  if (desafio && desafio.d.id === 'tiro') { mensagem(`Acertou! ${desafio.total - alvos.length}/${desafio.total}`, '', 1.2); if (!alvos.length) terminarDesafio('tiro'); }
+}
+
+// ---------- Controle por inclinação do celular (acelerômetro) ----------
+const incl = { ligado: false, p: 0, r: 0, g: [0, 0, 0], ok: false, cal: null, s: 1 };
+function eixosTela() { // gravidade em coordenadas da tela (direita, cima, para fora da tela)
+  const ang = (screen.orientation && screen.orientation.angle) ?? window.orientation ?? 0, [x, y, z] = incl.g;
+  return ang === 90 ? [-y, x, z] : ang === -90 || ang === 270 ? [y, -x, z] : [x, y, z];
+}
+function calibrarIncl() {
+  if (!incl.ok) return; const [, up, z] = eixosTela();
+  incl.s = up + z < 0 ? 1 : -1; // iPhone e Android dão a gravidade com sinais opostos
+  incl.cal = Math.atan2(z * incl.s, -up * incl.s);
+}
+addEventListener('devicemotion', (e) => {
+  const g = e.accelerationIncludingGravity; if (!g || g.x === null) return;
+  incl.g = [g.x, g.y, g.z]; if (!incl.ok) { incl.ok = true; calibrarIncl(); }
+  if (!incl.ligado || incl.cal === null) return;
+  const [rt, up, z] = eixosTela().map((v) => v * incl.s);
+  const lim = (v) => clamp(Math.abs(v) < 0.04 ? 0 : v, -1, 1);
+  incl.r = lim(Math.atan2(rt, -up) / 0.5);                          // girar como volante
+  incl.p = lim(-(Math.atan2(z, -up) - incl.cal) / 0.4);              // topo do celular pra você = sobe
+});
+async function ligarIncl() {
+  try { if (typeof DeviceMotionEvent !== 'undefined' && DeviceMotionEvent.requestPermission && (await DeviceMotionEvent.requestPermission()) !== 'granted') throw 0; }
+  catch (e) { S.incl = false; salvar(); incl.ligado = false; return mensagem('Sem permissão de movimento', 'Ative em Ajustes do iPhone e tente de novo', 3); }
+  incl.ligado = true; calibrarIncl(); mensagem('Inclinação ligada', 'Gire o celular como volante · incline o topo pra você para subir', 3);
+}
+if (S.incl) document.addEventListener('pointerdown', () => ligarIncl(), { once: true }); // o iPhone só deixa pedir permissão num toque
+
 // ---------- Jogador: piloto ou a pé ----------
 const pessoa = criarPessoa(); cena.add(pessoa.obj); pessoa.obj.visible = false;
 const jog = { modo: 'piloto', aviao: null, sobre: null, L: V3(), pos: V3(), vel: V3(), yaw: 0, camYaw: 0, garras: true, vivo: true, morteT: 0, rapidez: 0, noChao: true, ondeNasce: null, trans: null, poucoT: 0 };
 function pilotar(a) {
   if (jog.aviao && jog.aviao !== a) { if (jog.aviao === npc && npc.comPiloto && npc.vivo) pilotoAutomatico(npc); else jog.aviao.comPiloto = false; }
   jog.aviao = a; a.comPiloto = true; jog.modo = 'piloto'; jog.vivo = true; jog.sobre = null; jog.trans = null; pessoa.obj.visible = false;
+  if (a.trafego) { a.npc = null; a.trafego = false; a.vAnt.copy(a.velocidade(tmpV)); } // tomou o avião do tráfego
   if (a === npc) { a.npc.blend = 0; a.ent.p = a.ent.r = a.ent.y = 0; a.vAnt.copy(a.velocidade(tmpV)); }
   cam.iniciado = false; document.body.classList.remove('ape'); if (a.tipo !== 'gigante') { S.tipo = a.tipo; salvar(); }
 }
@@ -334,7 +416,7 @@ function nascerLugar(l) {
   nascer({ x: l.x - Math.sin(a) * 900, z: l.z + Math.cos(a) * 900, y: l.y, rumo: l.rumo });
 }
 function limparFrota(manter) { // tira aviões abandonados longe demais (mantém estacionados, os que estão no cargueiro e o NPC)
-  for (const a of [...frota]) if (a !== manter && a !== npc && !a.estacionado && !a.fixo && !a.preso && (!a.vivo || a.pos.distanceTo(manter.pos) > 6000)) a.remover();
+  for (const a of [...frota]) if (a !== manter && !a.npc && !a.estacionado && !a.fixo && !a.preso && (!a.vivo || a.pos.distanceTo(manter.pos) > 6000)) a.remover();
 }
 
 // colisão do boneco com aviões parados: as peças viram "caixas" na altura certa
@@ -557,8 +639,15 @@ let desafio = null;
 const matArg = new THREE.MeshStandardMaterial({ color: 0xffc83a, emissive: 0xffa400, emissiveIntensity: 0.7, metalness: 0.6, roughness: 0.25 });
 const matArgFraca = new THREE.MeshBasicMaterial({ color: 0xffe28a, transparent: true, opacity: 0.35, depthWrite: false });
 const DESAFIO_BAIA = { id: 'baia', nome: 'Entrar no Cargueiro', desc: 'Voe por trás do cargueiro gigante e pouse dentro dele.' };
+const DESAFIO_TIRO = { id: 'tiro', nome: 'Tiro ao Alvo', desc: 'Com um caça, derrube os 12 balões-alvo. Botão ✦ ou tecla V atira.', inicio: { x: -1500, z: 2400, y: 320, rumo: 20 } };
 function comecarDesafio(d) {
   pararDesafio();
+  if (d.id === 'tiro') {
+    if (!TIPOS[S.tipo].armas) S.tipo = 'caca';
+    nascer({ ...d.inicio }); criarAlvos(-1500, 1400, 12);
+    desafio = { d, aneis: [], i: 0, t: 0, total: 12 };
+    mensagem(d.nome, TOQUE ? 'Segure ✦ para atirar' : 'Segure V para atirar', 3.5); return;
+  }
   if (d.id === 'baia') {
     const f = tmpV.set(0, 0, -1).applyQuaternion(npc.q), p = npc.pos.clone().addScaledVector(f, -700).add(tmpV2.set(0, -8, 0));
     const rumo = (THREE.MathUtils.radToDeg(Math.atan2(f.x, -f.z)) + 360) % 360;
@@ -581,7 +670,7 @@ function comecarDesafio(d) {
   nascer({ ...d.inicio });
   mensagem(d.nome, 'Passe por dentro das argolas douradas!', 3);
 }
-function pararDesafio() { if (!desafio) return; for (const a of desafio.aneis) cena.remove(a.g); desafio = null; $('missao').style.display = 'none'; }
+function pararDesafio() { if (!desafio) return; for (const a of desafio.aneis) cena.remove(a.g); if (desafio.d.id === 'tiro') limparAlvos(); desafio = null; $('missao').style.display = 'none'; }
 function atualizarDesafio(dt, t) {
   if (!desafio) return; const D = desafio; if (jog.vivo) D.t += dt;
   D.aneis.forEach((a, k) => { a.g.visible = k >= D.i && k < D.i + 4; a.m.material = k === D.i ? matArg : matArgFraca; a.brilho.material.opacity = k === D.i ? 0.25 + 0.15 * Math.sin(t * 6) : 0; if (k === D.i) a.g.scale.setScalar(1 + 0.04 * Math.sin(t * 5)); });
@@ -596,9 +685,9 @@ function atualizarDesafio(dt, t) {
   }
   a.lado = lado;
 }
-function terminarDesafio(baia) {
-  const D = desafio; let n;
-  if (baia) n = D.t < 40 ? 3 : D.t < 90 ? 2 : 1;
+function terminarDesafio(esp) { // esp: 'baia' ou 'tiro' (pontuação só por tempo)
+  const D = desafio; let n; const baia = esp === 'baia';
+  if (esp) n = D.t < (baia ? 40 : 70) ? 3 : D.t < (baia ? 90 : 140) ? 2 : 1;
   else { const comp = D.aneis.reduce((s, a, i) => s + (i ? a.c.distanceTo(D.aneis[i - 1].c) : 0), 0), par = comp / 62 + 4; n = D.t <= par ? 3 : D.t <= par * 1.3 ? 2 : 1; }
   const t = D.t, rec = S.recordes[D.d.id], novo = !rec || t < rec.t; if (novo) { S.recordes[D.d.id] = { t, n }; salvar(); }
   if (!baia) mensagem(`${D.d.nome} completo!`, `${'⭐'.repeat(n)}  ${fmtT(t)}${novo ? ' · novo recorde!' : ` · recorde ${fmtT(rec.t)}`}`, 5);
@@ -679,7 +768,7 @@ function animarAero(a, dt, t, perto) {
     if (u.eixo === 'x') g.rotation.x = -ang; else if (u.eixo === 'z') g.rotation.z = -u.sinal * ang; else { u.y0 ??= g.position.y; g.position.y = u.y0 + (1 - a.trem) * u.sobe; }
     g.visible = u.eixo === 'y' || a.trem > 0.01; }
   if (a.chao) for (const r of P.rodas) r.rotation.x -= a.V / 0.35 * dt;
-  if (P.piloto) { P.piloto.visible = a.comPiloto && !(a === jog.aviao && cam.modo === 1) || a === npc; P.piloto.children[1].rotation.y = -e.r * 0.5; P.piloto.children[2].rotation.y = -e.r * 0.5; }
+  if (P.piloto) { P.piloto.visible = a.comPiloto && !(a === jog.aviao && cam.modo === 1) || !!a.npc; P.piloto.children[1].rotation.y = -e.r * 0.5; P.piloto.children[2].rotation.y = -e.r * 0.5; }
   if (P.cachecol) { P.cachecol.rotation.z = Math.sin(t * 9) * 0.25; P.cachecol.rotation.x = Math.sin(t * 13) * 0.15; }
   const noite = M.noite, ciclo = (t + a.seed * 0.37) % 1.3, flash = ciclo < 0.05 || (ciclo > 0.14 && ciclo < 0.19);
   for (const s of [P.estD, P.estE]) s.scale.setScalar(flash ? s.userData.tam * (0.6 + noite) : 0.001);
@@ -748,6 +837,7 @@ const som = (() => {
     },
     argola(i) { [0, 4, 7].forEach((s, k) => bip(523 * 2 ** ((s + i % 5) / 12), k * 0.07, 0.35, 'triangle', 0.2)); },
     vitoria() { [0, 4, 7, 12, 16].forEach((s, k) => bip(392 * 2 ** (s / 12), k * 0.12, 0.6, 'triangle', 0.22)); },
+    tiro() { ruido(0.07, 2200, 0.16); },
     batida(v = 1) { ruido(1.6, 500, 1.2 * v); }, pneu() { ruido(0.35, 2500, 0.35); },
     clique() { bip(900, 0, 0.05, 'square', 0.06); }, descobre() { [0, 7, 12].forEach((s, k) => bip(659 * 2 ** (s / 12), k * 0.15, 0.8, 'sine', 0.18)); },
   };
@@ -780,7 +870,7 @@ function lerTeclado(dt) {
     if (tem('ShiftLeft', 'ShiftRight', 'Equal', 'NumpadAdd')) av.acel = Math.min(1, av.acel + dt * 0.6);
     if (tem('ControlLeft', 'ControlRight', 'Minus', 'NumpadSubtract', 'KeyZ')) av.acel = Math.max(0, av.acel - dt * 0.6);
   }
-  return { p, r, y: pilotando() ? y : 0, freio: tem('KeyB') };
+  return { p, r, y: pilotando() ? y : 0, freio: tem('KeyB'), atira: tem('KeyV') };
 }
 const toque = { stick: null, sx: 0, sy: 0, p: 0, r: 0, leme: 0, olha: null, ox: 0, oy: 0, freio: false };
 const zona = $('zonaStick'), base = $('stickBase'), pino = $('stickPin');
@@ -804,6 +894,8 @@ const soltaOlha = (e) => { if (e.pointerId === toque.olha) toque.olha = null; };
 canvas.addEventListener('pointerup', soltaOlha); canvas.addEventListener('pointercancel', soltaOlha);
 const botao = (id, f) => $(id).addEventListener('pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); som.iniciar(); som.clique(); f(); });
 botao('tTrem', () => trem()); botao('tFlap', () => flap()); botao('tFuma', () => fumacaToggle()); botao('tCam', () => proxCam()); botao('tSair', () => sair());
+$('tAtirar').addEventListener('pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); toque.atira = true; $('tAtirar').classList.add('on'); });
+for (const ev of ['pointerup', 'pointercancel', 'pointerleave']) $('tAtirar').addEventListener(ev, () => { toque.atira = false; $('tAtirar').classList.remove('on'); });
 botao('tPorta', () => porta(pilotando() ? jog.aviao : portaPerto())); botao('tSoltar', () => soltarAviao());
 botao('tPular', () => pular()); botao('tEntrar', () => entrar()); botao('tGarras', () => garras()); botao('tParaq', () => paraquedas());
 $('tFreio').addEventListener('pointerdown', (e) => { e.preventDefault(); toque.freio = true; $('tFreio').classList.add('on'); });
@@ -822,6 +914,7 @@ function modoFoto() { document.body.classList.toggle('foto'); }
 function renascer() {
   pessoa.obj.visible = false;
   if (desafio && desafio.d.id === 'baia') return comecarDesafio(desafio.d);
+  if (desafio && desafio.d.id === 'tiro') return nascer({ ...desafio.d.inicio });
   if (desafio && desafio.i > 0) { const a = desafio.aneis[desafio.i - 1], n = desafio.aneis[desafio.i] || a; const d = n.c.clone().sub(a.c); nascer({ x: a.c.x, z: a.c.z, y: a.c.y, rumo: THREE.MathUtils.radToDeg(Math.atan2(d.x, -d.z)) }); jog.aviao.pos.y = a.c.y; desafio.aneis.forEach((x) => (x.lado = null)); }
   else if (desafio) { nascer({ ...desafio.d.inicio }); desafio.aneis.forEach((x) => (x.lado = null)); }
   else nascer(jog.ondeNasce);
@@ -862,6 +955,7 @@ function hud(dt) {
   if (m !== modoBotoes) { modoBotoes = m; document.querySelectorAll('#botoes [data-m]').forEach((b) => (b.hidden = b.dataset.m !== m)); }
   $('tPorta').hidden = !(piloto && a && a.P.abrir) && !(!piloto && portaPerto()); $('tPorta').classList.toggle('on', !!(piloto ? a && a.portaAlvo : portaPerto()?.portaAlvo));
   $('tSoltar').hidden = !(piloto && a && a.preso);
+  $('tAtirar').hidden = !(piloto && a && a.T.armas && !a.preso);
   if (!piloto) { const ep = entrarPerto(); $('tEntrar').hidden = !ep; $('tEntrar').querySelector('small').textContent = ep === npc ? 'pilotar' : 'entrar'; $('tGarras').hidden = jog.modo !== 'sobre'; $('tParaq').hidden = jog.modo !== 'queda'; $('tPular').hidden = !(jog.modo === 'pe' || jog.modo === 'sobre'); }
   $('descobertos').textContent = `${Object.keys(S.desc).length}/${LUGARES.length} lugares`;
   const solo = p.y - Math.max(0, M.chao(p.x, p.z));
@@ -874,10 +968,10 @@ function hud(dt) {
     bus.fillRect(x - 0.5, 0, 1, n % 15 ? 3 : 6); if (n % 45 === 0) { bus.fillStyle = n % 90 ? 'rgba(255,255,255,.75)' : '#ffd05a'; bus.fillText({ 0: 'N', 45: 'NE', 90: 'L', 135: 'SE', 180: 'S', 225: 'SO', 270: 'O', 315: 'NO' }[n], x, 22); bus.fillStyle = 'rgba(255,255,255,.75)'; } }
   bus.fillStyle = '#ffd05a'; bus.fillRect(W / 2 - 1, 0, 2, 9);
   const alvo = desafio && desafio.aneis[desafio.i];
-  const alvoPos = alvo ? alvo.c : desafio && desafio.d.id === 'baia' ? npc.obj.localToWorld(V3().set(0, 0, BAIA.rampaFim)) : null;
+  const alvoPos = alvo ? alvo.c : desafio && desafio.d.id === 'baia' ? npc.obj.localToWorld(V3().set(0, 0, BAIA.rampaFim)) : desafio && desafio.d.id === 'tiro' && alvos.length ? alvos.reduce((m, al) => (al.g.position.distanceToSquared(p) < m.distanceToSquared(p) ? al.g.position : m), alvos[0].g.position) : null;
   if (alvoPos) { let d = THREE.MathUtils.radToDeg(Math.atan2(alvoPos.x - p.x, -(alvoPos.z - p.z))) - rm; d = ((d + 540) % 360) - 180; bus.beginPath(); bus.arc(W / 2 + clamp(d, -48, 48) * 2.6, 4, 3.5, 0, 7); bus.fill(); }
   const mi = $('missao');
-  if (desafio) { mi.style.display = 'block'; mi.innerHTML = desafio.d.id === 'baia' ? `Cargueiro · <b>${Math.round(npc.pos.distanceTo(p))} m</b> · <b>${fmtT(desafio.t)}</b>` : `${desafio.d.nome} · <b>${desafio.i + 1}/${desafio.aneis.length}</b> · <b>${fmtT(desafio.t)}</b>`; } else mi.style.display = 'none';
+  if (desafio) { mi.style.display = 'block'; mi.innerHTML = desafio.d.id === 'tiro' ? `Tiro ao Alvo · <b>${desafio.total - alvos.length}/${desafio.total}</b> · <b>${fmtT(desafio.t)}</b>` : desafio.d.id === 'baia' ? `Cargueiro · <b>${Math.round(npc.pos.distanceTo(p))} m</b> · <b>${fmtT(desafio.t)}</b>` : `${desafio.d.nome} · <b>${desafio.i + 1}/${desafio.aneis.length}</b> · <b>${fmtT(desafio.t)}</b>`; } else mi.style.display = 'none';
   if (alvoPos) {
     tmpV.copy(alvoPos).project(camera); const atras = tmpV.z > 1; let x = tmpV.x, y = tmpV.y; if (atras) { x = -x; y = -y; }
     const fora = atras || Math.abs(x) > 0.92 || Math.abs(y) > 0.88;
@@ -906,7 +1000,7 @@ function abrirMenu() {
   if (estado !== 'voo') return; estado = 'menu'; document.body.classList.add('menu');
   const T = TIPOS[S.tipo];
   const avs = Object.entries(TIPOS).map(([id, t]) => `<button class="card${id === S.tipo && jog.aviao !== npc ? ' sel' : ''}" data-tipo="${id}"><b>${t.nome}</b><small>${t.desc}</small></button>`).join('') + `<button class="card${jog.aviao === npc ? ' sel' : ''}" data-gigante="1"><b>Cargueiro gigante</b><small>O NPC enorme: pilote, abra a rampa e leve aviões dentro.</small></button>`;
-  const desafios = [DESAFIO_BAIA, ...DESAFIOS].map((d) => { const r = S.recordes[d.id]; return `<button class="card" data-desafio="${d.id}"><b>${d.nome}</b><small>${d.desc}${r ? `<br>${'⭐'.repeat(r.n)} ${fmtT(r.t)}` : ''}</small></button>`; }).join('');
+  const desafios = [DESAFIO_BAIA, DESAFIO_TIRO, ...DESAFIOS].map((d) => { const r = S.recordes[d.id]; return `<button class="card" data-desafio="${d.id}"><b>${d.nome}</b><small>${d.desc}${r ? `<br>${'⭐'.repeat(r.n)} ${fmtT(r.t)}` : ''}</small></button>`; }).join('');
   const lugares = LUGARES.map((l) => `<button class="card" data-lugar="${l.id}"><b>${S.desc[l.id] ? '· ' : ''}${l.nome}</b><small>${l.desc}</small></button>`).join('');
   const pint = T.pinturas.map((p, i) => `<button class="card${i === S.pintura % T.pinturas.length ? ' sel' : ''}" data-pintura="${i}"><span class="bolinha" style="background:${p.base}"></span>${p.nome}</button>`).join('');
   const fum = CORES_FUMACA.map(([n, c], i) => `<button class="card${i === S.fumacaCor ? ' sel' : ''}" data-fumaca="${i}"><span class="bolinha" style="background:${c || 'conic-gradient(red,yellow,lime,cyan,blue,magenta,red)'}"></span>${n}</button>`).join('');
@@ -921,9 +1015,9 @@ function abrirMenu() {
     lugares: `<h3>Ir para</h3><div class="grade">${lugares}</div>`,
     visual: `<h3>Hora do dia</h3><div class="linha">${horas}</div>
     <h3>Filtro de imagem</h3><div class="linha">${FILTROS.map((f, i) => `<button class="card${i === S.filtro ? ' sel' : ''}" data-filtro="${i}">${f.nome}</button>`).join('')}</div>`,
-    opcoes: `<h3>Opções</h3><div class="linha">${op('assist', 'Ajuda de voo', S.assist)}${op('inverter', 'Controles invertidos (puxar pra trás sobe)', S.inverter)}${op('som', 'Som', S.som)}${op('foto', 'Modo foto', document.body.classList.contains('foto'))}
+    opcoes: `<h3>Opções</h3><div class="linha">${op('assist', 'Ajuda de voo', S.assist)}${op('inverter', 'Controles invertidos (puxar pra trás sobe)', S.inverter)}${op('incl', 'Pilotar inclinando o celular', S.incl)}${op('som', 'Som', S.som)}${op('foto', 'Modo foto', document.body.classList.contains('foto'))}
       <button class="card" data-op="qual">Gráficos: ${{ alta: 'Bonito', media: 'Médio', baixa: 'Rápido' }[S.qual]}</button></div>
-    <h3>Comandos</h3><small style="color:var(--sub);line-height:1.7;display:block">${TOQUE ? 'Bolinha da esquerda: manche ' + (S.inverter ? '(puxe para baixo para subir, como avião de verdade)' : '(para cima sobe)') + '; no chão/a pé: anda. Barra da direita: motor. Arraste a tela para olhar. ⇪ sai do avião — em voo você fica em cima dele com as garras ⋔. Sem garras o vento te derruba; ☂ abre o paraquedas.' : (S.inverter ? 'S sobe / W desce' : 'W sobe / S desce') + ' · A/D inclinar · Q/E leme · Shift/Ctrl motor · G trem · F flap · Espaço fumaça · B freio · X sair do avião · C câmera · T hora · H foto · Esc menu<br>A pé: WASD anda · Espaço pula/abre paraquedas · E entra · K garras'}<br>Cargueiro gigante: chegue por trás na mesma velocidade, trem baixado, e pouse na rampa.</small>`
+    <h3>Comandos</h3><small style="color:var(--sub);line-height:1.7;display:block">${TOQUE ? 'Bolinha da esquerda: manche ' + (S.inverter ? '(puxe para baixo para subir, como avião de verdade)' : '(para cima sobe)') + '; no chão/a pé: anda. Barra da direita: motor. Arraste a tela para olhar. ⇪ sai do avião — em voo você fica em cima dele com as garras ⋔. Sem garras o vento te derruba; ☂ abre o paraquedas.' : (S.inverter ? 'S sobe / W desce' : 'W sobe / S desce') + ' · A/D inclinar · Q/E leme · Shift/Ctrl motor · G trem · F flap · Espaço fumaça · B freio · X sair do avião · V atira (caças) · C câmera · T hora · H foto · Esc menu<br>A pé: WASD anda · Espaço pula/abre paraquedas · E entra · K garras'}<br>Cargueiro gigante: chegue por trás na mesma velocidade, trem baixado, e pouse na rampa.</small>`
   };
   painel.innerHTML = `<div id="topoMenu"><div id="abas" role="tablist">${ABAS.map(([id, nome]) => `<button class="aba${id === abaMenu ? ' on' : ''}" role="tab" aria-selected="${id === abaMenu}" data-aba="${id}">${nome}</button>`).join('')}</div><button id="fechar">Continuar</button></div>
     <div id="conteudoAba" role="tabpanel">${conteudo[abaMenu]}</div>`;
@@ -934,7 +1028,7 @@ painel.addEventListener('click', (e) => {
   if (d.aba) { abaMenu = d.aba; estado = 'voo'; abrirMenu(); painel.scrollTop = 0; return; }
   if (d.tipo) { S.tipo = d.tipo; S.pintura = 0; salvar(); pararDesafio(); trocarAviao(); return fecharMenu(); }
   if (d.gigante) { pararDesafio(); if (!npc.vivo) return fecharMenu(); const v = jog.aviao; if (v && v !== npc && !v.preso && !v.estacionado) v.remover(); pilotar(npc); mensagem('Pilotando o cargueiro gigante', '⊓ abre/fecha a rampa · ⇪ devolve ao piloto automático', 3); return fecharMenu(); }
-  if (d.desafio) { comecarDesafio(d.desafio === 'baia' ? DESAFIO_BAIA : DESAFIOS.find((x) => x.id === d.desafio)); return fecharMenu(); }
+  if (d.desafio) { comecarDesafio([DESAFIO_BAIA, DESAFIO_TIRO, ...DESAFIOS].find((x) => x.id === d.desafio)); return fecharMenu(); }
   if (d.parar) { pararDesafio(); return fecharMenu(); }
   if (d.lugar) { pararDesafio(); nascerLugar(LUGARES.find((x) => x.id === d.lugar)); return fecharMenu(); }
   if (d.pintura) { S.pintura = +d.pintura; salvar(); trocarAviao(); }
@@ -943,7 +1037,7 @@ painel.addEventListener('click', (e) => {
   if (d.hora) mudarHora(+d.hora);
   if (d.op === 'qual') { S.qual = { alta: 'baixa', media: 'alta', baixa: 'media' }[S.qual]; salvar(); location.reload(); return; }
   if (d.op === 'foto') { modoFoto(); return fecharMenu(); }
-  if (d.op) { S[d.op] = !S[d.op]; if (d.op === 'som') som.mudo(!S.som); }
+  if (d.op) { S[d.op] = !S[d.op]; if (d.op === 'som') som.mudo(!S.som); if (d.op === 'incl') { if (S.incl) ligarIncl(); else incl.ligado = false; } }
   salvar(); const sc = painel.scrollTop; estado = 'voo'; abrirMenu(); painel.scrollTop = sc;
 });
 function trocarAviao() { // troca o avião mantendo onde está
@@ -952,7 +1046,8 @@ function trocarAviao() { // troca o avião mantendo onde está
   const n = novoAviao(S.tipo); n.colocar(v.pos.x, v.pos.z, rumoDe(v.q), true, v.pos.y); n.pos.y = v.pos.y; n.V = Math.max(v.V, n.T.VS * 1.3);
   v.remover(); pilotar(n);
 }
-function fecharMenu() { estado = 'voo'; document.body.classList.remove('menu'); }
+function fecharMenu() { // ao voltar do menu, a posição atual do celular vira o "centro" da inclinação
+  if (incl.ligado) calibrarIncl(); estado = 'voo'; document.body.classList.remove('menu'); }
 
 // ---------- Título e aviões estacionados ----------
 $('dicas').textContent = TOQUE ? 'Bolinha da esquerda pilota · barra da direita acelera · ⇪ sai do avião' : (S.inverter ? 'S sobe, W desce' : 'W sobe, S desce') + ' · A/D inclina · Shift acelera · X sai do avião · Esc menu';
@@ -987,10 +1082,12 @@ function passo(dt) {
   if (estado === 'titulo') voarSozinho(tempo);
   else {
     const k = lerTeclado(dt);
-    const alvoP = clamp(k.p + (pilotando() && S.inverter ? -toque.p : toque.p), -1, 1), alvoR = clamp(k.r + toque.r, -1, 1), alvoY = clamp(k.y + toque.leme, -1, 1);
+    const ti = incl.ligado && pilotando(); // inclinação soma com o manche
+    const alvoP = clamp(k.p + (pilotando() && S.inverter ? -toque.p : toque.p) + (ti ? incl.p : 0), -1, 1), alvoR = clamp(k.r + toque.r + (ti ? incl.r : 0), -1, 1), alvoY = clamp(k.y + toque.leme, -1, 1);
     const av = jog.aviao;
     if (pilotando() && av) { const suave = 1 - Math.exp(-dt * (TOQUE ? 14 : 6)); av.ent.p = lerp(av.ent.p, alvoP, suave); av.ent.r = lerp(av.ent.r, alvoR, suave); av.ent.y = lerp(av.ent.y, alvoY, suave); av.ent.freio = k.freio || toque.freio; }
     else if (jog.vivo) fisicaPessoa(dt, { p: alvoP, r: alvoR });
+    if (pilotando() && av && (k.atira || toque.atira)) atirar(av, dt);
     if (toque.olha === null) { ent.olhaX *= 1 - Math.min(1, dt * 1.5); ent.olhaY *= 1 - Math.min(1, dt * 1.5); if (Math.abs(ent.olhaX) < 1e-3) ent.olhaX = 0; }
     if (!jog.vivo && (jog.morteT += dt) > 2.8) renascer();
     atualizarDesafio(dt, tempo);
@@ -999,14 +1096,16 @@ function passo(dt) {
   // todos os aviões: o cargueiro primeiro (os aviões guardados nele dependem dele), e a posição 3D atualizada logo após a física
   for (const a of [npc, ...frota.filter((f) => f !== npc)]) { atualizarAero(a, dt); a.sincronizar(); }
   if (jog.modo === 'sobre' && jog.sobre && jog.vivo) jog.pos.copy(jog.sobre.obj.localToWorld(tmpV.copy(jog.L))); // boneco acompanha o avião no mesmo quadro
+  atualizarBalas(dt);
+  for (const al of alvos) al.g.position.y = al.y0 + Math.sin(tempo * 0.8 + al.f) * 4;
   for (let i = destrocos.length - 1; i >= 0; i--) { const d = destrocos[i]; d.t += dt; d.v.y -= 9.8 * dt; d.p.addScaledVector(d.v, dt); d.m.position.copy(d.p); d.m.rotation.x += d.r.x * dt * 8; d.m.rotation.y += d.r.y * dt * 8;
     if (Math.random() < 0.3) fumaca.emitir(d.p, tmpV.set(0, 1, 0), tmpC.set(0x333333), 1, 5, 0.5, 1.5);
     if (d.p.y < Math.max(0, M.chao(d.p.x, d.p.z)) || d.t > 8) { cena.remove(d.m); destrocos.splice(i, 1); } }
 }
 function atualizarAero(a, dt) {
   if (a.P.abrir) { a.abre = clamp(a.abre + clamp((a.portaAlvo || 0) - a.abre, -dt * 0.3, dt * 0.3), 0, 1); a.P.abrir(a.abre); a.P.rampaAberta = a.abre > 0.9; }
-  if (a === npc && !a.vivo) { a.morteT = (a.morteT || 0) + dt; if (a.morteT > 8) { a.vivo = true; a.obj.visible = true; a.comPiloto = false; a.npc.blend = 0; a.portaAlvo = 1; } return; }
-  if (a === npc && !a.comPiloto) { voarNPC(a, dt); return; }
+  if (a.npc && !a.vivo) { a.morteT = (a.morteT || 0) + dt; if (a.morteT > 8) { a.vivo = true; a.obj.visible = true; a.comPiloto = false; a.npc.blend = 0; if (a === npc) a.portaAlvo = 1; } return; }
+  if (a.npc && !a.comPiloto) { voarNPC(a, dt); return; }
   if (a === titulo && estado === 'titulo') return;
   if (a.preso) { if (npc.vivo) presoNoNPC(a, dt); return; }
   if (!a.vivo) { a.morteT = (a.morteT || 0) + dt; if (a !== jog.aviao && a.morteT > 6) a.remover(); return; }
@@ -1014,6 +1113,7 @@ function atualizarAero(a, dt) {
   if (!a.comPiloto) { a.ent.p = a.ent.r = a.ent.y = 0; }
   fisica(a, dt / 2, tempo); if (a.vivo) fisica(a, dt / 2, tempo);
   checarBaia(a, dt);
+  if (a === jog.aviao && a.vivo && !a.chao) colisaoNoAr(a);
   a.estacionado = a.chao && a.V < 0.5 && !a.comPiloto && !a.preso;
 }
 function quadro(agora) {
@@ -1048,4 +1148,4 @@ document.addEventListener('visibilitychange', () => { if (document.hidden && est
 
 // testes automáticos
 const simular = (seg, e = {}) => { const a = jog.aviao; toque.p = e.p || 0; toque.r = e.r || 0; toque.leme = e.y || 0; toque.freio = !!e.freio; if (e.acel !== undefined) a.acel = e.acel; const log = []; for (let i = 0; i < seg * 60; i++) { passo(1 / 60); if (i % 60 === 0) log.push([Math.round(a.V * 3.6), Math.round(a.pos.y), a.chao ? 'chão' : 'ar', jog.modo].join(' ')); if (!jog.vivo) break; } toque.p = toque.r = toque.leme = 0; toque.freio = false; return log.join(' | ') + (jog.vivo ? '' : ' | MORREU'); };
-window.__jogo = { M, chao: (x, z) => M.chao(x, z), simular, passo, jog, npc, frota, cam, camera, comecar, mudarHora, comecarDesafio, nascerLugar, DESAFIOS, DESAFIO_BAIA, LUGARES, ent, proxCam, sair, pular, paraquedas, garras, entrar, S, horaJa: (i) => { hora = { de: i, para: i, t: 1 }; M.aplicarHora(i, i, 1); } };
+window.__jogo = { incl, M, chao: (x, z) => M.chao(x, z), simular, passo, jog, npc, frota, cam, camera, comecar, mudarHora, comecarDesafio, nascerLugar, DESAFIOS, DESAFIO_BAIA, DESAFIO_TIRO, LUGARES, ent, proxCam, sair, pular, paraquedas, garras, entrar, S, horaJa: (i) => { hora = { de: i, para: i, t: 1 }; M.aplicarHora(i, i, 1); } };

@@ -399,7 +399,7 @@ export function criarCargueiro(p = PINT_CARGA[0]) {
 // Catálogo: física de cada um
 export const TIPOS = {
   andorinha: { nome: 'Andorinha', desc: 'Acrobático leve, fácil de pilotar.', criar: (i) => criarAviao(PINTURAS[i % PINTURAS.length]), pinturas: PINTURAS, VS: 27, empuxo: 24, vmax: 85, rol: 2.6, arf: 1.5, guinada: 0.45, motor: 'helice' },
-  caca: { nome: 'Caça a jato', desc: 'Estilo F-16: rápido, rola muito, pós-combustor.', criar: (i) => criarJato(PINT_JATO[i % PINT_JATO.length]), pinturas: PINT_JATO, VS: 62, empuxo: 42, vmax: 300, rol: 4.2, arf: 1.25, guinada: 0.3, motor: 'jato' },
-  guerra: { nome: 'Caça da 2ª Guerra', desc: 'Estilo P-51: hélice grande, roda na cauda.', criar: (i) => criarWarbird(PINT_WAR[i % PINT_WAR.length]), pinturas: PINT_WAR, VS: 40, empuxo: 30, vmax: 185, rol: 2.3, arf: 1.3, guinada: 0.4, motor: 'helice' },
+  caca: { nome: 'Caça a jato', desc: 'Estilo F-16: rápido, rola muito, pós-combustor.', criar: (i) => criarJato(PINT_JATO[i % PINT_JATO.length]), pinturas: PINT_JATO, VS: 62, empuxo: 42, vmax: 300, rol: 4.2, arf: 1.25, guinada: 0.3, motor: 'jato', armas: { cadencia: 18, vel: 1050, canos: [[-0.75, 0.35, -4.6]] } }, // canhão no lado esquerdo, como no F-16
+  guerra: { nome: 'Caça da 2ª Guerra', desc: 'Estilo P-51: hélice grande, roda na cauda.', criar: (i) => criarWarbird(PINT_WAR[i % PINT_WAR.length]), pinturas: PINT_WAR, VS: 40, empuxo: 30, vmax: 185, rol: 2.3, arf: 1.3, guinada: 0.4, motor: 'helice', armas: { cadencia: 14, vel: 880, canos: [[-2.6, -0.25, -1.7], [2.6, -0.25, -1.7], [-2.9, -0.22, -1.6], [2.9, -0.22, -1.6]] } }, // metralhadoras nas asas
   cargueiro: { nome: 'Cargueiro', desc: 'Estilo C-130: 4 motores, rampa traseira.', criar: (i) => criarCargueiro(PINT_CARGA[i % PINT_CARGA.length]), pinturas: PINT_CARGA, VS: 44, empuxo: 11, vmax: 160, rol: 0.7, arf: 0.45, guinada: 0.2, motor: 'turbo' },
 };

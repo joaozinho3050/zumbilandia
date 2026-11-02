@@ -48,6 +48,15 @@ const checagens = () => {
   J.entrar(); ok('volta pro avião guardado', J.jog.aviao === a);
   document.getElementById('tSoltar').dispatchEvent(new PointerEvent('pointerdown')); J.simular(10, { acel: 1 });
   ok('solta pela rampa e voa', !a.preso && a.vivo && !a.chao);
+  // 6. tráfego aéreo voa sozinho; tiro ao alvo derruba balões
+  const tr = J.frota.filter((x) => x.trafego), t0 = tr.map((x) => x.pos.clone()); J.simular(2, {});
+  ok('tráfego aéreo voando', tr.length > 0 && tr.every((x, i) => x.vivo && x.pos.distanceTo(t0[i]) > 50), tr.length + ' aviões');
+  J.comecarDesafio(J.DESAFIO_TIRO); const c = J.jog.aviao, cena = J.M.cena;
+  const alvosVivos = () => cena.children.filter((g) => g.children.length === 2 && g.children[1].geometry?.type === 'TorusGeometry');
+  const antes = alvosVivos().length, al = alvosVivos()[0];
+  c.pos.copy(al.position).add(new V(0, 1, 250)); c.q.identity(); c.dir.set(0, 0, -1); c.V = 80; c.queda = 0; c.vAnt.set(0, 0, -80);
+  document.getElementById('tAtirar').dispatchEvent(new PointerEvent('pointerdown')); J.simular(0.6, {}); document.getElementById('tAtirar').dispatchEvent(new PointerEvent('pointerup'));
+  ok('tiro acerta o alvo', alvosVivos().length === antes - 1, `${antes} -> ${alvosVivos().length}`);
   return res;
 };
 
