@@ -677,7 +677,7 @@ function entrarPerto() { // devolve o avião mais perto que dá pra entrar
     let d;
     if (jog.modo === 'sobre') {
       if (jog.sobre === a) d = a.P.baia ? jog.L.distanceTo(a.P.entradaVoo || a.P.entrada) * a.esc - 0.6 * a.esc : 0; // em cima de avião: entra de qualquer ponto (anda até a cabine)
-      else if (jog.sobre === npc && a.preso) d = a.obj.localToWorld(tmpV.copy(a.P.saida || a.P.entrada)).distanceTo(jog.pos) - 1.0;
+      else if (jog.sobre === npc && a.preso) d = Math.min(a.obj.localToWorld(tmpV.copy(a.P.saida || a.P.entrada)).distanceTo(jog.pos) - 1.0, a.pos.distanceTo(jog.pos) - a.P.envergadura * 0.5); // perto de qualquer parte do avião guardado
       else continue;
     } else if (jog.modo === 'pe') { if (a === npc) continue; d = Math.min(a.obj.localToWorld(tmpV.copy(a.P.entrada)).distanceTo(jog.pos) - 1.5 * a.esc, a.obj.localToWorld(tmpV.copy(a.P.saida || a.P.entrada)).setY(jog.pos.y).distanceTo(jog.pos) - 0.5); }
     else continue;
@@ -813,7 +813,7 @@ function fisicaPessoa(dt, k) {
     prenderNaBaia();
     if (presos().length) { // não atravessa o avião guardado no baú
       let b = bloqueado(a.obj.localToWorld(tmpV.copy(jog.L)), a);
-      if (b && !bloqueado(a.obj.localToWorld(tmpV.copy(jog.L)), a, 0.95)) { b = null; jog.agachado = 0.25; } // passa agachado por baixo da asa
+      if (b && !bloqueado(a.obj.localToWorld(tmpV.copy(jog.L)), a, 0.8)) { b = null; jog.agachado = 0.25; } // passa agachado por baixo da asa
       if (b && !bloqueado(a.obj.localToWorld(tmpV.copy(jog.L).sub(tmpV2.set(dx, 0, dz))), a)) { jog.L.x -= dx; jog.L.z -= dz; }
       else if (b) { jog.L.x -= dx; jog.L.z -= dz; const lado = Math.sign(jog.L.x - a.obj.worldToLocal(tmpV.copy(b.pos)).x) || 1; jog.L.x += lado * 6 * dt / e; } // ficou dentro (o avião andou até ele): é empurrado pro lado
     }
@@ -1023,9 +1023,10 @@ function atualizarCamera(dt, t) {
   } else { // a pé / caindo / em cima do avião: câmera de 3ª pessoa
     const quadro = (jog.modo === 'sobre' || (jog.modo === 'trans' && jog.trans.ref)) && jog.sobre ? jog.sobre.q : null;
     const yaw = jog.camYaw + ent.olhaX * Math.PI, pit = jog.camPit + ent.olhaY;
-    const dist = jog.modo === 'paraquedas' ? 13 : jog.modo === 'queda' ? 7 : 5.5;
+    const dist = jog.modo === 'paraquedas' ? 13 : jog.modo === 'queda' ? 7 : 4.2;
     const off = tmpV2.set(Math.sin(yaw) * Math.cos(pit), Math.sin(pit), Math.cos(yaw) * Math.cos(pit)).multiplyScalar(dist);
-    const alvo = tmpV3.copy(jog.pos).add(tmpV.set(0, 1.4, 0).applyQuaternion(quadro || tmpQ.identity()));
+    const ombro = jog.modo === 'pe' || jog.modo === 'sobre' ? 0.85 : 0; // câmera por cima do ombro direito: a mira (centro) fica livre, não em cima do boneco
+    const alvo = tmpV3.copy(jog.pos).add(tmpV.set(Math.cos(yaw) * ombro, 1.55, -Math.sin(yaw) * ombro).applyQuaternion(quadro || tmpQ.identity()));
     if (quadro) off.applyQuaternion(quadro);
     camera.position.copy(alvo).add(off);
     const baia = (jog.modo === 'sobre' || jog.modo === 'trans') && jog.sobre?.P.baia && vaoDaBaia(jog.sobre, tmpV.copy(jog.L).setY(jog.L.y + 0.1)) ? jog.sobre : null;
@@ -1194,7 +1195,7 @@ acelEl.addEventListener('pointerdown', (e) => { som.iniciar(); acelEl.setPointer
 acelEl.addEventListener('pointermove', (e) => { if (acelEl.hasPointerCapture(e.pointerId)) poeAcel(e); });
 canvas.addEventListener('pointerdown', (e) => { som.iniciar(); if (estado !== 'voo' || toque.olha !== null) return; toque.olha = e.pointerId; toque.ox = e.clientX; toque.oy = e.clientY; canvas.setPointerCapture(e.pointerId); });
 canvas.addEventListener('pointermove', (e) => { if (e.pointerId !== toque.olha) return;
-  if (estado === 'voo' && !pilotando()) { jog.camYaw += (e.clientX - toque.ox) / telaW() * 1.4 * Math.PI; jog.camPit = clamp(jog.camPit + (e.clientY - toque.oy) / telaH() * 1.2, -0.25, 1.2); toque.ox = e.clientX; toque.oy = e.clientY; return; } /* a pé: a câmera gira e fica */
+  if (estado === 'voo' && !pilotando()) { jog.camYaw += (e.clientX - toque.ox) / telaW() * 1.4 * Math.PI; jog.camPit = clamp(jog.camPit + (e.clientY - toque.oy) / telaH() * 1.2 * (S.inverter ? -1 : 1), -0.25, 1.2); toque.ox = e.clientX; toque.oy = e.clientY; return; } /* a pé: a câmera gira e fica */
   ent.olhaX = clamp(ent.olhaX + (e.clientX - toque.ox) / telaW() * 1.4, -1, 1); ent.olhaY = clamp(ent.olhaY + (e.clientY - toque.oy) / telaH(), -0.6, 0.6); toque.ox = e.clientX; toque.oy = e.clientY; });
 const soltaOlha = (e) => { if (e.pointerId === toque.olha) toque.olha = null; };
 canvas.addEventListener('pointerup', soltaOlha); canvas.addEventListener('pointercancel', soltaOlha);
