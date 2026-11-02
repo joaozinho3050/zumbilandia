@@ -42,7 +42,7 @@ const checagens = () => {
   for (let i = 0; i < 300 && !a.preso && a.vivo; i++) { const Lc = n.obj.worldToLocal(a.pos.clone()); J.simular(1 / 60, { p: Math.max(-0.2, Math.min(0.2, ((-1.25 + 1.93 / e) - Lc.y) * e * 0.05)) * (J.S.inverter ? -1 : 1), r: Math.max(-0.3, Math.min(0.3, -Lc.x * e * 0.03)), acel: 0.3 }); }
   ok('entra no cargueiro voando', a.preso && a.vivo);
   J.simular(8, {}); J.sair(); J.passo(1 / 60); ok('sai dentro do baú', J.jog.modo === 'sobre' && J.jog.sobre === n);
-  J.jog.L.copy(n.P.entrada).add(new V(0, 0, 0.5 / e)); J.entrar(); ok('pilota o cargueiro', J.jog.aviao === n && J.jog.modo === 'piloto');
+  J.jog.L.copy(n.P.entrada).add(new V(0, 0, 0.5 / e)); J.entrar(); for (let i = 0; i < 90; i++) J.passo(1 / 60); ok('pilota o cargueiro (pela portinha)', J.jog.aviao === n && J.jog.modo === 'piloto');
   J.simular(3, { r: 0.4 }); J.sair(); ok('piloto automático assume', !n.comPiloto && J.jog.modo === 'sobre');
   J.jog.L.copy(n.obj.worldToLocal(a.obj.localToWorld(a.P.saida.clone()))); J.jog.L.y = -1.25; J.passo(1 / 60); // caminha até o avião
   J.entrar(); ok('volta pro avião guardado', J.jog.aviao === a);

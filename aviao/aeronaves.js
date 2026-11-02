@@ -310,26 +310,61 @@ export function criarCargueiro(p = PINT_CARGA[0]) {
     linhasPainel(g, Y, W, [-11.2, -8, -5, -2, 1, 3.5], 0.2);
     textoLado(g, W, Y, -3.5, 'FORÇA AÉREA', p.faixa, 46, 0.03); textoLado(g, W, Y, 1.8, '2451', p.faixa, 56, 0.03);
   });
-  const corpo = corpoTorno(rf, Z0, Z1, 40, 40, 1, 1, mat('#fff', 0.6, 0.15, { map: tex, side: THREE.DoubleSide })); A.add(corpo);
+  const corpo = corpoTorno(rf, Z0, Z1, 40, 40, 1, 1, mat('#fff', 0.6, 0.15, { map: tex })); A.add(corpo); // só a face de fora: de dentro se vê o revestimento
   // cauda levantada: casca só por cima/lados, aberta embaixo (onde ficam rampa e porta)
   { const N = 10, seg = 28, abre = Math.PI / 3, pos = [], idx = [];
     for (let i = 0; i <= N; i++) { const t = i / N, z = BAIA.fim + t * 10.4, r = R * (1 - t * 0.78), yc = t * t * 0.6 + t * 1.0;
       for (let j = 0; j <= seg; j++) { const a = -Math.PI / 2 + abre + j / seg * (2 * Math.PI - 2 * abre); pos.push(Math.cos(a) * r, yc + Math.sin(a) * r, z); } }
     for (let i = 0; i < N; i++) for (let j = 0; j < seg; j++) { const a = i * (seg + 1) + j, b = a + 1, c = a + seg + 1, d = c + 1; idx.push(a, b, c, b, d, c); }
     const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setIndex(idx); g.computeVertexNormals();
-    const cs = new THREE.Mesh(g, mat(p.base, 0.6, 0.15, { side: THREE.DoubleSide })); cs.castShadow = true; cs.userData.fixo = false; A.add(cs);
+    const cs = new THREE.Mesh(g, mat(p.base, 0.6, 0.15, { side: THREE.FrontSide })); cs.castShadow = true; cs.userData.fixo = false; A.add(cs);
+    const csInt = new THREE.Mesh(g, mat('#5a6553', 0.9, 0.05, { side: THREE.BackSide })); csInt.userData.fixo = false; A.add(csInt); // lado de dentro da cauda
     const ponta = new THREE.Mesh(new THREE.SphereGeometry(R * 0.22, 12, 8), mB); ponta.position.set(0, 1.6, BAIA.fim + 10.4); A.add(ponta); }
-  // interior: piso com trilhos, costelas, bancos vermelhos, caixas e luz verde de salto
-  const piso = new THREE.Mesh(new THREE.BoxGeometry(BAIA.meia * 2, 0.12, BAIA.fim - BAIA.frente), mPiso); piso.position.set(0, BAIA.piso - 0.06, (BAIA.fim + BAIA.frente) / 2); A.add(piso);
-  for (const x of [-0.9, 0.9]) { const tr = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.05, BAIA.fim - BAIA.frente), mMet); tr.position.set(x, BAIA.piso + 0.02, (BAIA.fim + BAIA.frente) / 2); A.add(tr); }
-  for (let z = BAIA.frente + 0.8; z < BAIA.fim; z += 1.4) { const c = new THREE.Mesh(new THREE.TorusGeometry(R - 0.12, 0.06, 4, 24, Math.PI * 1.4), mInt); c.position.z = z; c.rotation.z = -Math.PI * 0.2; c.material = mat('#6c7868', 0.8); A.add(c); }
-  const parede = new THREE.Mesh(new THREE.CircleGeometry(R - 0.05, 24), mat('#4f5a4c', 0.9)); parede.position.z = BAIA.frente; A.add(parede);
-  for (const s of [-1, 1]) { const b = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.05, 10), mat('#6e2a2a', 0.9)); b.position.set(s * 1.45, -0.75, -3.5); A.add(b);
-    const rede = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.9, 10), mat('#7a2020', 0.9, 0, { wireframe: true })); rede.position.set(s * 1.62, -0.2, -3.5); A.add(rede); }
-  for (const [z, w, h] of [[-7.5, 1.6, 1.2], [-5.6, 1.2, 0.9]]) { const cx = new THREE.Mesh(new THREE.BoxGeometry(w, h, 1.4), mat('#8a6a3e', 0.9)); cx.position.set(0, BAIA.piso + h / 2, z); A.add(cx);
-    const cinta = new THREE.Mesh(new THREE.BoxGeometry(w + 0.04, h + 0.04, 0.08), mat('#c49a1a', 0.8)); cinta.position.copy(cx.position); A.add(cinta); }
-  const luzSalto = brilho('#40ff70', 0.9); luzSalto.position.set(1.2, 0.6, BAIA.fim - 0.3); A.add(luzSalto); parts.luzSalto = luzSalto;
-  const luzInt = brilho('#ff5040', 2.5); luzInt.position.set(0, 1.5, -2); A.add(luzInt);
+  // interior: revestimento acolchoado, costelas, piso com faixas, luzes no teto, caixas nas laterais e a portinha da cabine
+  const B = BAIA, comp = B.fim - B.frente, meioZ = (B.fim + B.frente) / 2;
+  { const c = document.createElement('canvas'); c.width = 256; c.height = 128; const g = c.getContext('2d');
+    g.fillStyle = '#6b7663'; g.fillRect(0, 0, 256, 128);
+    for (let x = 0; x < 256; x += 32) for (let y = 0; y < 128; y += 32) { g.fillStyle = (x + y) % 64 ? '#727d69' : '#66705e'; g.fillRect(x + 2, y + 2, 28, 28); } // painéis de isolamento
+    g.fillStyle = 'rgba(0,0,0,.35)'; for (let x = 0; x < 256; x += 32) g.fillRect(x, 0, 2, 128);
+    const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(8, comp / 1.2);
+    const gl = new THREE.CylinderGeometry(R - 0.08, R - 0.08, comp, 36, 1, true); gl.rotateX(Math.PI / 2);
+    const forro = new THREE.Mesh(gl, mat('#fff', 0.95, 0, { map: t, side: THREE.BackSide })); forro.position.z = meioZ; forro.userData.fixo = false; A.add(forro); }
+  const mRib = mat('#59644f', 0.8, 0.1);
+  for (let z = B.frente + 0.8; z < B.fim; z += 1.4) { const c = new THREE.Mesh(new THREE.TorusGeometry(R - 0.14, 0.07, 4, 24, Math.PI * 1.45), mRib); c.position.z = z; c.rotation.z = -Math.PI * 0.225; A.add(c); }
+  // piso: chapa escura com faixas amarelas de segurança nas bordas e setas para a frente
+  { const c = document.createElement('canvas'); c.width = 128; c.height = 256; const g = c.getContext('2d');
+    g.fillStyle = '#4c4f53'; g.fillRect(0, 0, 128, 256); g.fillStyle = 'rgba(255,255,255,.05)'; for (let y = 0; y < 256; y += 8) g.fillRect(0, y, 128, 1);
+    g.fillStyle = '#e8c21e'; g.fillRect(0, 0, 9, 256); g.fillRect(119, 0, 9, 256);
+    g.fillStyle = 'rgba(232,194,30,.55)'; g.beginPath(); g.moveTo(64, 70); g.lineTo(94, 110); g.lineTo(80, 110); g.lineTo(64, 89); g.lineTo(48, 110); g.lineTo(34, 110); g.fill();
+    const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.wrapT = THREE.RepeatWrapping; t.repeat.set(1, comp / 3); t.anisotropy = 4;
+    const piso = new THREE.Mesh(new THREE.BoxGeometry(B.meia * 2, 0.12, comp), [mPiso, mPiso, mat('#fff', 0.8, 0.3, { map: t }), mPiso, mPiso, mPiso]); piso.position.set(0, B.piso - 0.06, meioZ); A.add(piso); }
+  for (const x of [-0.9, 0.9]) { const tr = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.04, comp), mMet); tr.position.set(x, B.piso + 0.02, meioZ); A.add(tr); }
+  for (const s2 of [-1, 1]) { // rodapé: tampa o vão entre o piso e a parede curva
+    const r = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.5, comp), mat('#4f584a', 0.9)); r.position.set(s2 * (B.meia + 0.15), B.piso + 0.2, meioZ); A.add(r);
+    const b = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.06, comp * 0.55), mat('#7a2b2b', 0.9)); b.position.set(s2 * (B.meia - 0.1), B.piso + 0.5, meioZ - comp * 0.15); A.add(b); // banco de lona
+    for (const [z, w, h] of [[B.frente + 1.4, 0.7, 0.8], [B.frente + 2.4, 0.6, 0.6]]) { // caixas presas na lateral, fora do caminho
+      const cx = new THREE.Mesh(new THREE.BoxGeometry(w, h, 0.9), mat('#8a6a3e', 0.9)); cx.position.set(s2 * (B.meia - w / 2 - 0.05), B.piso + h / 2, z); A.add(cx);
+      const ci = new THREE.Mesh(new THREE.BoxGeometry(w + 0.03, 0.06, 0.93), mat('#c49a1a', 0.8)); ci.position.copy(cx.position); A.add(ci); }
+  }
+  // luzes no teto (faixas que brilham) ao longo do baú
+  const mLuz = new THREE.MeshBasicMaterial({ color: 0xfff1d0 });
+  for (let z = B.frente + 1.2; z < B.fim - 0.5; z += 2.2) { const l = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.03, 0.9), mLuz); l.position.set(0, R - 0.2, z); A.add(l); }
+  // parede da frente com a portinha da cabine
+  const mParede = mat('#59644f', 0.85, 0.1);
+  const parede = new THREE.Mesh(new THREE.CircleGeometry(R - 0.05, 32), mParede); parede.position.z = B.frente; A.add(parede);
+  const moldura = new THREE.Mesh(new THREE.BoxGeometry(0.95, 1.95, 0.06), mat('#e8c21e', 0.6)); moldura.position.set(0, B.piso + 0.97, B.frente + 0.02); A.add(moldura);
+  const vao = new THREE.Mesh(new THREE.PlaneGeometry(0.8, 1.85), new THREE.MeshBasicMaterial({ color: 0x0e1012 })); vao.position.set(0, B.piso + 0.93, B.frente + 0.055); A.add(vao);
+  const portinha = new THREE.Group(); portinha.position.set(0.4, B.piso + 0.93, B.frente + 0.07); A.add(portinha); // gira na dobradiça da direita
+  { const pf = new THREE.Mesh(new THREE.BoxGeometry(0.8, 1.83, 0.05).translate(-0.4, 0, 0), mat('#7c8873', 0.6, 0.3)); portinha.add(pf);
+    const jan = new THREE.Mesh(new THREE.CircleGeometry(0.13, 16), mat('#9cc8e6', 0.05, 0.8)); jan.position.set(-0.4, 0.45, 0.03); portinha.add(jan);
+    const mac = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.04, 0.05), mMet); mac.position.set(-0.68, 0, 0.05); portinha.add(mac); }
+  parts.portinha = portinha;
+  { const c = document.createElement('canvas'); c.width = 256; c.height = 64; const g = c.getContext('2d'); g.fillStyle = '#123a1c'; g.fillRect(0, 0, 256, 64);
+    g.fillStyle = '#7dffa0'; g.font = 'bold 40px sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('▲ CABINE', 128, 34);
+    const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace;
+    const placa = new THREE.Mesh(new THREE.PlaneGeometry(0.8, 0.2), new THREE.MeshBasicMaterial({ map: t })); placa.position.set(0, B.piso + 2.15, B.frente + 0.06); A.add(placa); }
+  const luzPorta = brilho('#40ff70', 0.7); luzPorta.position.set(0, B.piso + 2.35, B.frente + 0.1); A.add(luzPorta);
+  const luzSalto = brilho('#40ff70', 0.9); luzSalto.position.set(1.2, 0.6, B.fim - 0.3); A.add(luzSalto); parts.luzSalto = luzSalto;
   // rampa (abre para baixo até ficar reta) e porta de cima (sobe para dentro da cauda)
   const rampa = new THREE.Group(); rampa.position.set(0, BAIA.piso - 0.06, BAIA.fim); A.add(rampa);
   const gR = new THREE.BoxGeometry(BAIA.meia * 2 + 0.3, 0.16, 4.7); gR.translate(0, 0, 2.35); const rm = new THREE.Mesh(gR, mB); rm.castShadow = true; rampa.add(rm);
@@ -344,9 +379,9 @@ export function criarCargueiro(p = PINT_CARGA[0]) {
   parts.helices = [];
   for (const lado of [1, -1]) {
     const map = lado > 0 ? mapD : mapE, fx = (g) => (lado > 0 ? g : flipGeo(g)), stA = est(asa);
-    A.add(sombra(new THREE.Mesh(fx(loft(stA(0.2, 20.2, 8), perfil(0, H, 14, 0.16), map)), mB)));
+    A.add(sombra(new THREE.Mesh(fx(loft(stA(0.85, 20.2, 8), perfil(0, H, 14, 0.16), map)), mB)));
     const hinge = (s) => { const a = asa(s); return new THREE.Vector3(lado * s, a.y, a.le + H * a.c); };
-    const flap = articulada(fx(loft(stA(0.5, 13.5, 3), perfil(H, 1, 5, 0.16), map)), mB, hinge(0.5), hinge(13.5));
+    const flap = articulada(fx(loft(stA(0.9, 13.5, 3), perfil(H, 1, 5, 0.16), map)), mB, hinge(0.9), hinge(13.5));
     const ail = articulada(fx(loft(stA(13.5, 20.0, 2), perfil(H, 1, 5, 0.16), map)), mE, hinge(13.5), hinge(20.0));
     A.add(flap, ail); parts[lado > 0 ? 'flapD' : 'flapE'] = flap; parts[lado > 0 ? 'ailD' : 'ailE'] = ail;
     for (const xm of [5.2, 10.0]) {
@@ -366,7 +401,7 @@ export function criarCargueiro(p = PINT_CARGA[0]) {
     parts[lado > 0 ? 'profD' : 'profE'] = prof;
   }
   // carenagem da asa no topo
-  const car = new THREE.Mesh(new THREE.SphereGeometry(1, 20, 10), mB); car.scale.set(1.4, 0.6, 4.2); car.position.set(0, R - 0.1, -0.8); A.add(car);
+  const car = new THREE.Mesh(new THREE.SphereGeometry(1, 20, 10), mB); car.scale.set(1.4, 0.33, 4.2); car.position.set(0, R + 0.25, -0.8); A.add(car);
   const der = (s) => { const t = (s - 1.4) / 7.6; return { s, le: 8.2 + t * 4.4, c: 6.2 - t * 3.2, y: 0 }; };
   A.add(sombra(new THREE.Mesh(flipGeo(loft(est(der)(1.4, 9.0, 4), perfil(0, 0.65, 10, 0.12), mapV)), mB)));
   const hd = (s) => { const a = der(s); return new THREE.Vector3(0, s, a.le + 0.65 * a.c); };
@@ -381,7 +416,7 @@ export function criarCargueiro(p = PINT_CARGA[0]) {
   const pil = criarPiloto('classico'); pil.position.set(-0.7, 0.85, -12.0); A.add(pil); parts.piloto = pil; parts.cachecol = pil.userData.cachecol;
   const pil2 = criarPiloto('classico'); pil2.position.set(0.7, 0.85, -12.0); A.add(pil2);
   painelVivo(A, parts, new THREE.Vector3(-0.7, 1.15, -13.0), -0.25, 0.9);
-  parts.cauda = new THREE.Vector3(0, 1.5, BAIA.fim + 10.5); parts.entrada = new THREE.Vector3(-2.4, -1.0, -10); parts.envergadura = 40.4; parts.raioCorpo = 2.2; parts.saida = new THREE.Vector3(-3.8, 0, -10); parts.entradaVoo = new THREE.Vector3(0, BAIA.piso, BAIA.frente + 0.6);
+  parts.cauda = new THREE.Vector3(0, 1.5, BAIA.fim + 10.5); parts.entrada = new THREE.Vector3(-2.4, -1.0, -10); parts.envergadura = 40.4; parts.raioCorpo = 2.2; parts.saida = new THREE.Vector3(-3.8, 0, -10); parts.entradaVoo = new THREE.Vector3(0, BAIA.piso, BAIA.frente + 0.35); // a portinha da cabine
   parts.superficies = (x, z) => {
     const ax = Math.abs(x), r = [];
     if (ax < 1.0 && z > -12 && z < BAIA.fim) r.push(R);

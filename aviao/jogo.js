@@ -474,7 +474,7 @@ function entrarPerto() { // devolve o avião mais perto que dá pra entrar
     if (!a.vivo) continue;
     let d;
     if (jog.modo === 'sobre') {
-      if (jog.sobre === a) d = jog.L.distanceTo(a.P.entradaVoo || a.P.entrada) * a.esc;
+      if (jog.sobre === a) d = jog.L.distanceTo(a.P.entradaVoo || a.P.entrada) * a.esc - (a.P.baia ? 0.6 * a.esc : 0); // portinha larga
       else if (jog.sobre === npc && a.preso) d = a.obj.localToWorld(tmpV.copy(a.P.saida || a.P.entrada)).distanceTo(jog.pos) - 1.0;
       else continue;
     } else if (jog.modo === 'pe') { if (a === npc) continue; d = Math.min(a.obj.localToWorld(tmpV.copy(a.P.entrada)).distanceTo(jog.pos) - 1.5 * a.esc, a.obj.localToWorld(tmpV.copy(a.P.saida || a.P.entrada)).setY(jog.pos.y).distanceTo(jog.pos) - 0.5); }
@@ -486,6 +486,11 @@ function entrarPerto() { // devolve o avião mais perto que dá pra entrar
 function entrar() {
   const a = entrarPerto(); if (!a) return;
   const nome = a === npc ? 'Cargueiro gigante' : a.T.nome;
+  if (jog.modo === 'sobre' && jog.sobre === a && a.P.baia) { // cargueiro: atravessa a portinha da cabine
+    jog.modo = 'trans'; jog.trans = { ref: a, deL: jog.L.clone(), paraL: V3().copy(a.P.entradaVoo || a.P.entrada).add(tmpV.set(0, 0, -0.6)), t: 0, dur: 1.1,
+      fim: () => { pilotar(a); mensagem('Pilotando: ' + nome, '⊓ rampa · ⇪ volta pro baú' + (a === npc ? ' (piloto automático assume)' : ''), 2.5); } };
+    return;
+  }
   if (jog.modo === 'sobre') { pilotar(a); return mensagem('Pilotando: ' + nome, a === npc ? '⊓ rampa · ⇪ devolve ao piloto automático' : '', 2.2); } // em movimento: entra direto
   // anima o boneco subindo até a cabine
   jog.modo = 'trans'; jog.trans = { de: jog.pos.clone(), a, t: 0, dur: 0.7, arco: 0.9, fim: () => { pilotar(a); mensagem('Pilotando: ' + nome, a === npc ? 'Botão ⇪ devolve ao piloto automático' : '', 2); } };
@@ -515,6 +520,10 @@ function fisicaPessoa(dt, k) {
   };
   if (jog.modo === 'trans') { // subindo/descendo da cabine
     const T = jog.trans; T.t += dt / T.dur; const u = Math.min(1, T.t), s = u * u * (3 - 2 * u);
+    if (T.ref) { // andando dentro de um avião em movimento: tudo no referencial dele
+      jog.L.copy(T.deL).lerp(T.paraL, s); jog.rapidez = 1.6; const d = tmpV.copy(T.paraL).sub(T.deL); jog.yaw = Math.atan2(-d.x, -d.z);
+      jog.pos.copy(T.ref.obj.localToWorld(tmpV.copy(jog.L))); if (u >= 1) T.fim(); return;
+    }
     const para = T.para || T.a.obj.localToWorld(tmpV3.copy(T.a.P.entrada));
     jog.pos.copy(T.de).lerp(para, s); jog.pos.y += Math.sin(u * Math.PI) * T.arco; jog.rapidez = 0;
     const d = tmpV.copy(para).sub(T.de); if (d.lengthSq() > 0.01) jog.yaw = Math.atan2(-d.x, -d.z);
@@ -729,14 +738,19 @@ function atualizarCamera(dt, t) {
       fov = clamp(THREE.MathUtils.radToDeg(2 * Math.atan(14 * e / Math.max(d, 1))), 8, 60); camera.near = 1;
     }
   } else { // a pé / caindo / em cima do avião: câmera de 3ª pessoa
-    const quadro = jog.modo === 'sobre' && jog.sobre ? jog.sobre.q : null;
+    const quadro = (jog.modo === 'sobre' || (jog.modo === 'trans' && jog.trans.ref)) && jog.sobre ? jog.sobre.q : null;
     const yaw = jog.camYaw + ent.olhaX * Math.PI, pit = 0.28 + ent.olhaY;
     const dist = jog.modo === 'paraquedas' ? 13 : jog.modo === 'queda' ? 7 : 5.5;
     const off = tmpV2.set(Math.sin(yaw) * Math.cos(pit), Math.sin(pit), Math.cos(yaw) * Math.cos(pit)).multiplyScalar(dist);
     const alvo = tmpV3.copy(jog.pos).add(tmpV.set(0, 1.4, 0).applyQuaternion(quadro || tmpQ.identity()));
     if (quadro) off.applyQuaternion(quadro);
     camera.position.copy(alvo).add(off);
-    for (let i = 0; i < 6 && (dentroDeAviao(camera.position) || M.dentroObst(camera.position)); i++) { off.multiplyScalar(0.72); camera.position.copy(alvo).add(off); } // não atravessa asa/fuselagem
+    const baia = (jog.modo === 'sobre' || jog.modo === 'trans') && jog.sobre?.P.baia && vaoDaBaia(jog.sobre, tmpV.copy(jog.L).setY(jog.L.y + 0.1)) ? jog.sobre : null;
+    if (baia) { // dentro do baú: câmera presa entre paredes, piso e teto (não sai pela lateral)
+      const Lc = baia.obj.worldToLocal(tmpV.copy(camera.position)), B = BAIA;
+      Lc.x = clamp(Lc.x, -B.meia + 0.25, B.meia - 0.25); Lc.y = clamp(Lc.y, B.piso + 0.4, B.raio - 0.45); Lc.z = clamp(Lc.z, B.frente + 0.3, baia.abre > 0.9 ? B.rampaFim + 3 : B.fim - 0.3);
+      camera.position.copy(baia.obj.localToWorld(Lc));
+    } else for (let i = 0; i < 6 && (dentroDeAviao(camera.position) || M.dentroObst(camera.position)); i++) { off.multiplyScalar(0.72); camera.position.copy(alvo).add(off); } // não atravessa asa/fuselagem
     camera.up.copy(quadro ? tmpV.set(0, 1, 0).applyQuaternion(quadro).lerp(EY, 0.4).normalize() : EY);
     camera.lookAt(alvo); camera.near = 0.2; fov = 62 + (jog.modo === 'queda' ? clamp(jog.vel.length() / 55, 0, 1) * 14 : 0);
     if (jog.modo !== 'sobre' && ent.olhaX === 0 && Math.hypot(jog.vel.x, jog.vel.z) > 1) jog.camYaw = lerpAng(jog.camYaw, jog.yaw, 1 - Math.exp(-dt * 0.8));
@@ -775,6 +789,8 @@ function animarAero(a, dt, t, perto) {
   for (const s of [P.navD, P.navE, P.luzCauda]) s.scale.setScalar(s.userData.tam * (0.35 + noite * 1.2));
   P.beacon.scale.setScalar(P.beacon.userData.tam * Math.max(0, Math.sin(t * 6 + a.seed)) ** 4 * (0.5 + noite));
   if (P.luzSalto) P.luzSalto.visible = a.abre > 0.95;
+  if (P.portinha) { const porta = P.entradaVoo || P.entrada, junto = jog.sobre === a && (jog.modo === 'sobre' || jog.modo === 'trans') && jog.L.distanceTo(porta) < 1.4;
+    a.portCab = clamp((a.portCab || 0) + (junto ? dt : -dt) * 2.5, 0, 1); P.portinha.rotation.y = -a.portCab * 1.7; }
   P.lampFarol.visible = noite > 0.3 && a.trem > 0.5;
 }
 function efeitosJogador(a, dt, t) {
@@ -1095,7 +1111,7 @@ function passo(dt) {
   }
   // todos os aviões: o cargueiro primeiro (os aviões guardados nele dependem dele), e a posição 3D atualizada logo após a física
   for (const a of [npc, ...frota.filter((f) => f !== npc)]) { atualizarAero(a, dt); a.sincronizar(); }
-  if (jog.modo === 'sobre' && jog.sobre && jog.vivo) jog.pos.copy(jog.sobre.obj.localToWorld(tmpV.copy(jog.L))); // boneco acompanha o avião no mesmo quadro
+  if ((jog.modo === 'sobre' || (jog.modo === 'trans' && jog.trans.ref)) && jog.sobre && jog.vivo) jog.pos.copy(jog.sobre.obj.localToWorld(tmpV.copy(jog.L))); // boneco acompanha o avião no mesmo quadro
   atualizarBalas(dt);
   for (const al of alvos) al.g.position.y = al.y0 + Math.sin(tempo * 0.8 + al.f) * 4;
   for (let i = destrocos.length - 1; i >= 0; i--) { const d = destrocos[i]; d.t += dt; d.v.y -= 9.8 * dt; d.p.addScaledVector(d.v, dt); d.m.position.copy(d.p); d.m.rotation.x += d.r.x * dt * 8; d.m.rotation.y += d.r.y * dt * 8;
@@ -1126,9 +1142,9 @@ function quadro(agora) {
   if (jog.aviao) efeitosJogador(jog.aviao, dt, tempo);
   if (jog.modo !== 'piloto' && jog.vivo) {
     pessoa.obj.position.copy(jog.pos);
-    if (jog.modo === 'sobre' && jog.sobre) { pessoa.obj.quaternion.copy(jog.sobre.q).multiply(tmpQ.setFromAxisAngle(EY, jog.yaw)); }
+    if ((jog.modo === 'sobre' || (jog.modo === 'trans' && jog.trans.ref)) && jog.sobre) { pessoa.obj.quaternion.copy(jog.sobre.q).multiply(tmpQ.setFromAxisAngle(EY, jog.yaw)); }
     else pessoa.obj.quaternion.setFromAxisAngle(EY, jog.yaw);
-    const pose = jog.modo === 'trans' ? 'subindo' : jog.poucoT > 0 && (jog.modo === 'pe' || jog.modo === 'sobre') ? 'pouso' : jog.modo === 'pe' && !jog.noChao ? 'pulo' : jog.modo;
+    const pose = jog.modo === 'trans' ? (jog.trans.ref ? 'pe' : 'subindo') : jog.poucoT > 0 && (jog.modo === 'pe' || jog.modo === 'sobre') ? 'pouso' : jog.modo === 'pe' && !jog.noChao ? 'pulo' : jog.modo;
     animarPessoa(pessoa, pose, jog.rapidez, tempo, dt, jog.garras, jog.vento);
   }
   if (estado === 'voo' && !window.__camLivre) atualizarCamera(dt, tempo);
