@@ -1,7 +1,6 @@
 // Cenário: céu, luz, terreno, mar, árvores, aeroporto, vila, balões, farol, barcos, pássaros, nuvens.
-import * as THREE from '../lib/three.module.min.js';
+import * as THREE from 'three';
 import { MUNDO, PISTA, LAGO, ATOL, FAROL, LUGARES, terreno, corChao, fbm, rng, clamp, lerp, smooth } from './mundo.js';
-import { criarAviao, PINTURAS } from './aviao3d.js';
 
 const C = (h) => new THREE.Color(h);
 export const HORAS = [
@@ -186,11 +185,6 @@ export function criarCenario(renderer, Q) {
     const meia = new THREE.Mesh(ge, new THREE.MeshLambertMaterial({ map: tx, side: THREE.DoubleSide })); meia.position.y = 6.8; b.add(meia);
     out.animar.push((t) => { meia.rotation.y = 0.6 + Math.sin(t * 0.7) * 0.15; meia.rotation.z = -0.15 + Math.sin(t * 3.1) * 0.05; });
     cena.add(b); }
-  // aviões estacionados
-  for (const [z, pi] of [[230, 1], [270, 2], [-80, 4]]) {
-    const a = criarAviao(PINTURAS[pi], false); a.position.set(PISTA.x + 165, PISTA.h + a.userData.parts.alturaTrem, z); a.rotation.y = Math.PI / 2 + 0.3;
-    a.userData.parts.disco.visible = false; a.userData.parts.farol.visible = false; cena.add(a);
-  }
   // luzes da pista (só aparecem à noite)
   const luzesNoite = [];
   { const ps = [], cs = [];

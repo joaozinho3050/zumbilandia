@@ -1,6 +1,6 @@
 // Modelo 3D do avião "Andorinha": tudo feito em código, com peças móveis.
 // Frente = -Z, cima = +Y, direita = +X. Origem ~ centro de gravidade.
-import * as THREE from '../lib/three.module.min.js';
+import * as THREE from 'three';
 
 export const PINTURAS = [
   { nome: 'Clássico', base: '#f3ead8', acc: '#c8282e', faixa: '#1d2b4a', barriga: '#e2d6bd', ponta: '#f2c230' },
@@ -68,7 +68,7 @@ function texturaCorpo(p) {
 }
 
 // Perfil de asa (NACA 2412 simplificado). Devolve pontos (x corda 0..1, y) fechados entre x0 e x1.
-function perfil(x0, x1, n = 12, tc = 0.13) {
+export function perfil(x0, x1, n = 12, tc = 0.13) {
   const th = (x) => 5 * tc * (0.2969 * Math.sqrt(x) - 0.126 * x - 0.3516 * x * x + 0.2843 * x ** 3 - 0.1036 * x ** 4);
   const cam = (x) => (x < 0.4 ? 0.02 / 0.16 * (0.8 * x - x * x) : 0.02 / 0.36 * (0.2 + 0.8 * x - x * x));
   const xs = []; for (let i = 0; i <= n; i++) { const s = (1 - Math.cos(Math.PI * i / n)) / 2; xs.push(x0 + (x1 - x0) * s); }
@@ -78,7 +78,7 @@ function perfil(x0, x1, n = 12, tc = 0.13) {
   return pts;
 }
 // Superfície tipo asa: estações {s, le, c, y}; map(s, z, y) -> [x,y,z]. Fecha as pontas.
-function loft(stations, pts, map) {
+export function loft(stations, pts, map) {
   const pos = [], idx = [], P = pts.length;
   for (const st of stations) for (const [cx, cy] of pts) pos.push(...map(st.s, st.le + cx * st.c, st.y + cy * st.c));
   for (let i = 0; i < stations.length - 1; i++) for (let j = 0; j < P; j++) {
@@ -92,10 +92,10 @@ function loft(stations, pts, map) {
   const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setIndex(idx);
   g.computeVertexNormals(); return g;
 }
-const flipGeo = (g) => { const i = g.index.array; for (let k = 0; k < i.length; k += 3) { const t = i[k]; i[k] = i[k + 1]; i[k + 1] = t; } g.computeVertexNormals(); return g; };
+export const flipGeo = (g) => { const i = g.index.array; for (let k = 0; k < i.length; k += 3) { const t = i[k]; i[k] = i[k + 1]; i[k + 1] = t; } g.computeVertexNormals(); return g; };
 
 // Peça móvel (aileron, profundor, leme): gira em volta da linha de dobradiça
-function articulada(geo, mat, a, b) {
+export function articulada(geo, mat, a, b) {
   const piv = new THREE.Group(); piv.position.copy(a);
   geo.translate(-a.x, -a.y, -a.z);
   const m = new THREE.Mesh(geo, mat); m.castShadow = true; piv.add(m);
@@ -104,7 +104,7 @@ function articulada(geo, mat, a, b) {
   return piv;
 }
 
-function brilho(cor, tam) { // bolinha de luz (sprite aditivo)
+export function brilho(cor, tam) { // bolinha de luz (sprite aditivo)
   const c = document.createElement('canvas'); c.width = c.height = 64; const g = c.getContext('2d');
   const gr = g.createRadialGradient(32, 32, 0, 32, 32, 32); gr.addColorStop(0, '#fff'); gr.addColorStop(0.2, cor); gr.addColorStop(1, 'rgba(0,0,0,0)');
   g.fillStyle = gr; g.fillRect(0, 0, 64, 64);
@@ -236,21 +236,7 @@ export function criarAviao(pintura = PINTURAS[0], comPainel = true) {
   for (const z of [-0.95, 0.15]) { const t = new THREE.Mesh(new THREE.TorusGeometry(1, 0.035, 6, 24, Math.PI), mEscuro); const k = Math.sqrt(1 - ((z + 0.25) / 1.55) ** 2); t.scale.set(0.56 * k, 0.52 * k, 1); t.position.set(0, 0.62, z); A.add(t); }
   const trilho = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.03, 2.9), mEscuro); trilho.position.set(0, 1.14, -0.25); A.add(trilho);
   // piloto
-  const pil = new THREE.Group(); pil.position.set(0, 0.62, -0.05); A.add(pil); parts.piloto = pil;
-  const jaq = new THREE.MeshStandardMaterial({ color: 0x6b4226, roughness: 0.8 });
-  const torso = new THREE.Mesh(new THREE.SphereGeometry(0.26, 14, 10), jaq); torso.scale.set(1.05, 1.1, 0.75); pil.add(torso);
-  const cabeca = new THREE.Mesh(new THREE.SphereGeometry(0.15, 16, 12), new THREE.MeshStandardMaterial({ color: 0xd9a27a, roughness: 0.7 })); cabeca.position.y = 0.36; pil.add(cabeca);
-  const capacete = new THREE.Mesh(new THREE.SphereGeometry(0.165, 16, 10, 0, Math.PI * 2, 0, Math.PI * 0.55), new THREE.MeshStandardMaterial({ color: 0x5a3b22, roughness: 0.6 }));
-  capacete.position.y = 0.37; capacete.rotation.x = 0.25; pil.add(capacete);
-  for (const s of [-1, 1]) {
-    const o = new THREE.Mesh(new THREE.TorusGeometry(0.045, 0.014, 6, 14), mMetal); o.position.set(s * 0.06, 0.47, -0.11); o.rotation.x = -0.6; pil.add(o);
-    const lente = new THREE.Mesh(new THREE.CircleGeometry(0.042, 12), new THREE.MeshStandardMaterial({ color: 0x4aa0c0, metalness: 0.9, roughness: 0.05 })); lente.position.copy(o.position); lente.rotation.x = -0.6 + Math.PI; pil.add(lente);
-    const fone = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.05, 12), mEscuro); fone.rotation.z = Math.PI / 2; fone.position.set(s * 0.16, 0.36, 0); pil.add(fone);
-  }
-  const mic = new THREE.Mesh(new THREE.TorusGeometry(0.13, 0.008, 4, 10, 1.4), mEscuro); mic.position.set(0.04, 0.33, -0.02); mic.rotation.set(Math.PI / 2, 0, 2.3); pil.add(mic);
-  // cachecol branco balançando
-  { const g = new THREE.PlaneGeometry(0.1, 0.55, 1, 8); g.translate(0, -0.275, 0); g.rotateX(Math.PI / 2 - 0.2);
-    const ca = new THREE.Mesh(g, new THREE.MeshStandardMaterial({ color: 0xffffff, side: THREE.DoubleSide, roughness: 0.9 })); ca.position.set(0.1, 0.2, 0.12); pil.add(ca); parts.cachecol = ca; }
+  const pil = criarPiloto('classico'); pil.position.set(0, 0.62, -0.05); A.add(pil); parts.piloto = pil; parts.cachecol = pil.userData.cachecol;
   const banco = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.7, 0.12), mEscuro); banco.position.set(0, 0.62, 0.3); banco.rotation.x = -0.15; A.add(banco);
   // painel de instrumentos (textura viva) e tampa anti-reflexo
   if (comPainel) {
@@ -268,34 +254,33 @@ export function criarAviao(pintura = PINTURAS[0], comPainel = true) {
 
   // --- Trem de pouso triciclo (recolhe) ---
   parts.trem = []; parts.rodas = [];
-  const perna = (x, y, z, comp, r, eixo, sinal) => {
-    const g = new THREE.Group(); g.position.set(x, y, z); A.add(g);
-    const st = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, comp * 0.6, 8), mMetal); st.position.y = -comp * 0.3; g.add(st);
-    const ol = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, comp * 0.45, 8), mEscuro); ol.position.y = -comp * 0.18; g.add(ol);
-    const roda = new THREE.Group(); roda.position.y = -comp; g.add(roda);
-    const pn = new THREE.Mesh(new THREE.TorusGeometry(r * 0.72, r * 0.3, 10, 20), mPneu); pn.rotation.y = Math.PI / 2; roda.add(pn);
-    const cubo = new THREE.Mesh(new THREE.CylinderGeometry(r * 0.48, r * 0.48, r * 0.5, 14), mMetal); cubo.rotation.z = Math.PI / 2; roda.add(cubo);
-    // carenagem da roda (polaina)
-    const pol = new THREE.Mesh(new THREE.SphereGeometry(r * 1.05, 14, 10), mAcc); pol.scale.set(0.42, 0.75, 1.7); pol.position.set(0, r * 0.2, 0.05); g.add(pol); pol.position.y = -comp + r * 0.25;
-    const tampa = new THREE.Mesh(new THREE.BoxGeometry(0.03, comp * 0.8, 0.3), mBase); tampa.position.set(sinal * 0.09, -comp * 0.4, 0); g.add(tampa);
-    sombra(g); g.userData = { eixo, sinal }; parts.trem.push(g); parts.rodas.push(roda);
-    return g;
-  };
+  const perna = (x, y, z, comp, r, eixo, sinal) => pernaTrem(A, parts, { mMetal, mEscuro, mPneu, polaina: mAcc, tampa: mBase }, x, y, z, comp, r, eixo, sinal);
   perna(0, -0.55, -2.55, 1.05, 0.27, 'x', 1);
   perna(1.75, -0.38, -0.05, 1.22, 0.33, 'z', 1);
   perna(-1.75, -0.38, -0.05, 1.22, 0.33, 'z', -1);
   parts.alturaTrem = 1.93; // da origem ao chão com o trem baixado
 
   // farol de pouso (cone de luz) sob a asa esquerda
-  const farol = new THREE.SpotLight(0xfff2d8, 0, 600, 0.35, 0.5, 1.2); farol.position.set(-2.2, -0.45, -1.3);
-  farol.target.position.set(-2.2, -6, -60); A.add(farol, farol.target); parts.farol = farol;
-  const lampF = brilho('#fff6dd', 1.4); lampF.position.copy(farol.position); A.add(lampF); parts.lampFarol = lampF;
+  const lampF = brilho('#fff6dd', 1.4); lampF.position.set(-2.2, -0.45, -1.3); A.add(lampF); parts.lampFarol = lampF;
+  parts.helices = [{ pas, disco: parts.disco, raio: 1.2, h: helice }];
+  parts.cauda = new THREE.Vector3(0, 0.3, FUS_Z1 + 0.3);
+  parts.entrada = new THREE.Vector3(0, 1.1, -0.2);
+  // onde dá pra pisar em cima (coordenadas locais): devolve alturas possíveis
+  parts.superficies = (x, z) => {
+    const ax = Math.abs(x), r = [];
+    if (ax < 0.5 && z > FUS_Z0 + 0.4 && z < FUS_Z1 - 0.3) { let y = raioFus(z) * 1.12 + 0.05 + Math.max(0, z - 0.5) * 0.11; const k = (z + 0.25) / 1.55; if (Math.abs(k) < 1) y = Math.max(y, 0.62 + 0.52 * Math.sqrt(1 - k * k)); r.push(y); }
+    if (ax > 0.4 && ax < 5.2) { const a = asa(ax); if (z > a.le && z < a.le + a.c) r.push(a.y + a.c * 0.1); }
+    if (ax < 1.95) { const e = est(ax); if (z > e.le && z < e.le + e.c) r.push(e.y + e.c * 0.07); }
+    return r;
+  };
+  parts.envergadura = 10.6;
+  mesclar(A);
 
     A.userData.parts = parts;
   return A;
 }
 
-function insignia(p) {
+export function insignia(p) {
   const c = document.createElement('canvas'); c.width = c.height = 128; const g = c.getContext('2d');
   g.fillStyle = p.faixa; g.beginPath(); g.arc(64, 64, 62, 0, 7); g.fill();
   g.fillStyle = '#fff'; g.beginPath(); g.arc(64, 64, 44, 0, 7); g.fill();
@@ -309,7 +294,7 @@ function listras(p) { // leme listrado
   const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
 }
 // O loft não gera UV: o leme recebe UV pela altura
-function uvPorAltura(g, y0, y1) {
+export function uvPorAltura(g, y0, y1) {
   const p = g.attributes.position, uv = new Float32Array(p.count * 2);
   for (let i = 0; i < p.count; i++) { uv[i * 2] = 0.5; uv[i * 2 + 1] = (p.getY(i) - y0) / (y1 - y0); }
   g.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
@@ -352,4 +337,71 @@ export function desenhaPainel(painel, d) {
   txt('FLAP ' + Math.round(d.flap * 30) + '°', 400, 160, 11, '#aaa');
   if (d.estol) txt('ESTOL!', 110, 160, 16, '#ff4040');
   painel.tex.needsUpdate = true;
+}
+
+// Piloto sentado (cabeça = children[1], capacete = children[2])
+export function criarPiloto(estilo = 'classico') {
+  const pil = new THREE.Group(), jato = estilo === 'jato';
+  const mMetal = new THREE.MeshStandardMaterial({ color: 0xb8bcc2, roughness: 0.25, metalness: 0.9 }), mEscuro = new THREE.MeshStandardMaterial({ color: 0x2a2b2e, roughness: 0.6 });
+  const jaq = new THREE.MeshStandardMaterial({ color: jato ? 0x5b6346 : 0x6b4226, roughness: 0.8 });
+  const torso = new THREE.Mesh(new THREE.SphereGeometry(0.26, 14, 10), jaq); torso.scale.set(1.05, 1.1, 0.75); pil.add(torso);
+  const cabeca = new THREE.Mesh(new THREE.SphereGeometry(0.15, 16, 12), new THREE.MeshStandardMaterial({ color: 0xd9a27a, roughness: 0.7 })); cabeca.position.y = 0.36; pil.add(cabeca);
+  const capacete = new THREE.Mesh(new THREE.SphereGeometry(jato ? 0.19 : 0.165, 16, 10, 0, Math.PI * 2, 0, Math.PI * (jato ? 0.62 : 0.55)), new THREE.MeshStandardMaterial({ color: jato ? 0xe9e9e4 : 0x5a3b22, roughness: 0.5 }));
+  capacete.position.y = 0.37; capacete.rotation.x = 0.25; pil.add(capacete);
+  if (jato) { // viseira escura, máscara de oxigênio e mangueira
+    const vis = new THREE.Mesh(new THREE.SphereGeometry(0.195, 16, 8, -Math.PI * 0.35, Math.PI * 0.7, Math.PI * 0.32, Math.PI * 0.2), new THREE.MeshStandardMaterial({ color: 0x1a1a22, metalness: 0.9, roughness: 0.05 }));
+    vis.position.y = 0.37; vis.rotation.y = Math.PI; capacete.add(vis); vis.position.set(0, 0, 0);
+    const masc = new THREE.Mesh(new THREE.SphereGeometry(0.07, 10, 8), mEscuro); masc.scale.set(1, 0.9, 1.2); masc.position.set(0, 0.3, -0.13); pil.add(masc);
+    const mang = new THREE.Mesh(new THREE.TorusGeometry(0.15, 0.02, 6, 10, 1.6), mEscuro); mang.position.set(0.05, 0.18, -0.1); mang.rotation.set(0, 1.2, 2.4); pil.add(mang);
+  } else {
+    for (const s of [-1, 1]) {
+      const o = new THREE.Mesh(new THREE.TorusGeometry(0.045, 0.014, 6, 14), mMetal); o.position.set(s * 0.06, 0.47, -0.11); o.rotation.x = -0.6; pil.add(o);
+      const lente = new THREE.Mesh(new THREE.CircleGeometry(0.042, 12), new THREE.MeshStandardMaterial({ color: 0x4aa0c0, metalness: 0.9, roughness: 0.05 })); lente.position.copy(o.position); lente.rotation.x = -0.6 + Math.PI; pil.add(lente);
+      const fone = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.05, 12), mEscuro); fone.rotation.z = Math.PI / 2; fone.position.set(s * 0.16, 0.36, 0); pil.add(fone);
+    }
+    const mic = new THREE.Mesh(new THREE.TorusGeometry(0.13, 0.008, 4, 10, 1.4), mEscuro); mic.position.set(0.04, 0.33, -0.02); mic.rotation.set(Math.PI / 2, 0, 2.3); pil.add(mic);
+    const g = new THREE.PlaneGeometry(0.1, 0.55, 1, 8); g.translate(0, -0.275, 0); g.rotateX(Math.PI / 2 - 0.2);
+    const ca = new THREE.Mesh(g, new THREE.MeshStandardMaterial({ color: 0xffffff, side: THREE.DoubleSide, roughness: 0.9 })); ca.position.set(0.1, 0.2, 0.12); pil.add(ca); pil.userData.cachecol = ca;
+  }
+  return pil;
+}
+
+// Perna de trem de pouso que recolhe (eixo 'x' = para trás, 'z' = para dentro)
+export function pernaTrem(A, parts, m, x, y, z, comp, r, eixo, sinal, rodas = 1) {
+  const g = new THREE.Group(); g.position.set(x, y, z); A.add(g);
+  const st = new THREE.Mesh(new THREE.CylinderGeometry(0.05 * Math.max(1, r * 2.5), 0.05 * Math.max(1, r * 2.5), comp * 0.6, 8), m.mMetal); st.position.y = -comp * 0.3; g.add(st);
+  const ol = new THREE.Mesh(new THREE.CylinderGeometry(0.07 * Math.max(1, r * 2.5), 0.07 * Math.max(1, r * 2.5), comp * 0.45, 8), m.mEscuro); ol.position.y = -comp * 0.18; g.add(ol);
+  const roda = new THREE.Group(); roda.position.y = -comp; g.add(roda);
+  for (let k = 0; k < rodas; k++) {
+    const dx = rodas > 1 ? (k - (rodas - 1) / 2) * r * 0.75 : 0;
+    const pn = new THREE.Mesh(new THREE.TorusGeometry(r * 0.72, r * 0.3, 10, 20), m.mPneu); pn.rotation.y = Math.PI / 2; pn.position.x = dx; roda.add(pn);
+    const cubo = new THREE.Mesh(new THREE.CylinderGeometry(r * 0.48, r * 0.48, r * 0.5, 14), m.mMetal); cubo.rotation.z = Math.PI / 2; cubo.position.x = dx; roda.add(cubo);
+  }
+  if (m.polaina) { const pol = new THREE.Mesh(new THREE.SphereGeometry(r * 1.05, 14, 10), m.polaina); pol.scale.set(0.42, 0.75, 1.7); pol.position.set(0, -comp + r * 0.25, 0.05); g.add(pol); }
+  if (m.tampa) { const tp = new THREE.Mesh(new THREE.BoxGeometry(0.03, comp * 0.8, Math.max(0.3, r)), m.tampa); tp.position.set(sinal * 0.09 * Math.max(1, r * 3), -comp * 0.4, 0); g.add(tp); }
+  g.traverse((o) => { if (o.isMesh) o.castShadow = true; });
+  g.userData = { eixo, sinal }; parts.trem.push(g); parts.rodas.push(roda);
+  return g;
+}
+
+// Junta as peças paradas (filhas diretas, sem textura e opacas) por material: menos chamadas de desenho
+export function mesclar(raiz) {
+  const grupos = new Map();
+  for (const o of [...raiz.children]) {
+    if (!o.isMesh || o.material.map || o.material.transparent || o.userData.fixo === false) continue;
+    if (!grupos.has(o.material)) grupos.set(o.material, []);
+    grupos.get(o.material).push(o);
+  }
+  for (const [mat, lista] of grupos) {
+    if (lista.length < 2) continue;
+    const pos = [], nor = [];
+    for (const o of lista) {
+      o.updateMatrix(); const g = (o.geometry.index ? o.geometry.toNonIndexed() : o.geometry.clone()).applyMatrix4(o.matrix);
+      if (!g.attributes.normal) g.computeVertexNormals();
+      pos.push(g.attributes.position.array); nor.push(g.attributes.normal.array); raiz.remove(o);
+    }
+    const junta = (arrs) => { const n = arrs.reduce((s, a) => s + a.length, 0), out = new Float32Array(n); let k = 0; for (const a of arrs) { out.set(a, k); k += a.length; } return out; };
+    const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(junta(pos), 3)); g.setAttribute('normal', new THREE.BufferAttribute(junta(nor), 3));
+    const m = new THREE.Mesh(g, mat); m.castShadow = true; raiz.add(m);
+  }
 }

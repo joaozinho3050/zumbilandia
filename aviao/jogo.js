@@ -1,7 +1,9 @@
-// Céu Aberto — física de voo, câmeras, desafios, controles, HUD e som.
-import * as THREE from '../lib/three.module.min.js';
+// Céu Aberto — vários aviões, piloto a pé, cargueiro NPC, desafios, controles, HUD e som.
+import * as THREE from 'three';
 import { criarCenario, HORAS } from './cenario.js';
-import { criarAviao, PINTURAS, desenhaPainel } from './aviao3d.js';
+import { desenhaPainel } from './aviao3d.js';
+import { TIPOS, BAIA, criarCargueiro, PINT_CARGA } from './aeronaves.js';
+import { criarPessoa, animarPessoa } from './pessoa.js';
 import { LUGARES, DESAFIOS, PISTA, MUNDO, clamp, lerp, smooth } from './mundo.js';
 
 const $ = (id) => document.getElementById(id);
@@ -10,10 +12,10 @@ if (TOQUE) document.body.classList.add('touch');
 
 // ---------- Salvamento ----------
 const SAVE = 'ceu-aberto-v1';
-let S = { desc: {}, recordes: {}, pintura: 0, hora: 1, inverter: false, assist: true, som: true, qual: TOQUE ? 'media' : 'alta', fumacaCor: 0 };
+let S = { desc: {}, recordes: {}, pintura: 0, tipo: 'andorinha', hora: 1, inverter: false, assist: true, som: true, qual: TOQUE ? 'media' : 'alta', fumacaCor: 0, feitos: {} };
 try { Object.assign(S, JSON.parse(localStorage.getItem(SAVE) || '{}')); } catch (e) {}
+if (!TIPOS[S.tipo]) S.tipo = 'andorinha';
 const salvar = () => { try { localStorage.setItem(SAVE, JSON.stringify(S)); } catch (e) {} };
-
 const Q = { alta: S.qual === 'alta', sombra: S.qual === 'baixa' ? 0 : S.qual === 'alta' ? 2048 : 1024, pr: Math.min(devicePixelRatio, S.qual === 'alta' ? 2 : S.qual === 'media' ? 1.5 : 1) };
 
 // ---------- Renderizador ----------
@@ -23,26 +25,15 @@ renderer.setPixelRatio(Q.pr); renderer.toneMapping = THREE.ACESFilmicToneMapping
 renderer.shadowMap.enabled = !!Q.sombra; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 const camera = new THREE.PerspectiveCamera(62, 1, 0.5, 30000);
 let escalaPontos = 1;
-function redimensionar() {
-  const w = innerWidth, h = innerHeight; renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix();
-  escalaPontos = h * Q.pr / (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2));
-}
+const atualizaEscala = () => { escalaPontos = innerHeight * Q.pr / (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2)); };
+function redimensionar() { renderer.setSize(innerWidth, innerHeight, false); camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); atualizaEscala(); }
 addEventListener('resize', redimensionar);
 
-await new Promise((r) => setTimeout(r, 30)); // deixa o "carregando" aparecer
+await new Promise((r) => setTimeout(r, 30));
 const M = criarCenario(renderer, Q);
 const cena = M.cena;
 
-// ---------- Avião ----------
-let aviao = criarAviao(PINTURAS[S.pintura % PINTURAS.length]); cena.add(aviao);
-let P = aviao.userData.parts;
-function trocarPintura(i) {
-  S.pintura = i; salvar();
-  const n = criarAviao(PINTURAS[i]); n.position.copy(aviao.position); n.quaternion.copy(aviao.quaternion); n.visible = aviao.visible;
-  cena.remove(aviao); aviao = n; P = n.userData.parts; cena.add(n);
-}
-
-// ---------- Partículas (fumaça, fogo, faíscas) ----------
+// ---------- Partículas ----------
 function sistema(max, aditivo) {
   const g = new THREE.BufferGeometry(), pos = new Float32Array(max * 3), cor = new Float32Array(max * 3), alfa = new Float32Array(max), tam = new Float32Array(max);
   g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setAttribute('cor', new THREE.BufferAttribute(cor, 3)); g.setAttribute('alfa', new THREE.BufferAttribute(alfa, 1)); g.setAttribute('tam', new THREE.BufferAttribute(tam, 1));
@@ -78,142 +69,331 @@ function sistema(max, aditivo) {
     },
   };
 }
-const fumaca = sistema(Q.alta ? 1400 : 900, false), fogo = sistema(400, true);
+const fumaca = sistema(Q.alta ? 1600 : 1000, false), fogo = sistema(600, true);
 const CORES_FUMACA = [['Branca', '#ffffff'], ['Vermelha', '#ff4b3e'], ['Azul', '#3e8bff'], ['Verde', '#3ed27a'], ['Amarela', '#ffd23e'], ['Arco-íris', null]];
-
-// rastros de vórtice nas pontas das asas
 function rastro() {
-  const N = 50, g = new THREE.BufferGeometry(), pos = new Float32Array(N * 2 * 3), c = new Float32Array(N * 2 * 4), idx = [];
+  const N = 50, g = new THREE.BufferGeometry(), pos = new Float32Array(N * 6), c = new Float32Array(N * 8), idx = [];
   for (let i = 0; i < N - 1; i++) { const a = i * 2; idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
   g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setAttribute('color', new THREE.BufferAttribute(c, 4)); g.setIndex(idx);
   const m = new THREE.Mesh(g, new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, depthWrite: false, side: THREE.DoubleSide })); m.frustumCulled = false; cena.add(m);
   const pts = Array.from({ length: N }, () => ({ p: new THREE.Vector3(), a: 0 })), cima = new THREE.Vector3();
-  return {
-    passo(p, up, forca) {
-      pts.pop(); pts.unshift({ p: p.clone(), a: forca }); cima.copy(up).multiplyScalar(0.12);
-      pts.forEach((o, i) => { const k = i * 6; pos[k] = o.p.x + cima.x; pos[k + 1] = o.p.y + cima.y; pos[k + 2] = o.p.z + cima.z; pos[k + 3] = o.p.x - cima.x; pos[k + 4] = o.p.y - cima.y; pos[k + 5] = o.p.z - cima.z;
-        const a = o.a * (1 - i / N) * 0.55; for (let j = 0; j < 2; j++) c.set([1, 1, 1, a], (i * 2 + j) * 4); });
-      g.attributes.position.needsUpdate = g.attributes.color.needsUpdate = true;
-    },
-  };
+  return { passo(p, up, forca) {
+    const o0 = pts.pop(); o0.p.copy(p); o0.a = forca; pts.unshift(o0); cima.copy(up).multiplyScalar(0.12);
+    pts.forEach((o, i) => { const k = i * 6; pos[k] = o.p.x + cima.x; pos[k + 1] = o.p.y + cima.y; pos[k + 2] = o.p.z + cima.z; pos[k + 3] = o.p.x - cima.x; pos[k + 4] = o.p.y - cima.y; pos[k + 5] = o.p.z - cima.z;
+      const a = o.a * (1 - i / N) * 0.55; for (let j = 0; j < 2; j++) c.set([1, 1, 1, a], (i * 2 + j) * 4); });
+    g.attributes.position.needsUpdate = g.attributes.color.needsUpdate = true; } };
 }
 const rastroD = rastro(), rastroE = rastro();
 
-// ---------- Estado do voo ----------
+// ---------- Aeronaves ----------
 const V3 = () => new THREE.Vector3();
-const A = { pos: V3(), q: new THREE.Quaternion(), V: 0, dir: V3(), queda: 0, acel: 0, rpm: 0, trem: 1, tremAlvo: 1, flap: 0, chao: true, vivo: true, morto: 0, G: 1, fumaca: false, estol: false, vs: 0, ultimoPouso: 0 };
-const ent = { p: 0, r: 0, y: 0, freio: false, olhaX: 0, olhaY: 0 };
-const VS = 27; // velocidade de estol (m/s)
-const fwd = V3(), up = V3(), dir_ = V3(), tmpV = V3(), tmpV2 = V3(), tmpQ = new THREE.Quaternion(), EY = new THREE.Vector3(0, 1, 0), EX = new THREE.Vector3(1, 0, 0), EZ = new THREE.Vector3(0, 0, 1);
-let ondeNasce = null;
-
-function nascer(o) { // o = {x,z,y?,rumo,chao?}
-  ondeNasce = o;
-  A.q.setFromAxisAngle(EY, -THREE.MathUtils.degToRad(o.rumo || 0));
-  fwd.set(0, 0, -1).applyQuaternion(A.q);
-  if (o.chao) { A.pos.set(o.x, M.chao(o.x, o.z) + P.alturaTrem, o.z); A.V = 0; A.acel = 0; A.trem = A.tremAlvo = 1; A.chao = true; A.flap = 0; }
-  else { const y = Math.max(o.y || 250, Math.max(0, M.chao(o.x, o.z)) + 120); A.pos.set(o.x, y, o.z); A.V = 58; A.acel = 0.7; A.trem = A.tremAlvo = 0; A.chao = false; A.flap = 0; }
-  A.dir.copy(fwd); A.queda = 0; A.vivo = true; A.morto = 0; A.rpm = A.acel; aviao.visible = true;
-  cam.iniciado = false;
-}
-function nascerLugar(l) {
-  if (l.id === 'aero') return nascer({ x: PISTA.x, z: PISTA.z1 - 30, rumo: 0, chao: true });
-  const a = THREE.MathUtils.degToRad(l.rumo); // chega voando na direção do lugar
-  nascer({ x: l.x - Math.sin(a) * 900, z: l.z + Math.cos(a) * 900, y: l.y, rumo: l.rumo });
-}
-
-function fisica(dt) {
-  fwd.set(0, 0, -1).applyQuaternion(A.q); up.set(0, 1, 0).applyQuaternion(A.q); const dir = tmpV2.set(1, 0, 0).applyQuaternion(A.q);
-  const ry = dir.y, bank = Math.asin(clamp(-dir.y, -1, 1)), arf = Math.asin(clamp(fwd.y, -1, 1));
-  const ctrl = clamp(A.V / 38, 0.12, 1.15);
-  let pr = 1.5 * ent.p * ctrl, rr = 2.6 * ent.r * ctrl, yr = 0.45 * ent.y * ctrl;
-  const vs = VS - A.flap * 5;
-  if (!A.chao) {
-    // ajuda de voo: manche de lado = inclinação alvo (até ~70°); no fim do curso gira de verdade
-    if (S.assist && Math.abs(ent.r) < 0.92 && up.y > 0.2) rr = clamp((ent.r * 1.3 - bank) * 2.6, -2.2, 2.2) * Math.min(ctrl, 1);
-    else if (S.assist && Math.abs(ent.r) < 0.1 && Math.abs(ent.p) < 0.1) rr = (ry < 0 ? -1.6 : 1.6) * Math.min(ctrl, 1); // de cabeça pra baixo: desvira
-    if (S.assist && Math.abs(ent.p) < 0.1 && up.y > 0.5 && A.V > vs) pr -= arf * 0.5;        // e o nariz devagar
-    A.estol = A.V < vs;
-    if (A.estol) { // estol: o nariz cai na direção do chão
-      tmpV.crossVectors(fwd, tmpV2.set(0, -1, 0)); if (tmpV.lengthSq() > 1e-4) { tmpV.normalize(); tmpQ.setFromAxisAngle(tmpV, (1 - A.V / vs) * 1.4 * dt); A.q.premultiply(tmpQ); }
-    }
-  } else A.estol = false;
-  tmpQ.setFromAxisAngle(EX, pr * dt); A.q.multiply(tmpQ);
-  tmpQ.setFromAxisAngle(EZ, -rr * dt); A.q.multiply(tmpQ);
-  tmpQ.setFromAxisAngle(EY, -yr * dt); A.q.multiply(tmpQ);
-  if (!A.chao) { // curva coordenada: inclinou, virou
-    const w = 1.8 * 9.8 * Math.tan(clamp(bank, -1.25, 1.25)) / Math.max(A.V, 22) * clamp(up.y * 3, 0, 1) * smooth(0.3 * vs, vs, A.V);
-    tmpQ.setFromAxisAngle(EY, -w * dt); A.q.premultiply(tmpQ);
+const EX = new THREE.Vector3(1, 0, 0), EY = new THREE.Vector3(0, 1, 0), EZ = new THREE.Vector3(0, 0, 1);
+const fwd = V3(), up = V3(), dirD = V3(), tmpV = V3(), tmpV2 = V3(), tmpV3 = V3(), tmpQ = new THREE.Quaternion(), tmpQ2 = new THREE.Quaternion(), tmpC = new THREE.Color();
+const frota = [];
+let semente = 1;
+class Aero {
+  constructor(tipo, pint = 0, esc = 1) {
+    this.tipo = tipo; this.T = TIPOS[tipo]; this.pint = pint; this.esc = esc;
+    this.obj = tipo === 'gigante' ? criarCargueiro(PINT_CARGA[0]) : this.T.criar(pint);
+    if (tipo === 'gigante') this.T = { ...TIPOS.cargueiro, nome: 'Cargueiro gigante' };
+    this.obj.scale.setScalar(esc); this.P = this.obj.userData.parts;
+    this.k = 0.4 * this.T.empuxo / this.T.vmax ** 2;
+    Object.assign(this, { pos: V3(), q: new THREE.Quaternion(), V: 0, dir: V3().set(0, 0, -1), queda: 0, acel: 0, rpm: 0, trem: 1, tremAlvo: 1, flap: 0, chao: true, vivo: true, G: 1, estol: false, vs: 0, fumaca: false, vAnt: V3(), comPiloto: false, npc: null, preso: null, entrouAtras: false, seed: semente++, ultimoPouso: 0, abre: 0 });
+    this.ent = { p: 0, r: 0, y: 0, freio: false };
+    cena.add(this.obj); frota.push(this);
   }
-  A.q.normalize();
-  fwd.set(0, 0, -1).applyQuaternion(A.q); up.set(0, 1, 0).applyQuaternion(A.q);
+  velocidade(out) { return out.copy(this.dir).multiplyScalar(this.V).setY(this.dir.y * this.V - this.queda); }
+  colocar(x, z, rumo, noAr, y) {
+    this.q.setFromAxisAngle(EY, -THREE.MathUtils.degToRad(rumo));
+    if (!noAr) { const at = this.P.atitude || 0; tmpQ.setFromAxisAngle(EX, at); this.q.multiply(tmpQ); this.pos.set(x, M.chao(x, z) + this.P.alturaTrem * this.esc, z); this.V = 0; this.acel = 0; this.trem = this.tremAlvo = 1; this.chao = true; }
+    else { this.pos.set(x, Math.max(y || 250, Math.max(0, M.chao(x, z)) + 120), z); this.V = Math.max(58, this.T.VS * 1.5); this.acel = 0.75; this.trem = this.tremAlvo = 0; this.chao = false; }
+    this.dir.set(0, 0, -1).applyQuaternion(tmpQ.setFromAxisAngle(EY, -THREE.MathUtils.degToRad(rumo)));
+    this.flap = 0; this.queda = 0; this.vivo = true; this.obj.visible = true; this.rpm = this.acel; this.preso = null; this.entrouAtras = false; this.vAnt.set(0, 0, 0);
+    this.sincronizar(); return this;
+  }
+  sincronizar() { this.obj.position.copy(this.pos); this.obj.quaternion.copy(this.q); this.obj.updateMatrixWorld(); }
+  remover() { cena.remove(this.obj); const i = frota.indexOf(this); if (i >= 0) frota.splice(i, 1); }
+}
 
-  // velocidade ao longo da trajetória
-  A.rpm = lerp(A.rpm, A.vivo ? 0.18 + A.acel * 0.82 : 0, 1 - Math.exp(-dt * 2.5));
-  const empuxo = A.acel * 24 * (1 - clamp(A.V / 110, 0, 1) * 0.6);
-  const arrasto = (0.0019 + A.flap * 0.0011 + A.trem * 0.0005) * A.V * A.V;
-  const atrito = A.chao ? (ent.freio ? 5 : 0.35) * Math.sign(A.V) : 0;
-  A.V = Math.max(0, A.V + (empuxo - arrasto - 9.8 * A.dir.y - atrito) * dt);
-  const grip = A.chao ? 12 : 3.2 * smooth(vs * 0.45, vs, A.V);
-  A.dir.lerp(fwd, Math.min(1, grip * dt)).normalize();
-  const sust = Math.min(1, (A.V / vs) ** 2);
-  if (!A.chao) A.queda += (9.8 * (1 - sust) - A.queda * 2.2 * sust) * dt; else A.queda = 0;
-  A.queda = clamp(A.queda, 0, 45);
-
-  const velAnt = tmpV.copy(A.dir).multiplyScalar(A.V); velAnt.y -= A.queda;
-  A.pos.addScaledVector(velAnt, dt);
-  A.vs = velAnt.y;
-  // G sentido pelo piloto
-  if (!fisica.vAnt) fisica.vAnt = V3().copy(velAnt);
-  const acc = tmpV2.copy(velAnt).sub(fisica.vAnt).divideScalar(Math.max(dt, 1e-3)); acc.y += 9.8; fisica.vAnt.copy(velAnt);
-  A.G = lerp(A.G, acc.dot(up) / 9.8, 1 - Math.exp(-dt * 4));
-
+// física de um avião (vale para o do jogador e para os sem piloto)
+function fisica(a, dt, tempo) {
+  const T = a.T, ent = a.ent, assist = a.comPiloto && S.assist;
+  fwd.set(0, 0, -1).applyQuaternion(a.q); up.set(0, 1, 0).applyQuaternion(a.q); dirD.set(1, 0, 0).applyQuaternion(a.q);
+  const ry = dirD.y, bank = Math.asin(clamp(-ry, -1, 1)), arf = Math.asin(clamp(fwd.y, -1, 1));
+  const vs = T.VS - a.flap * T.VS * 0.18;
+  const ctrl = clamp(a.V / (vs * 1.4), 0.12, 1.15);
+  let pr = T.arf * ent.p * ctrl, rr = T.rol * ent.r * ctrl, yr = T.guinada * ent.y * ctrl;
+  if (!a.chao) {
+    if (assist && Math.abs(ent.r) < 0.92 && up.y > 0.2) rr = clamp((ent.r * 1.3 - bank) * 2.6, -T.rol * 0.85, T.rol * 0.85) * Math.min(ctrl, 1);
+    else if (assist && Math.abs(ent.r) < 0.1 && Math.abs(ent.p) < 0.1) rr = (ry < 0 ? -1 : 1) * T.rol * 0.6 * Math.min(ctrl, 1);
+    if (assist && Math.abs(ent.p) < 0.1 && up.y > 0.5 && a.V > vs) pr -= arf * 0.5;
+    if (!a.comPiloto) { // ninguém pilotando: vai torcendo e mergulhando devagar
+      pr += -0.012 - arf * 0.15 + Math.sin(tempo * 0.31 + a.seed) * 0.02; rr += Math.sin(tempo * 0.23 + a.seed * 2) * 0.06 - bank * 0.15;
+    }
+    a.estol = a.V < vs;
+    if (a.estol) { tmpV.crossVectors(fwd, tmpV2.set(0, -1, 0)); if (tmpV.lengthSq() > 1e-4) { tmpV.normalize(); tmpQ.setFromAxisAngle(tmpV, (1 - a.V / vs) * 1.4 * dt); a.q.premultiply(tmpQ); } }
+  } else a.estol = false;
+  tmpQ.setFromAxisAngle(EX, pr * dt); a.q.multiply(tmpQ);
+  tmpQ.setFromAxisAngle(EZ, -rr * dt); a.q.multiply(tmpQ);
+  tmpQ.setFromAxisAngle(EY, -yr * dt); a.q.multiply(tmpQ);
+  if (!a.chao) {
+    const w = 1.8 * 9.8 * Math.tan(clamp(bank, -1.25, 1.25)) / Math.max(a.V, 22) * clamp(up.y * 3, 0, 1) * smooth(0.3 * vs, vs, a.V);
+    tmpQ.setFromAxisAngle(EY, -w * dt); a.q.premultiply(tmpQ);
+  }
+  a.q.normalize();
+  fwd.set(0, 0, -1).applyQuaternion(a.q); up.set(0, 1, 0).applyQuaternion(a.q);
+  // motor e velocidade
+  const pos = T.motor === 'jato' && a.acel > 0.85 ? 1.5 : 1; // pós-combustor
+  a.rpm = lerp(a.rpm, a.vivo ? 0.18 + a.acel * 0.82 : 0, 1 - Math.exp(-dt * (T.motor === 'jato' ? 1.2 : 2.5)));
+  const empuxo = a.rpm * T.empuxo * pos * (1 - clamp(a.V / T.vmax, 0, 1.2) * 0.6);
+  const arrasto = (a.k * (1 + a.flap * 0.6 + a.trem * 0.25)) * a.V * a.V;
+  const atrito = a.chao ? (ent.freio ? 5 : 0.35) * Math.sign(a.V) : 0;
+  a.V = Math.max(0, a.V + (empuxo - arrasto - 9.8 * a.dir.y - atrito) * dt);
+  const grip = a.chao ? 12 : 3.2 * smooth(vs * 0.45, vs, a.V);
+  if (!a.chao) a.dir.lerp(fwd, Math.min(1, grip * dt)).normalize();
+  const sust = Math.min(1, (a.V / vs) ** 2);
+  if (!a.chao) a.queda += (9.8 * (1 - sust) - a.queda * 2.2 * sust) * dt; else a.queda = 0;
+  a.queda = clamp(a.queda, 0, 55);
+  const vel = a.velocidade(tmpV);
+  a.pos.addScaledVector(vel, dt); a.vs = vel.y;
+  const acc = tmpV2.copy(vel).sub(a.vAnt).divideScalar(Math.max(dt, 1e-3)); acc.y += 9.8; a.vAnt.copy(vel);
+  a.G = lerp(a.G, clamp(acc.dot(up) / 9.8, -5, 12), 1 - Math.exp(-dt * 4));
   // chão
-  const solo = M.chao(A.pos.x, A.pos.z), agua = solo < 0.3, base = Math.max(solo, agua ? 0 : solo);
-  const altura = P.alturaTrem * A.trem + 0.65 * (1 - A.trem);
-  if (A.pos.y - altura <= base) {
-    const plano = M.normalY(A.pos.x, A.pos.z) > 0.965, ok = A.trem > 0.95 && !agua && plano && A.vs > -7.5 && Math.abs(bank) < 0.45 && arf > -0.2 && up.y > 0.8;
-    if (!A.chao) { if (!ok) return bater(agua); pousou(A.vs); }
-    else if (!ok && (A.trem < 0.95 || agua || A.V > 15 && !plano)) return bater(agua);
-    A.chao = true; A.pos.y = base + altura;
-    // no chão: só gira no eixo vertical; levanta o nariz se tiver velocidade
+  const solo = M.chao(a.pos.x, a.pos.z), agua = solo < 0.3, base = agua ? 0 : solo;
+  const altura = (a.P.alturaTrem * a.trem + 0.65 * (1 - a.trem)) * a.esc;
+  if (a.pos.y - altura <= base + (a.chao && a.dir.y < 0.01 ? 0.05 : 0)) {
+    const plano = M.normalY(a.pos.x, a.pos.z) > 0.965, ok = a.trem > 0.95 && !agua && plano && a.vs > -7.5 && Math.abs(bank) < 0.45 && arf > -0.2 && up.y > 0.8;
+    if (!a.chao) { if (!ok) return bater(a, agua); pousou(a); }
+    else if (!ok && (a.trem < 0.95 || agua || (a.V > 15 && !plano))) return bater(a, agua);
+    a.chao = true; a.pos.y = base + altura;
+    const at = a.P.atitude || 0, minimo = at * (1 - smooth(vs * 0.4, vs * 0.8, a.V)); // roda de cauda: nariz pra cima parado
     const yaw = Math.atan2(-fwd.x, -fwd.z);
-    let pitch = Math.max(0, arf); if (A.V < vs * 0.85 || ent.p <= 0.05) pitch = Math.max(0, pitch - dt * 0.6);
-    const viradaChao = (ent.r * 0.7 + ent.y) * 0.7 * clamp(A.V / 8, 0, 1) * (A.V < 25 ? 1 : 0.3);
-    A.q.setFromEuler(new THREE.Euler(pitch, yaw - viradaChao * dt, 0, 'YXZ'));
-    fwd.set(0, 0, -1).applyQuaternion(A.q);
-    A.dir.set(fwd.x, Math.max(0, fwd.y), fwd.z).normalize();
-    if (A.V > 3 && Math.random() < 0.3 && ent.freio) fumaca.emitir(tmpV.copy(A.pos).setY(base + 0.3), tmpV2.set(0, 0.5, 0), new THREE.Color(0xdddddd), 1, 4, 0.4, 1.2);
-  } else if (A.chao && A.pos.y - altura > base + 0.4) A.chao = false;
+    let pitch = Math.max(minimo, Math.asin(clamp(fwd.y, -1, 1))); if (a.V < vs * 0.85 || ent.p <= 0.05) pitch = Math.max(minimo, pitch - dt * 0.6);
+    const virar = (ent.r * 0.7 + ent.y) * 0.7 * clamp(a.V / 8, 0, 1) * (a.V < 25 ? 1 : 0.3) / Math.sqrt(a.esc * Math.max(1, a.P.envergadura / 10));
+    a.q.setFromEuler(new THREE.Euler(pitch, yaw - virar * dt, 0, 'YXZ'));
+    const sobe = ent.p > 0.05 && a.V > vs * 0.85 ? Math.max(0, pitch - minimo - 0.02) : 0; // só sobe se o piloto puxar
+    a.dir.set(-Math.sin(yaw) * Math.cos(sobe), Math.sin(sobe), -Math.cos(yaw) * Math.cos(sobe));
+    if (a.V > 3 && ent.freio && Math.random() < 0.3) fumaca.emitir(tmpV.copy(a.pos).setY(base + 0.3), tmpV2.set(0, 0.5, 0), tmpC.set(0xdddddd), 1, 4, 0.4, 1.2);
+  } else if (a.chao && a.pos.y - altura > base + 0.4) a.chao = false;
 }
 
 let msgT = 0;
 function mensagem(t, sub = '', dur = 2.6) { const m = $('msg'); m.innerHTML = t + (sub ? `<small>${sub}</small>` : ''); m.classList.add('on'); msgT = dur; }
-function pousou(vs) {
-  if (performance.now() - A.ultimoPouso < 3000) return; A.ultimoPouso = performance.now();
-  const n = vs > -1.6 ? 3 : vs > -3.5 ? 2 : 1;
-  mensagem(['', 'Pouso duro', 'Bom pouso!', 'Pouso perfeito!'][n], '⭐'.repeat(n) + ` · ${Math.abs(vs).toFixed(1)} m/s`);
-  for (const r of P.rodas) { const p = r.getWorldPosition(V3()); for (let i = 0; i < 6; i++) fumaca.emitir(p, V3().set((Math.random() - 0.5) * 2, 1, (Math.random() - 0.5) * 2), new THREE.Color(0xeeeeee), 1, 5, 0.5, 1.4); }
+function pousou(a) {
+  if (!a.comPiloto || performance.now() - a.ultimoPouso < 3000) return; a.ultimoPouso = performance.now();
+  const n = a.vs > -1.6 ? 3 : a.vs > -3.5 ? 2 : 1;
+  mensagem(['', 'Pouso duro', 'Bom pouso!', 'Pouso perfeito!'][n], '⭐'.repeat(n) + ` · ${Math.abs(a.vs).toFixed(1)} m/s`);
+  for (const r of a.P.rodas) { const p = r.getWorldPosition(V3()); for (let i = 0; i < 6; i++) fumaca.emitir(p, V3().set((Math.random() - 0.5) * 2, 1, (Math.random() - 0.5) * 2), tmpC.set(0xeeeeee), 1, 5, 0.5, 1.4); }
   som.pneu();
 }
-function bater(agua) {
-  A.vivo = false; A.morto = 0; A.V = 0; aviao.visible = false; A.acel = 0;
-  const c = A.pos.clone(); if (agua) c.y = 0.5;
-  for (let i = 0; i < 70; i++) {
-    const v = V3().set(Math.random() - 0.5, Math.random() * 0.9, Math.random() - 0.5).normalize().multiplyScalar(6 + Math.random() * 22);
-    if (agua) fumaca.emitir(c, v.setY(Math.abs(v.y) * 1.6), new THREE.Color(0xf4fbff), 3, 12, 0.85, 2.2, 0.8, -9);
-    else { fogo.emitir(c, v, new THREE.Color().setHSL(0.06 + Math.random() * 0.06, 1, 0.55), 4, 14, 1, 1 + Math.random(), 1.5, 2); fumaca.emitir(c, v.multiplyScalar(0.4), new THREE.Color(0x2a2a2a), 6, 30, 0.7, 5, 0.8, 3); }
+function explosao(c, agua, forca = 1) {
+  for (let i = 0; i < 80 * forca; i++) {
+    const v = V3().set(Math.random() - 0.5, Math.random() * 0.9, Math.random() - 0.5).normalize().multiplyScalar((6 + Math.random() * 22) * Math.sqrt(forca));
+    if (agua) fumaca.emitir(c, v.setY(Math.abs(v.y) * 1.6), tmpC.set(0xf4fbff), 3, 12, 0.85, 2.2, 0.8, -9);
+    else { fogo.emitir(c, v, tmpC.setHSL(0.06 + Math.random() * 0.06, 1, 0.55), 4 * forca, 14 * forca, 1, 1 + Math.random(), 1.5, 2); fumaca.emitir(c, v.multiplyScalar(0.4), tmpC.set(0x2a2a2a), 6, 30 * forca, 0.7, 6, 0.8, 3); }
   }
-  mensagem(agua ? 'Splash!' : 'Bateu!', 'Voltando em instantes…'); som.batida();
-  if (desafio) desafio.batidas++;
+  // destroços
+  if (!agua) for (let i = 0; i < 10; i++) destrocos.push({ m: pedaco(), p: c.clone(), v: V3().randomDirection().multiplyScalar(12 + Math.random() * 15).add(tmpV.set(0, 10, 0)), r: V3().randomDirection(), t: 0 });
+  const d = camera.position.distanceTo(c); cam.treme = Math.max(cam.treme, 2.5 * smooth(400, 20, d));
+  som.batida(smooth(1500, 50, d));
+}
+const destrocos = [], gPedaco = new THREE.BoxGeometry(0.6, 0.15, 0.9), mPedaco = new THREE.MeshStandardMaterial({ color: 0x333333, roughness: 0.8 });
+function pedaco() { const m = new THREE.Mesh(gPedaco, mPedaco); m.scale.setScalar(0.5 + Math.random() * 1.5); cena.add(m); return m; }
+function bater(a, agua) {
+  if (!a.vivo) return;
+  a.vivo = false; a.V = 0; a.obj.visible = false; a.acel = 0; a.morteT = 0;
+  const c = a.pos.clone(); if (agua) c.y = 0.5;
+  explosao(c, agua, Math.min(3, a.esc * (a.tipo === 'cargueiro' ? 2 : 1)));
+  if (jog.aviao === a && jog.modo === 'piloto') { jog.vivo = false; jog.morteT = 0; mensagem(agua ? 'Splash!' : 'Bateu!', 'Voltando em instantes…'); if (desafio) desafio.batidas++; }
+  else if (jog.modo === 'sobre' && jog.sobre === a) { jog.vivo = false; jog.morteT = 0; pessoa.obj.visible = false; mensagem('O avião caiu com você em cima!', 'Da próxima vez pule e abra o paraquedas', 3.5); }
+  else if (camera.position.distanceTo(c) < 3000) mensagem(a.npc ? '' : 'Avião sem piloto caiu!', 'Boom!', 1.8);
 }
 
-// ---------- Desafios (argolas) ----------
+// cargueiro gigante NPC: voa sozinho em círculo, com a rampa aberta
+const ESC_GIG = 4.5;
+const npc = new Aero('gigante', 0, ESC_GIG); npc.npc = { R: 3300, cx: 0, cz: 300, alt: 560, ang: 0.6 }; npc.V = 66; npc.trem = npc.tremAlvo = 0; npc.chao = false; npc.acel = 0.7; npc.rpm = 0.8; npc.P.rampaAberta = true;
+function voarNPC(a, dt) {
+  const n = a.npc; n.ang += a.V / n.R * dt;
+  const x = n.cx + Math.cos(n.ang) * n.R, z = n.cz + Math.sin(n.ang) * n.R, tg = tmpV.set(-Math.sin(n.ang), 0, Math.cos(n.ang));
+  a.pos.set(x, n.alt + Math.sin(n.ang * 3) * 25, z);
+  const bank = Math.atan(a.V * a.V / (9.8 * n.R));
+  a.q.setFromEuler(new THREE.Euler(0.03, Math.atan2(-tg.x, -tg.z), -bank, 'YXZ'));
+  a.dir.copy(tg); a.vs = Math.cos(n.ang * 3) * 3 * 25 * a.V / n.R; a.queda = 0;
+  a.abre = Math.min(1, a.abre + dt * 0.3); a.P.abrir(a.abre);
+}
+// avião do jogador tentando entrar na baía do cargueiro
+function checarBaia(a, dt) {
+  if (a === npc || !a.vivo || a.preso || a.chao) return;
+  if (a.pos.distanceToSquared(npc.pos) > 500 * 500) { a.entrouAtras = false; return; }
+  const L = npc.obj.worldToLocal(tmpV3.copy(a.pos)), e = npc.esc, B = BAIA;
+  const meia = a.P.envergadura / 2 / e, trem = (a.P.alturaTrem * a.trem + 0.65 * (1 - a.trem)) * a.esc / e;
+  // asa do cargueiro
+  if (Math.abs(L.y - 2.1) < 0.5 + 0.4 / e && Math.abs(L.x) < 20.2 && L.z > -3.2 && L.z < 2.2) return bater(a, false);
+  if (Math.abs(L.x) < 0.5 && L.y > 1.8 && L.y < 9.5 && L.z > 8 && L.z < 15) return bater(a, false); // deriva
+  const dentro = L.z > B.frente && L.z < B.rampaFim && Math.abs(L.x) < B.raio && L.y > B.piso - 0.8 && L.y < B.raio;
+  if (!dentro) { if (L.z > B.rampaFim + 1) a.entrouAtras = true; else if (L.z < B.frente || Math.abs(L.x) > B.raio + 3 || Math.abs(L.y) > 4) a.entrouAtras = false; return; }
+  if (!a.entrouAtras) return bater(a, false);
+  const larg = Math.sqrt(Math.max(0, B.raio * B.raio - (L.y + 0.2) ** 2)), teto = L.z > B.fim ? B.teto - (L.z - B.fim) * 0.1 : B.raio - 0.3;
+  if (Math.abs(L.x) + meia * 0.92 > larg + 0.15 || L.y + 0.9 * a.esc / e > teto) { mensagem('Raspou a asa!', '', 2); return bater(a, false); }
+  if (L.z < B.frente + 7 / e) return bater(a, false);
+  if (L.y - trem <= B.piso + 0.02) {
+    const vrel = a.velocidade(tmpV).sub(npc.velocidade(tmpV2)), vy = vrel.dot(tmpV2.set(0, 1, 0).applyQuaternion(npc.q));
+    if (a.trem < 0.95 || vy < -5) return bater(a, false);
+    L.y = B.piso + trem;
+    a.preso = { L: L.clone(), q: npc.q.clone().invert().multiply(a.q), vrel: Math.max(0, vrel.dot(tmpV2.set(0, 0, -1).applyQuaternion(npc.q))) };
+    a.preso.q.setFromEuler(new THREE.Euler(0, new THREE.Euler().setFromQuaternion(a.preso.q, 'YXZ').y, 0, 'YXZ'));
+    a.acel = 0; S.feitos.baia = 1; salvar(); som.vitoria();
+    mensagem('Você entrou no cargueiro!', 'Pousou dentro do avião em pleno voo 🎉', 5);
+    if (desafio && desafio.d.id === 'baia') terminarDesafio(true);
+  }
+}
+function presoNoNPC(a, dt) {
+  const p = a.preso; p.vrel = Math.max(0, p.vrel - 9 * dt); p.L.z = Math.max(BAIA.frente + 7 / npc.esc, p.L.z - p.vrel * dt / npc.esc);
+  a.pos.copy(npc.obj.localToWorld(tmpV.copy(p.L))); a.q.copy(npc.q).multiply(p.q); a.V = npc.V; a.dir.copy(npc.dir); a.chao = true; a.queda = 0; a.vs = 0;
+  a.rpm = lerp(a.rpm, 0.18, dt);
+}
+
+// ---------- Jogador: piloto ou a pé ----------
+const pessoa = criarPessoa(); cena.add(pessoa.obj); pessoa.obj.visible = false;
+const jog = { modo: 'piloto', aviao: null, sobre: null, L: V3(), pos: V3(), vel: V3(), yaw: 0, camYaw: 0, garras: true, vivo: true, morteT: 0, rapidez: 0, noChao: true, ondeNasce: null };
+function pilotar(a) {
+  if (jog.aviao && jog.aviao !== a) jog.aviao.comPiloto = false;
+  jog.aviao = a; a.comPiloto = true; jog.modo = 'piloto'; jog.vivo = true; jog.sobre = null; pessoa.obj.visible = false;
+  cam.iniciado = false; document.body.classList.remove('ape'); S.tipo = a.tipo === 'gigante' ? S.tipo : a.tipo; salvar();
+}
+function novoAviao(tipo, pint) { const a = new Aero(tipo, pint ?? (S.pintura % TIPOS[tipo].pinturas.length)); return a; }
+function nascer(o) { // o = {x,z,y?,rumo,chao?}
+  jog.ondeNasce = o;
+  let a = jog.aviao;
+  if (!a || !a.vivo || a.tipo !== S.tipo || jog.modo !== 'piloto' || a.preso) { if (a && jog.modo === 'piloto' && a.vivo && !a.chao) a.comPiloto = false; a = novoAviao(S.tipo); }
+  a.colocar(o.x, o.z, o.rumo || 0, !o.chao, o.y);
+  limparFrota(a); pilotar(a);
+}
+function nascerLugar(l) {
+  if (l.id === 'aero') return nascer({ x: PISTA.x, z: PISTA.z1 - 40, rumo: 0, chao: true });
+  const a = THREE.MathUtils.degToRad(l.rumo);
+  nascer({ x: l.x - Math.sin(a) * 900, z: l.z + Math.cos(a) * 900, y: l.y, rumo: l.rumo });
+}
+function limparFrota(manter) { // tira aviões abandonados longe demais (mantém estacionados e o NPC)
+  for (const a of [...frota]) if (a !== manter && a !== npc && !a.estacionado && (!a.vivo || a.pos.distanceTo(manter.pos) > 6000)) a.remover();
+}
+function sair() {
+  const a = jog.aviao; if (!a || jog.modo !== 'piloto' || !jog.vivo) return;
+  a.comPiloto = false; a.ent.p = a.ent.r = a.ent.y = 0; a.ent.freio = !!a.chao;
+  document.body.classList.add('ape'); pessoa.obj.visible = true;
+  if (a.chao && a.V < 8 && !a.preso) { // desce pelo lado
+    jog.modo = 'pe'; const r = tmpV.set(1, 0, 0).applyQuaternion(a.q).setY(0).normalize();
+    jog.pos.copy(a.pos).addScaledVector(r, a.P.envergadura * a.esc * 0.3 + 2); jog.pos.y = Math.max(M.chao(jog.pos.x, jog.pos.z), 0); jog.vel.set(0, 0, 0);
+    jog.yaw = Math.atan2(-fwd.set(0, 0, -1).applyQuaternion(a.q).x, -fwd.z); jog.camYaw = jog.yaw; a.acel = 0;
+    mensagem('A pé', 'Chegue perto de um avião para entrar', 2);
+  } else { // em pleno voo: sobe em cima do avião (ou fica no cargueiro)
+    const alvo = a.preso ? npc : a;
+    jog.modo = 'sobre'; jog.sobre = alvo;
+    if (a.preso) { jog.L.copy(a.preso.L).add(tmpV.set(a.P.envergadura * 0.3 / npc.esc + 0.4, 0, 0)); jog.L.y = BAIA.piso; }
+    else { jog.L.copy(a.P.entrada); }
+    jog.yaw = 0; jog.camYaw = 0;
+    mensagem(jog.garras ? 'Garras presas no avião!' : 'Sem garras: segure-se!', a.preso ? 'Ande até a rampa e pule' : 'O avião segue sem piloto — e pode cair', 3);
+  }
+  cam.iniciado = false;
+}
+function entrarPerto() { // devolve o avião mais perto que dá pra entrar
+  let melhor = null, md = 1e9;
+  for (const a of frota) {
+    if (a === npc || !a.vivo) continue;
+    let d;
+    if (jog.modo === 'sobre') { if (jog.sobre === a) d = jog.L.distanceTo(a.P.entrada); else if (jog.sobre === npc && a.preso) d = npc.obj.worldToLocal(tmpV.copy(a.pos)).distanceTo(jog.L) * npc.esc - a.P.envergadura * 0.25; else continue; }
+    else if (jog.modo === 'pe') d = a.obj.localToWorld(tmpV.copy(a.P.entrada)).distanceTo(jog.pos) - 1.5 * a.esc - (a.tipo === 'cargueiro' ? 5 : 0);
+    else continue;
+    if (d < md) { md = d; melhor = a; }
+  }
+  return md < 2.6 ? melhor : null;
+}
+function entrar() { const a = entrarPerto(); if (!a) return; pilotar(a); mensagem('Pilotando: ' + a.T.nome, '', 1.6); }
+function pular() {
+  if (jog.modo === 'pe' && jog.noChao) { jog.vel.y = 5.5; jog.noChao = false; return; }
+  if (jog.modo === 'sobre') { const a = jog.sobre; jog.pos.copy(a.obj.localToWorld(tmpV.copy(jog.L))); a.velocidade(jog.vel).add(tmpV.set(0, 4, 0).applyQuaternion(a.q)); jog.ignorar = { a, t: 1.2 }; jog.modo = 'queda'; jog.yaw = Math.atan2(-tmpV2.set(0, 0, -1).applyQuaternion(a.q).x, -tmpV2.z); cam.iniciado = false; mensagem('Pulou!', 'Abra o paraquedas (☂ / espaço)', 2); return; }
+  if (jog.modo === 'queda') return paraquedas();
+}
+function paraquedas() { if (jog.modo !== 'queda') return; jog.modo = 'paraquedas'; som.clique(); }
+function garras() { jog.garras = !jog.garras; mensagem(jog.garras ? 'Garras ligadas' : 'Garras soltas', jog.garras ? 'Grudado no avião' : 'O vento pode te derrubar', 1.5); }
+
+function fisicaPessoa(dt, k) {
+  const inX = k.r, inY = k.p; // joystick: x vira/anda pro lado, y anda pra frente
+  const andar = (ref, vel) => { // direção relativa à câmera
+    const m = Math.hypot(inX, inY); if (m < 0.05) return 0;
+    const ang = jog.camYaw + Math.atan2(-inX, inY); jog.yaw = lerpAng(jog.yaw, ang, 1 - Math.exp(-dt * 10));
+    ref.x = -Math.sin(ang) * vel * Math.min(1, m); ref.z = -Math.cos(ang) * vel * Math.min(1, m); return Math.min(1, m) * vel;
+  };
+  if (jog.modo === 'pe') {
+    const h = M.chao(jog.pos.x, jog.pos.z), agua = h < -0.8, chao = agua ? -1.0 : h;
+    const mv = { x: 0, z: 0 }; jog.rapidez = andar(mv, agua ? 2 : 5.5);
+    jog.vel.x = mv.x; jog.vel.z = mv.z; jog.vel.y -= 9.8 * dt;
+    jog.pos.addScaledVector(jog.vel, dt);
+    if (jog.pos.y <= chao) { jog.pos.y = chao; jog.vel.y = 0; jog.noChao = true; }
+    // não atravessa aviões estacionados (empurra pra fora)
+    for (const a of frota) { if (a === npc || !a.vivo) continue; const r = Math.max(1.5, a.P.envergadura * a.esc * 0.08); const d = tmpV.copy(jog.pos).sub(a.pos).setY(0); const l = d.length(); if (l < r && l > 0.01) jog.pos.addScaledVector(d.normalize(), r - l); }
+  } else if (jog.modo === 'queda' || jog.modo === 'paraquedas') {
+    if (jog.modo === 'queda') {
+      jog.vel.y -= 9.8 * dt; jog.vel.multiplyScalar(1 - Math.min(0.5, jog.vel.length() * 0.00324 * dt * 9.8 / 9.8 * 1));
+      const mv = { x: 0, z: 0 }; andar(mv, 9); jog.vel.x += mv.x * dt; jog.vel.z += mv.z * dt;
+      jog.rapidez = 0;
+    } else {
+      jog.yaw -= inX * 0.9 * dt; const f = 7 + Math.max(0, inY) * 4;
+      jog.vel.x = lerp(jog.vel.x, -Math.sin(jog.yaw) * f, 1 - Math.exp(-dt * 1.5)); jog.vel.z = lerp(jog.vel.z, -Math.cos(jog.yaw) * f, 1 - Math.exp(-dt * 1.5));
+      jog.vel.y = lerp(jog.vel.y, -4.5 + Math.max(0, -inY) * -2, 1 - Math.exp(-dt * 2)); jog.camYaw = lerpAng(jog.camYaw, jog.yaw, 1 - Math.exp(-dt * 2));
+    }
+    jog.pos.addScaledVector(jog.vel, dt); if (jog.ignorar) jog.ignorar.t -= dt;
+    // pousar em cima de um avião (inclusive dentro do cargueiro)
+    for (const a of frota) {
+      if (!a.vivo || (jog.ignorar && jog.ignorar.a === a && jog.ignorar.t > 0) || a.pos.distanceToSquared(jog.pos) > (60 * a.esc) ** 2) continue;
+      const L = a.obj.worldToLocal(tmpV.copy(jog.pos)), ys = a.P.superficies(L.x, L.z);
+      for (const y of ys) if (L.y <= y + 0.05 && L.y > y - 2.5 / a.esc) { jog.modo = 'sobre'; jog.sobre = a; jog.L.copy(L).setY(y); jog.yaw = 0; mensagem('Aterrissou no ' + (a === npc ? 'cargueiro!' : 'avião!'), '', 2); cam.iniciado = false; return; }
+    }
+    const h = M.chao(jog.pos.x, jog.pos.z), agua = h < -0.8;
+    if (jog.pos.y <= (agua ? -1 : h)) {
+      const v = jog.vel.length();
+      if (!agua && v > 15) { jog.vivo = false; jog.morteT = 0; mensagem('Splat!', 'Abra o paraquedas antes de chegar no chão', 3); fumaca.emitir(jog.pos, tmpV.set(0, 2, 0), tmpC.set(0x9a8a70), 2, 6, 0.6, 1.5); som.batida(0.4); pessoa.obj.visible = false; return; }
+      if (agua) for (let i = 0; i < 20; i++) fumaca.emitir(tmpV.copy(jog.pos).setY(0.2), V3().randomDirection().multiplyScalar(4).setY(5), tmpC.set(0xf4fbff), 1, 4, 0.8, 1.2, 0.5, -9);
+      jog.modo = 'pe'; jog.pos.y = agua ? -1 : h; jog.vel.set(0, 0, 0); jog.noChao = true;
+      if (!agua) mensagem('Aterrissou!', '', 1.2);
+    }
+  } else if (jog.modo === 'sobre') {
+    const a = jog.sobre, e = a.esc;
+    if (!a.vivo) return;
+    const mv = { x: 0, z: 0 }; jog.rapidez = andar(mv, 2.4);
+    jog.L.x += mv.x * dt / e; jog.L.z += mv.z * dt / e;
+    up.set(0, 1, 0).applyQuaternion(a.q);
+    const dentroBaia = a === npc && Math.abs(jog.L.x) < BAIA.meia && jog.L.z < BAIA.rampaFim && jog.L.y < 0;
+    const vento = dentroBaia ? 0 : smooth(18, 70, a.V);
+    jog.vento = vento;
+    if (!jog.garras) { // o vento empurra pra trás; de cabeça pra baixo, cai
+      jog.L.z += vento * (3 + Math.sin(tempo * 7) * 1.5) * dt / e; jog.L.x += Math.sin(tempo * 3.1) * vento * 0.6 * dt / e;
+      if (up.y < 0.2 && !dentroBaia) return soltar(a);
+    } else if (up.y < -0.3 && Math.random() < dt * 0.1) { /* garras aguentam */ }
+    const ys = a.P.superficies(jog.L.x, jog.L.z).filter((y) => y <= jog.L.y + 0.6 / e);
+    if (!ys.length) return soltar(a);
+    jog.L.y = Math.max(...ys);
+    jog.pos.copy(a.obj.localToWorld(tmpV.copy(jog.L)));
+  }
+}
+function soltar(a) { jog.ignorar = { a, t: 1.2 }; jog.modo = 'queda'; jog.pos.copy(a.obj.localToWorld(tmpV.copy(jog.L))); a.velocidade(jog.vel); cam.iniciado = false; mensagem('Caiu do avião!', 'Abra o paraquedas (☂ / espaço)', 2.5); }
+const lerpAng = (a, b, t) => { const d = Math.atan2(Math.sin(b - a), Math.cos(b - a)); return a + d * t; };
+
+// ---------- Desafios (argolas e o cargueiro) ----------
 let desafio = null;
 const matArg = new THREE.MeshStandardMaterial({ color: 0xffc83a, emissive: 0xffa400, emissiveIntensity: 0.7, metalness: 0.6, roughness: 0.25 });
 const matArgFraca = new THREE.MeshBasicMaterial({ color: 0xffe28a, transparent: true, opacity: 0.35, depthWrite: false });
+const DESAFIO_BAIA = { id: 'baia', nome: 'Entrar no Cargueiro', desc: 'Voe por trás do cargueiro gigante e pouse dentro dele.' };
 function comecarDesafio(d) {
   pararDesafio();
+  if (d.id === 'baia') {
+    const f = tmpV.set(0, 0, -1).applyQuaternion(npc.q), p = npc.pos.clone().addScaledVector(f, -700).add(tmpV2.set(0, -8, 0));
+    const rumo = (THREE.MathUtils.radToDeg(Math.atan2(f.x, -f.z)) + 360) % 360;
+    if (S.tipo === 'cargueiro') S.tipo = 'andorinha';
+    nascer({ x: p.x, z: p.z, y: p.y, rumo }); jog.aviao.pos.y = p.y; jog.aviao.V = npc.V + 8; jog.aviao.acel = 0.55;
+    desafio = { d, aneis: [], i: 0, t: 0, batidas: 0 };
+    mensagem(d.nome, 'Baixe o trem, iguale a velocidade e entre pela rampa', 4); return;
+  }
   const pts = d.pts.map((p) => { const [x, z] = p; const y = p[2] === 'abs' ? p[3] : Math.max(M.chao(x, z), 0) + p[2]; return V3().set(x, y, z); });
   const ini = V3().set(d.inicio.x, d.inicio.y, d.inicio.z);
   const aneis = pts.map((c, i) => {
@@ -230,130 +410,136 @@ function comecarDesafio(d) {
 }
 function pararDesafio() { if (!desafio) return; for (const a of desafio.aneis) cena.remove(a.g); desafio = null; $('missao').style.display = 'none'; }
 function atualizarDesafio(dt, t) {
-  if (!desafio) return; const D = desafio; if (A.vivo) D.t += dt;
-  D.aneis.forEach((a, k) => {
-    a.g.visible = k >= D.i && k < D.i + 4;
-    a.m.material = k === D.i ? matArg : matArgFraca;
-    a.brilho.material.opacity = k === D.i ? 0.25 + 0.15 * Math.sin(t * 6) : 0;
-    if (k === D.i) a.g.scale.setScalar(1 + 0.04 * Math.sin(t * 5));
-  });
-  const a = D.aneis[D.i]; if (!a || !A.vivo) return;
-  const lado = tmpV.copy(A.pos).sub(a.c).dot(a.n);
+  if (!desafio) return; const D = desafio; if (jog.vivo) D.t += dt;
+  D.aneis.forEach((a, k) => { a.g.visible = k >= D.i && k < D.i + 4; a.m.material = k === D.i ? matArg : matArgFraca; a.brilho.material.opacity = k === D.i ? 0.25 + 0.15 * Math.sin(t * 6) : 0; if (k === D.i) a.g.scale.setScalar(1 + 0.04 * Math.sin(t * 5)); });
+  const a = D.aneis[D.i], av = jog.aviao; if (!a || !av || !jog.vivo || jog.modo !== 'piloto') return;
+  const lado = tmpV.copy(av.pos).sub(a.c).dot(a.n);
   if (a.lado !== null && a.lado < 0 && lado >= 0) {
-    const lat = tmpV.copy(A.pos).sub(a.c).addScaledVector(a.n, -lado).length();
-    if (lat < a.R + 1) { // passou!
-      D.i++; som.argola(D.i); for (let k = 0; k < 40; k++) fogo.emitir(a.c.clone().add(V3().randomDirection().multiplyScalar(a.R)), V3().randomDirection().multiplyScalar(8), new THREE.Color(0xffd24a), 3, 0.5, 1, 0.8, 1);
-      a.g.visible = false;
-      if (D.i >= D.aneis.length) return terminarDesafio();
+    const lat = tmpV.copy(av.pos).sub(a.c).addScaledVector(a.n, -lado).length();
+    if (lat < a.R + 1) {
+      D.i++; som.argola(D.i); for (let k = 0; k < 40; k++) fogo.emitir(a.c.clone().add(V3().randomDirection().multiplyScalar(a.R)), V3().randomDirection().multiplyScalar(8), tmpC.set(0xffd24a), 3, 0.5, 1, 0.8, 1);
+      a.g.visible = false; if (D.i >= D.aneis.length) return terminarDesafio();
     }
   }
   a.lado = lado;
 }
-function terminarDesafio() {
-  const D = desafio, comp = D.aneis.reduce((s, a, i) => s + (i ? a.c.distanceTo(D.aneis[i - 1].c) : 0), 0), par = comp / 62 + 4;
-  const t = D.t, n = t <= par ? 3 : t <= par * 1.3 ? 2 : 1, rec = S.recordes[D.d.id];
-  const novo = !rec || t < rec.t; if (novo) { S.recordes[D.d.id] = { t, n }; salvar(); }
-  mensagem(`${D.d.nome} completo!`, `${'⭐'.repeat(n)}  ${fmtT(t)}${novo ? ' · novo recorde!' : ` · recorde ${fmtT(rec.t)}`}`, 5);
+function terminarDesafio(baia) {
+  const D = desafio; let n;
+  if (baia) n = D.t < 40 ? 3 : D.t < 90 ? 2 : 1;
+  else { const comp = D.aneis.reduce((s, a, i) => s + (i ? a.c.distanceTo(D.aneis[i - 1].c) : 0), 0), par = comp / 62 + 4; n = D.t <= par ? 3 : D.t <= par * 1.3 ? 2 : 1; }
+  const t = D.t, rec = S.recordes[D.d.id], novo = !rec || t < rec.t; if (novo) { S.recordes[D.d.id] = { t, n }; salvar(); }
+  if (!baia) mensagem(`${D.d.nome} completo!`, `${'⭐'.repeat(n)}  ${fmtT(t)}${novo ? ' · novo recorde!' : ` · recorde ${fmtT(rec.t)}`}`, 5);
   som.vitoria(); pararDesafio();
 }
 const fmtT = (t) => `${Math.floor(t / 60)}:${(t % 60).toFixed(1).padStart(4, '0')}`;
 
 // ---------- Câmera ----------
 const CAMS = ['Atrás', 'Cabine', 'Cinema', 'Lado'];
-const cam = { modo: 0, q: new THREE.Quaternion(), pos: V3(), iniciado: false, fixo: V3(), trocaT: 0, treme: 0 };
-const cimaCam = V3(), alvoCam = V3(), mtx = new THREE.Matrix4();
+const cam = { modo: 0, q: new THREE.Quaternion(), iniciado: false, fixo: V3(), trocaT: 0, treme: 0 };
+const cimaCam = V3(), alvoCam = V3();
 function atualizarCamera(dt, t) {
-  const p = A.pos; fwd.set(0, 0, -1).applyQuaternion(A.q); up.set(0, 1, 0).applyQuaternion(A.q);
-  if (!cam.iniciado) { cam.q.copy(A.q); cam.pos.copy(p).addScaledVector(fwd, -16).addScaledVector(EY, 4); cam.iniciado = true; cam.fixo.set(0, 0, 0); }
-  P.piloto.visible = cam.modo !== 1;
-  const vel01 = clamp(A.V / 85, 0, 1);
   let fov = 60;
-  if (cam.modo === 0 || cam.modo === 3) {
-    cam.q.slerp(A.q, 1 - Math.exp(-dt * (cam.modo === 0 ? 4 : 2.5)));
-    const cf = tmpV.set(0, 0, -1).applyQuaternion(cam.q), cu = cimaCam.set(0, 1, 0).applyQuaternion(cam.q).lerp(EY, 0.65).normalize();
-    const dist = (cam.modo === 0 ? 15 : 13) + vel01 * 3;
-    const off = cam.modo === 0 ? tmpV2.copy(cf).multiplyScalar(-dist).addScaledVector(cu, 3.6) : tmpV2.set(1, 0, 0).applyQuaternion(cam.q).multiplyScalar(dist).addScaledVector(cu, 2).addScaledVector(cf, -3);
-    off.applyAxisAngle(EY, -ent.olhaX * Math.PI); off.applyAxisAngle(tmpV.set(1, 0, 0).applyQuaternion(cam.q), -ent.olhaY * 1.2);
-    camera.position.copy(p).add(off);
-    alvoCam.copy(p).addScaledVector(fwd, cam.modo === 0 ? 12 * (1 - Math.min(1, Math.abs(ent.olhaX) * 3)) : 0);
-    camera.up.copy(cu); camera.lookAt(alvoCam);
-    fov = 58 + vel01 * 12;
-    camera.near = 0.5;
-  } else if (cam.modo === 1) {
-    camera.position.copy(P.piloto.localToWorld(tmpV.set(0, 0.48, -0.02)));
-    camera.quaternion.copy(A.q); camera.rotateY(-ent.olhaX * Math.PI); camera.rotateX(-ent.olhaY * 1.2);
-    camera.near = 0.08; fov = 70 + vel01 * 6;
-  } else { // cinema: câmera parada que vê o avião passar
-    const d = camera.position.distanceTo(p);
-    if (cam.fixo.lengthSq() === 0 || d > 420 || t > cam.trocaT) {
-      const lado = Math.random() < 0.5 ? -1 : 1, dt2 = A.V * 4 + 60;
-      cam.fixo.copy(p).addScaledVector(A.dir, dt2).add(tmpV.set(1, 0, 0).applyQuaternion(A.q).setY(0).normalize().multiplyScalar(lado * (25 + Math.random() * 50)));
-      cam.fixo.y = Math.max(cam.fixo.y + (Math.random() - 0.3) * 30, Math.max(M.chao(cam.fixo.x, cam.fixo.z), 0) + 4);
-      cam.trocaT = t + 9;
+  if (jog.modo === 'piloto' || !jog.vivo && jog.aviao && jog.modo === 'piloto') {
+    const a = jog.aviao, p = a.pos, e = Math.max(1, a.esc * (a.tipo === 'cargueiro' ? 2.6 : a.tipo === 'caca' ? 1.25 : 1));
+    fwd.set(0, 0, -1).applyQuaternion(a.q);
+    if (!cam.iniciado) { cam.q.copy(a.q); cam.iniciado = true; cam.fixo.set(0, 0, 0); }
+    a.P.piloto.visible = cam.modo !== 1;
+    const vel01 = clamp(a.V / Math.min(a.T.vmax, 120), 0, 1);
+    if (cam.modo === 0 || cam.modo === 3) {
+      cam.q.slerp(a.q, 1 - Math.exp(-dt * (cam.modo === 0 ? 4 : 2.5)));
+      const cf = tmpV.set(0, 0, -1).applyQuaternion(cam.q), cu = cimaCam.set(0, 1, 0).applyQuaternion(cam.q).lerp(EY, 0.65).normalize();
+      const dist = ((cam.modo === 0 ? 15 : 13) + vel01 * 3) * e;
+      const off = cam.modo === 0 ? tmpV2.copy(cf).multiplyScalar(-dist).addScaledVector(cu, 3.6 * e) : tmpV2.set(1, 0, 0).applyQuaternion(cam.q).multiplyScalar(dist).addScaledVector(cu, 2 * e).addScaledVector(cf, -3 * e);
+      off.applyAxisAngle(EY, -ent.olhaX * Math.PI); off.applyAxisAngle(tmpV.set(1, 0, 0).applyQuaternion(cam.q), -ent.olhaY * 1.2);
+      camera.position.copy(p).add(off); alvoCam.copy(p).addScaledVector(fwd, cam.modo === 0 ? 12 * e * (1 - Math.min(1, Math.abs(ent.olhaX) * 3)) : 0);
+      camera.up.copy(cu); camera.lookAt(alvoCam); fov = 58 + vel01 * 12; camera.near = 0.5;
+    } else if (cam.modo === 1) {
+      camera.position.copy(a.P.piloto.localToWorld(tmpV.set(0, 0.48, -0.02)));
+      camera.quaternion.copy(a.q); camera.rotateY(-ent.olhaX * Math.PI); camera.rotateX(-ent.olhaY * 1.2); camera.near = 0.08; fov = 70 + vel01 * 6;
+    } else {
+      const d = camera.position.distanceTo(p);
+      if (cam.fixo.lengthSq() === 0 || d > 420 * e || t > cam.trocaT) {
+        const lado = Math.random() < 0.5 ? -1 : 1;
+        cam.fixo.copy(p).addScaledVector(a.dir, a.V * 4 + 60 * e).add(tmpV.set(1, 0, 0).applyQuaternion(a.q).setY(0).normalize().multiplyScalar(lado * (25 + Math.random() * 50) * e));
+        cam.fixo.y = Math.max(cam.fixo.y + (Math.random() - 0.3) * 30, Math.max(M.chao(cam.fixo.x, cam.fixo.z), 0) + 4); cam.trocaT = t + 9;
+      }
+      camera.position.copy(cam.fixo); camera.up.copy(EY); camera.lookAt(p);
+      fov = clamp(THREE.MathUtils.radToDeg(2 * Math.atan(14 * e / Math.max(d, 1))), 8, 60); camera.near = 1;
     }
-    camera.position.copy(cam.fixo); camera.up.copy(EY); camera.lookAt(p);
-    fov = clamp(THREE.MathUtils.radToDeg(2 * Math.atan(14 / Math.max(d, 1))), 8, 60); camera.near = 1;
+  } else { // a pé / caindo / em cima do avião: câmera de 3ª pessoa
+    const quadro = jog.modo === 'sobre' && jog.sobre ? jog.sobre.q : null;
+    const yaw = jog.camYaw + ent.olhaX * Math.PI, pit = 0.28 + ent.olhaY;
+    const dist = jog.modo === 'paraquedas' ? 13 : jog.modo === 'queda' ? 7 : 5.5;
+    const off = tmpV2.set(Math.sin(yaw) * Math.cos(pit), Math.sin(pit), Math.cos(yaw) * Math.cos(pit)).multiplyScalar(dist);
+    const alvo = tmpV3.copy(jog.pos).add(tmpV.set(0, 1.4, 0).applyQuaternion(quadro || tmpQ.identity()));
+    if (quadro) off.applyQuaternion(quadro);
+    camera.position.copy(alvo).add(off);
+    camera.up.copy(quadro ? tmpV.set(0, 1, 0).applyQuaternion(quadro).lerp(EY, 0.4).normalize() : EY);
+    camera.lookAt(alvo); camera.near = 0.2; fov = 62 + (jog.modo === 'queda' ? clamp(jog.vel.length() / 55, 0, 1) * 14 : 0);
+    if (jog.modo !== 'sobre' && ent.olhaX === 0 && Math.hypot(jog.vel.x, jog.vel.z) > 1) jog.camYaw = lerpAng(jog.camYaw, jog.yaw, 1 - Math.exp(-dt * 0.8));
   }
-  // não entra no chão
-  const ch = Math.max(M.chao(camera.position.x, camera.position.z), 0) + 1.5; if (camera.position.y < ch) camera.position.y = ch;
-  // tremor: velocidade alta, G alto, batida
-  cam.treme = Math.max(cam.treme - dt * 2, 0); const tr = cam.treme + Math.max(0, A.V - 75) * 0.003 + Math.max(0, A.G - 3) * 0.02;
+  const ch = Math.max(M.chao(camera.position.x, camera.position.z), 0) + 1.2; if (camera.position.y < ch) camera.position.y = ch;
+  cam.treme = Math.max(cam.treme - dt * 2, 0); const av = jog.aviao;
+  const tr = cam.treme + (jog.modo === 'piloto' && av ? Math.max(0, av.V - 0.85 * av.T.vmax) * 0.004 + Math.max(0, av.G - 3) * 0.02 : 0) + (jog.modo === 'sobre' ? (jog.vento || 0) * 0.5 : 0);
   if (tr > 0 && cam.modo !== 2) camera.position.add(tmpV.set(Math.sin(t * 61), Math.sin(t * 53), Math.sin(t * 47)).multiplyScalar(tr * 0.15));
-  if (Math.abs(camera.fov - fov) > 0.05) { camera.fov = lerp(camera.fov, fov, cam.modo === 2 ? 1 : 1 - Math.exp(-dt * 3)); camera.updateProjectionMatrix(); escalaPontos = innerHeight * Q.pr / (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2)); }
+  if (Math.abs(camera.fov - fov) > 0.05) { camera.fov = lerp(camera.fov, fov, cam.modo === 2 && jog.modo === 'piloto' ? 1 : 1 - Math.exp(-dt * 3)); camera.updateProjectionMatrix(); atualizaEscala(); }
 }
 
-// ---------- Animação do avião ----------
-const corFumaca = new THREE.Color(), tmpC = new THREE.Color(), cauda = V3(), caudaAnt = V3();
-function animarAviao(dt, t) {
-  aviao.position.copy(A.pos); aviao.quaternion.copy(A.q); aviao.updateMatrixWorld();
-  // hélice
-  P.pas.rotation.z -= Math.min(A.rpm * 55 * dt, 1.1); P.disco.material.opacity = smooth(0.25, 0.7, A.rpm) * 0.85; P.disco.rotation.z += dt * 3;
-  P.brasa.emissiveIntensity = 0.3 + A.acel * 2.5 + (Math.random() - 0.5) * 0.4;
-  // superfícies
-  const k = A.vivo ? 1 : 0;
-  P.ailD.userData.set(-ent.r * 0.35 * k); P.ailE.userData.set(-ent.r * 0.35 * k);
-  P.profD.userData.set(-ent.p * 0.4 * k); P.profE.userData.set(ent.p * 0.4 * k);
-  P.leme.userData.set((ent.y + ent.r * 0.2) * 0.4 * k);
-  P.flapD.userData.set(A.flap * 0.6); P.flapE.userData.set(-A.flap * 0.6);
-  P.manche.rotation.set(-ent.p * 0.3, 0, -ent.r * 0.35);
-  // trem
-  A.trem += clamp(A.tremAlvo - A.trem, -dt / 2.2, dt / 2.2);
-  for (const g of P.trem) { const a = (1 - A.trem) * Math.PI / 2; if (g.userData.eixo === 'x') g.rotation.x = -a; else g.rotation.z = -g.userData.sinal * a; g.visible = A.trem > 0.01; }
-  if (A.chao) for (const r of P.rodas) r.rotation.x -= A.V / 0.3 * dt;
-  // piloto olha para a curva
-  P.piloto.children[1].rotation.y = -ent.r * 0.5; P.piloto.children[2].rotation.y = -ent.r * 0.5;
-  P.cachecol.rotation.z = Math.sin(t * 9) * 0.25; P.cachecol.rotation.x = Math.sin(t * 13) * 0.15;
-  // luzes
-  const noite = M.noite, ciclo = t % 1.3, flash = ciclo < 0.05 || (ciclo > 0.14 && ciclo < 0.19);
+// ---------- Animação dos aviões ----------
+const luzPouso = new THREE.SpotLight(0xfff2d8, 0, 700, 0.38, 0.5, 1); cena.add(luzPouso, luzPouso.target);
+const corFumaca = new THREE.Color(), caudaAnt = V3(), cauda = V3();
+function animarAero(a, dt, t, perto) {
+  a.sincronizar(); const P = a.P;
+  for (const h of P.helices) { h.pas.rotation.z -= Math.min(a.rpm * 55 * dt / Math.sqrt(h.raio), 1.1); h.disco.material.opacity = smooth(0.25, 0.7, a.rpm) * 0.85; h.disco.rotation.z += dt * 3; }
+  if (P.brasa) P.brasa.emissiveIntensity = 0.3 + a.acel * 2.5 + (Math.random() - 0.5) * 0.4;
+  if (P.chama) { const ab = a.vivo && a.acel > 0.85 ? (a.acel - 0.85) / 0.15 : 0; P.chama.visible = ab > 0.01; P.chama.scale.set(0.8 + ab * 0.3, 0.8 + ab * 0.3, (0.5 + ab * 0.7) * (0.92 + Math.random() * 0.16)); }
+  if (P.abrir && a !== npc) { const alvo = a.chao && a.V < 5 ? 1 : a.flap > 0.9 ? 1 : 0; a.abre += clamp(alvo - a.abre, -dt * 0.3, dt * 0.3); P.abrir(a.abre); P.rampaAberta = a.abre > 0.9; }
+  if (!perto) return;
+  const e = a.ent, k = a.vivo ? 1 : 0;
+  P.ailD?.userData.set(-e.r * 0.35 * k); P.ailE?.userData.set(-e.r * 0.35 * k);
+  P.profD?.userData.set(-e.p * 0.4 * k); P.profE?.userData.set(e.p * 0.4 * k);
+  P.leme?.userData.set((e.y + e.r * 0.2) * 0.4 * k);
+  P.flapD?.userData.set(a.flap * 0.6); P.flapE?.userData.set(-a.flap * 0.6);
+  P.manche?.rotation.set(-e.p * 0.3, 0, -e.r * 0.35);
+  if (a !== npc) a.trem += clamp(a.tremAlvo - a.trem, -dt / 2.2, dt / 2.2);
+  for (const g of P.trem) { const ang = (1 - a.trem) * Math.PI / 2, u = g.userData;
+    if (u.eixo === 'x') g.rotation.x = -ang; else if (u.eixo === 'z') g.rotation.z = -u.sinal * ang; else { u.y0 ??= g.position.y; g.position.y = u.y0 + (1 - a.trem) * u.sobe; }
+    g.visible = u.eixo === 'y' || a.trem > 0.01; }
+  if (a.chao) for (const r of P.rodas) r.rotation.x -= a.V / 0.35 * dt;
+  if (P.piloto) { P.piloto.visible = a.comPiloto && !(a === jog.aviao && cam.modo === 1) || a === npc; P.piloto.children[1].rotation.y = -e.r * 0.5; P.piloto.children[2].rotation.y = -e.r * 0.5; }
+  if (P.cachecol) { P.cachecol.rotation.z = Math.sin(t * 9) * 0.25; P.cachecol.rotation.x = Math.sin(t * 13) * 0.15; }
+  const noite = M.noite, ciclo = (t + a.seed * 0.37) % 1.3, flash = ciclo < 0.05 || (ciclo > 0.14 && ciclo < 0.19);
   for (const s of [P.estD, P.estE]) s.scale.setScalar(flash ? s.userData.tam * (0.6 + noite) : 0.001);
   for (const s of [P.navD, P.navE, P.luzCauda]) s.scale.setScalar(s.userData.tam * (0.35 + noite * 1.2));
-  P.beacon.scale.setScalar(P.beacon.userData.tam * Math.max(0, Math.sin(t * 6)) ** 4 * (0.5 + noite));
-  P.farol.intensity = noite > 0.3 && A.trem > 0.5 ? 120 * noite : 0; P.lampFarol.visible = P.farol.intensity > 0;
-  // painel (só quando dá pra ver)
-  if (P.painel && (cam.modo === 1 || (t * 10 | 0) % 3 === 0)) {
-    const r = tmpV2.set(1, 0, 0).applyQuaternion(A.q);
-    desenhaPainel(P.painel, { vel: A.V * 3.6, alt: Math.max(0, A.pos.y), vs: A.vs, rol: Math.asin(clamp(-r.y, -1, 1)) * (up.y < 0 ? -1 : 1), arf: Math.asin(clamp(fwd.y, -1, 1)), rumo: rumo(), rpm: A.rpm, trem: A.trem, flap: A.flap, estol: A.estol });
+  P.beacon.scale.setScalar(P.beacon.userData.tam * Math.max(0, Math.sin(t * 6 + a.seed)) ** 4 * (0.5 + noite));
+  if (P.luzSalto) P.luzSalto.visible = a.abre > 0.95;
+  P.lampFarol.visible = noite > 0.3 && a.trem > 0.5;
+}
+function efeitosJogador(a, dt, t) {
+  fwd.set(0, 0, -1).applyQuaternion(a.q); up.set(0, 1, 0).applyQuaternion(a.q);
+  luzPouso.intensity = M.noite > 0.3 && a.trem > 0.5 && a.vivo ? 140 * M.noite : 0;
+  if (luzPouso.intensity) { a.obj.localToWorld(luzPouso.position.copy(a.P.lampFarol.position)); luzPouso.target.position.copy(luzPouso.position).addScaledVector(fwd, 60).addScaledVector(up, -8); }
+  if (a.P.painel && (cam.modo === 1 || (t * 10 | 0) % 3 === 0)) {
+    const r = tmpV2.set(1, 0, 0).applyQuaternion(a.q);
+    desenhaPainel(a.P.painel, { vel: a.V * 3.6, alt: Math.max(0, a.pos.y), vs: a.vs, rol: Math.asin(clamp(-r.y, -1, 1)) * (up.y < 0 ? -1 : 1), arf: Math.asin(clamp(fwd.y, -1, 1)), rumo: rumoDe(a.q), rpm: a.rpm, trem: a.trem, flap: a.flap, estol: a.estol });
   }
-  if (!A.vivo) return;
-  // fumaça de acrobacia, saindo da cauda e preenchendo o caminho
-  cauda.copy(A.pos).addScaledVector(fwd, -4.9);
-  if (A.fumaca && !A.chao) {
+  if (!a.vivo) return;
+  cauda.copy(a.obj.localToWorld(tmpV.copy(a.P.cauda)));
+  if (a.fumaca && !a.chao) {
     const cf = CORES_FUMACA[S.fumacaCor][1]; if (cf) corFumaca.set(cf); else corFumaca.setHSL((t * 0.15) % 1, 0.85, 0.6);
     const n = Math.ceil(caudaAnt.distanceTo(cauda) / 1.6);
-    for (let i = 0; i < Math.min(n, 8); i++) fumaca.emitir(tmpV.copy(caudaAnt).lerp(cauda, (i + 1) / n), tmpV2.copy(A.dir).multiplyScalar(-2).add(V3().randomDirection().multiplyScalar(0.6)), corFumaca, 2.2, 13, 0.85, 7, 0.6, 0.3);
+    for (let i = 0; i < Math.min(n, 10); i++) fumaca.emitir(tmpV.copy(caudaAnt).lerp(cauda, (i + 1) / n), tmpV2.copy(a.dir).multiplyScalar(-2).add(V3().randomDirection().multiplyScalar(0.6)), corFumaca, 2.2, 13, 0.85, 7, 0.6, 0.3);
   }
   caudaAnt.copy(cauda);
-  // fumacinha do escapamento
-  if (Math.random() < A.acel * 0.5) for (const s of [-1, 1]) fumaca.emitir(aviao.localToWorld(tmpV.set(s * 0.8, -0.2, -2.6)), tmpV2.copy(A.dir).multiplyScalar(-6).add(tmpV.set(s * 2, 0, 0).applyQuaternion(A.q)), tmpC.setRGB(0.55, 0.55, 0.55), 0.3, 2, 0.25, 0.6, 2);
-  // vórtices nas pontas quando puxa forte
-  const forca = smooth(2.2, 4, A.G) + smooth(0.2, 1, A.flap) * smooth(20, 40, A.V) * 0.3;
-  rastroD.passo(aviao.localToWorld(tmpV.copy(P.pontaD)), up, forca); rastroE.passo(aviao.localToWorld(tmpV.copy(P.pontaE)), up, forca);
+  if (a.T.motor !== 'jato' && Math.random() < a.acel * 0.5 && a.P.helices[0]) { const h = a.P.helices[0].h; fumaca.emitir(h.getWorldPosition(tmpV).addScaledVector(fwd, -1.5).addScaledVector(up, -0.2), tmpV2.copy(a.dir).multiplyScalar(-6), tmpC.setRGB(0.55, 0.55, 0.55), 0.3, 2, 0.25, 0.6, 2); }
+  const forca = smooth(2.2, 4, a.G) + smooth(0.2, 1, a.flap) * smooth(20, 40, a.V) * 0.3;
+  rastroD.passo(a.obj.localToWorld(tmpV.copy(a.P.pontaD)), up, forca); rastroE.passo(a.obj.localToWorld(tmpV.copy(a.P.pontaE)), up, forca);
 }
-const rumo = () => { const f = tmpV.set(0, 0, -1).applyQuaternion(A.q); return (THREE.MathUtils.radToDeg(Math.atan2(f.x, -f.z)) + 360) % 360; };
+const rumoDe = (q) => { const f = tmpV3.set(0, 0, -1).applyQuaternion(q); return (THREE.MathUtils.radToDeg(Math.atan2(f.x, -f.z)) + 360) % 360; };
 
 // ---------- Som ----------
 const som = (() => {
-  let ctx = null, mot, mot2, filtro, gMot, vento, gVento, lfo, gLfo, mestre;
+  let ctx = null, mot, mot2, filtro, gMot, vento, gVento, lfo, gLfo, mestre, jato, gJato, fJato;
   const iniciar = () => {
     if (ctx) { if (ctx.state === 'suspended') ctx.resume(); return; }
     try { ctx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { return; }
@@ -365,77 +551,87 @@ const som = (() => {
     const buf = ctx.createBuffer(1, ctx.sampleRate * 2, ctx.sampleRate), d = buf.getChannelData(0); let b = 0; for (let i = 0; i < d.length; i++) { b = b * 0.97 + (Math.random() * 2 - 1) * 0.03; d[i] = b * 4; }
     vento = ctx.createBufferSource(); vento.buffer = buf; vento.loop = true; const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 700; bp.Q.value = 0.4;
     gVento = ctx.createGain(); gVento.gain.value = 0; vento.connect(bp); bp.connect(gVento); gVento.connect(mestre);
-    mot.start(); mot2.start(); lfo.start(); vento.start();
+    // turbina: chiado + assobio
+    const bufB = ctx.createBuffer(1, ctx.sampleRate * 2, ctx.sampleRate), db = bufB.getChannelData(0); for (let i = 0; i < db.length; i++) db[i] = Math.random() * 2 - 1;
+    const ruido = ctx.createBufferSource(); ruido.buffer = bufB; ruido.loop = true; fJato = ctx.createBiquadFilter(); fJato.type = 'lowpass'; fJato.frequency.value = 800;
+    jato = ctx.createOscillator(); jato.type = 'sine'; const gAs = ctx.createGain(); gAs.gain.value = 0.05; jato.connect(gAs);
+    gJato = ctx.createGain(); gJato.gain.value = 0; ruido.connect(fJato); fJato.connect(gJato); gAs.connect(gJato); gJato.connect(mestre);
+    mot.start(); mot2.start(); lfo.start(); vento.start(); ruido.start(); jato.start();
   };
   const bip = (f, t0, dur, tipo = 'sine', vol = 0.25) => { if (!ctx) return; const o = ctx.createOscillator(), g = ctx.createGain(); o.type = tipo; o.frequency.value = f; g.gain.setValueAtTime(0, ctx.currentTime + t0); g.gain.linearRampToValueAtTime(vol, ctx.currentTime + t0 + 0.01); g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + t0 + dur); o.connect(g); g.connect(mestre); o.start(ctx.currentTime + t0); o.stop(ctx.currentTime + t0 + dur + 0.05); };
-  const ruido = (dur, freq, vol) => { if (!ctx) return; const n = ctx.createBufferSource(), buf = ctx.createBuffer(1, ctx.sampleRate * dur, ctx.sampleRate), d = buf.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / d.length) ** 2; n.buffer = buf; const f = ctx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = freq; const g = ctx.createGain(); g.gain.value = vol; n.connect(f); f.connect(g); g.connect(mestre); n.start(); };
+  const ruido = (dur, freq, vol) => { if (!ctx || vol < 0.01) return; const n = ctx.createBufferSource(), buf = ctx.createBuffer(1, ctx.sampleRate * dur, ctx.sampleRate), d = buf.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / d.length) ** 2; n.buffer = buf; const f = ctx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = freq; const g = ctx.createGain(); g.gain.value = vol; n.connect(f); f.connect(g); g.connect(mestre); n.start(); };
   return {
-    iniciar,
-    mudo(m) { if (mestre) mestre.gain.value = m ? 0 : 0.55; },
-    atualizar(dentro) {
-      if (!ctx) return; const t = ctx.currentTime, r = A.rpm;
-      mot.frequency.setTargetAtTime(32 + r * 62, t, 0.1); mot2.frequency.setTargetAtTime(16 + r * 31, t, 0.1); lfo.frequency.setTargetAtTime(9 + r * 30, t, 0.1);
-      filtro.frequency.setTargetAtTime(dentro ? 300 + r * 500 : 400 + r * 1100, t, 0.1); gMot.gain.setTargetAtTime(A.vivo ? 0.07 + r * 0.12 : 0, t, 0.15);
-      gVento.gain.setTargetAtTime(A.vivo ? Math.min(0.5, (A.V / 85) ** 2 * 0.35) * (dentro ? 0.5 : 1) : 0, t, 0.2);
+    iniciar, mudo(m) { if (mestre) mestre.gain.value = m ? 0 : 0.55; },
+    atualizar(a, dentro, aPe) {
+      if (!ctx) return; const t = ctx.currentTime, r = a ? a.rpm : 0, vivo = a && a.vivo, distF = aPe && a ? smooth(600, 20, camera.position.distanceTo(a.pos)) : 1;
+      const tipo = a ? a.T.motor : 'helice', helice = tipo !== 'jato';
+      mot.frequency.setTargetAtTime((tipo === 'turbo' ? 55 : 32) + r * 62, t, 0.1); mot2.frequency.setTargetAtTime(16 + r * 31, t, 0.1); lfo.frequency.setTargetAtTime(9 + r * 30, t, 0.1);
+      filtro.frequency.setTargetAtTime(dentro ? 300 + r * 500 : 400 + r * 1100, t, 0.1);
+      gMot.gain.setTargetAtTime(vivo && helice ? (0.07 + r * 0.12) * distF : 0, t, 0.15);
+      gJato.gain.setTargetAtTime(vivo && !helice ? (0.05 + r * 0.25 + (a.acel > 0.85 ? 0.15 : 0)) * distF : vivo && tipo === 'turbo' ? 0.04 * distF : 0, t, 0.2);
+      fJato.frequency.setTargetAtTime(400 + r * 1800 + (a && a.acel > 0.85 ? 1200 : 0), t, 0.2); jato.frequency.setTargetAtTime(900 + r * 2600, t, 0.3);
+      const vv = aPe ? (jog.modo === 'queda' ? jog.vel.length() : jog.modo === 'sobre' && jog.sobre ? jog.sobre.V : 0) : a ? a.V : 0;
+      gVento.gain.setTargetAtTime(Math.min(0.55, (vv / 85) ** 2 * 0.4) * (dentro ? 0.5 : 1), t, 0.2);
     },
     argola(i) { [0, 4, 7].forEach((s, k) => bip(523 * 2 ** ((s + i % 5) / 12), k * 0.07, 0.35, 'triangle', 0.2)); },
     vitoria() { [0, 4, 7, 12, 16].forEach((s, k) => bip(392 * 2 ** (s / 12), k * 0.12, 0.6, 'triangle', 0.22)); },
-    batida() { ruido(1.6, 500, 1.2); }, pneu() { ruido(0.35, 2500, 0.35); },
+    batida(v = 1) { ruido(1.6, 500, 1.2 * v); }, pneu() { ruido(0.35, 2500, 0.35); },
     clique() { bip(900, 0, 0.05, 'square', 0.06); }, descobre() { [0, 7, 12].forEach((s, k) => bip(659 * 2 ** (s / 12), k * 0.15, 0.8, 'sine', 0.18)); },
   };
 })();
 
-// ---------- Entrada: teclado ----------
+// ---------- Entrada ----------
+const ent = { olhaX: 0, olhaY: 0 };
 const teclas = new Set();
+const pilotando = () => jog.modo === 'piloto' && jog.vivo;
 addEventListener('keydown', (e) => {
   som.iniciar(); if (e.repeat) return; teclas.add(e.code);
   if (estado === 'titulo' && (e.code === 'Enter' || e.code === 'Space')) return comecar();
   if (e.code === 'Escape' || e.code === 'KeyP') return estado === 'menu' ? fecharMenu() : estado === 'voo' && abrirMenu();
   if (estado !== 'voo') return;
-  const acoes = { KeyG: trem, KeyF: flap, Space: fumacaToggle, KeyC: proxCam, KeyH: modoFoto, KeyT: proxHora, KeyR: () => !A.vivo || renascer() };
-  if (acoes[e.code]) { e.preventDefault(); acoes[e.code](); }
+  const av = jog.aviao;
+  const comum = { KeyC: proxCam, KeyH: modoFoto, KeyT: proxHora };
+  const voo = { KeyG: trem, KeyF: flap, Space: fumacaToggle, KeyX: sair };
+  const pe = { Space: pular, KeyE: entrar, KeyK: garras, KeyX: entrar };
+  const f = comum[e.code] || (pilotando() ? voo : jog.vivo ? pe : {})[e.code];
+  if (f) { e.preventDefault(); f(); }
 });
 addEventListener('keyup', (e) => teclas.delete(e.code));
 addEventListener('blur', () => teclas.clear());
 const tem = (...c) => c.some((k) => teclas.has(k));
 function lerTeclado(dt) {
-  const inv = S.inverter ? -1 : 1;
+  const inv = S.inverter && pilotando() ? -1 : 1;
   const p = ((tem('KeyW', 'ArrowUp') ? 1 : 0) - (tem('KeyS', 'ArrowDown') ? 1 : 0)) * inv, r = (tem('KeyD', 'ArrowRight') ? 1 : 0) - (tem('KeyA', 'ArrowLeft') ? 1 : 0), y = (tem('KeyE') ? 1 : 0) - (tem('KeyQ') ? 1 : 0);
-  if (tem('ShiftLeft', 'ShiftRight', 'Equal', 'NumpadAdd')) A.acel = Math.min(1, A.acel + dt * 0.6);
-  if (tem('ControlLeft', 'ControlRight', 'Minus', 'NumpadSubtract', 'KeyZ')) A.acel = Math.max(0, A.acel - dt * 0.6);
-  return { p, r, y, freio: tem('KeyB') };
+  const av = jog.aviao;
+  if (pilotando() && av) {
+    if (tem('ShiftLeft', 'ShiftRight', 'Equal', 'NumpadAdd')) av.acel = Math.min(1, av.acel + dt * 0.6);
+    if (tem('ControlLeft', 'ControlRight', 'Minus', 'NumpadSubtract', 'KeyZ')) av.acel = Math.max(0, av.acel - dt * 0.6);
+  }
+  return { p, r, y: pilotando() ? y : 0, freio: tem('KeyB') };
 }
-
-// ---------- Entrada: toque ----------
 const toque = { stick: null, sx: 0, sy: 0, p: 0, r: 0, leme: 0, olha: null, ox: 0, oy: 0, freio: false };
 const zona = $('zonaStick'), base = $('stickBase'), pino = $('stickPin');
-const baseInicial = () => { base.style.left = ''; base.style.top = ''; pino.style.transform = ''; };
-zona.addEventListener('pointerdown', (e) => {
-  som.iniciar(); if (toque.stick !== null) return; toque.stick = e.pointerId; zona.setPointerCapture(e.pointerId);
-  const r = zona.getBoundingClientRect(); toque.sx = e.clientX; toque.sy = e.clientY; base.style.left = e.clientX - r.left + 'px'; base.style.top = e.clientY - r.top + 'px';
-});
+zona.addEventListener('pointerdown', (e) => { som.iniciar(); if (toque.stick !== null) return; toque.stick = e.pointerId; zona.setPointerCapture(e.pointerId); const r = zona.getBoundingClientRect(); toque.sx = e.clientX; toque.sy = e.clientY; base.style.left = e.clientX - r.left + 'px'; base.style.top = e.clientY - r.top + 'px'; });
 zona.addEventListener('pointermove', (e) => {
-  if (e.pointerId !== toque.stick) return; const R = 62;
+  if (e.pointerId !== toque.stick) return; const R = 56;
   let dx = (e.clientX - toque.sx) / R, dy = (e.clientY - toque.sy) / R; const l = Math.hypot(dx, dy); if (l > 1) { dx /= l; dy /= l; }
   pino.style.transform = `translate(${dx * R}px,${dy * R}px)`;
   const curva = (v) => { const a = Math.abs(v) < 0.08 ? 0 : (Math.abs(v) - 0.08) / 0.92; return Math.sign(v) * (0.35 * a + 0.65 * a * a); };
-  toque.r = curva(dx); toque.p = -curva(dy) * (S.inverter ? -1 : 1);
+  toque.r = curva(dx); toque.p = -curva(dy);
 });
-const soltaStick = (e) => { if (e.pointerId !== toque.stick) return; toque.stick = null; toque.p = toque.r = 0; baseInicial(); };
+const soltaStick = (e) => { if (e.pointerId !== toque.stick) return; toque.stick = null; toque.p = toque.r = 0; base.style.left = base.style.top = pino.style.transform = ''; };
 zona.addEventListener('pointerup', soltaStick); zona.addEventListener('pointercancel', soltaStick);
-// acelerador
 const acelEl = $('acel');
-const poeAcel = (e) => { const r = acelEl.getBoundingClientRect(); A.acel = clamp(1 - (e.clientY - r.top - 10) / (r.height - 20), 0, 1); };
+const poeAcel = (e) => { const r = acelEl.getBoundingClientRect(); if (jog.aviao && pilotando()) jog.aviao.acel = clamp(1 - (e.clientY - r.top - 10) / (r.height - 20), 0, 1); };
 acelEl.addEventListener('pointerdown', (e) => { som.iniciar(); acelEl.setPointerCapture(e.pointerId); poeAcel(e); });
 acelEl.addEventListener('pointermove', (e) => { if (acelEl.hasPointerCapture(e.pointerId)) poeAcel(e); });
-// arrastar no resto da tela gira a câmera
 canvas.addEventListener('pointerdown', (e) => { som.iniciar(); if (estado !== 'voo' || toque.olha !== null) return; toque.olha = e.pointerId; toque.ox = e.clientX; toque.oy = e.clientY; canvas.setPointerCapture(e.pointerId); });
 canvas.addEventListener('pointermove', (e) => { if (e.pointerId !== toque.olha) return; ent.olhaX = clamp(ent.olhaX + (e.clientX - toque.ox) / innerWidth * 1.4, -1, 1); ent.olhaY = clamp(ent.olhaY + (e.clientY - toque.oy) / innerHeight, -0.6, 0.6); toque.ox = e.clientX; toque.oy = e.clientY; });
 const soltaOlha = (e) => { if (e.pointerId === toque.olha) toque.olha = null; };
 canvas.addEventListener('pointerup', soltaOlha); canvas.addEventListener('pointercancel', soltaOlha);
-// botões
 const botao = (id, f) => $(id).addEventListener('pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); som.iniciar(); som.clique(); f(); });
-botao('tTrem', trem); botao('tFlap', flap); botao('tFuma', fumacaToggle); botao('tCam', proxCam); botao('tHora', proxHora);
+botao('tTrem', () => trem()); botao('tFlap', () => flap()); botao('tFuma', () => fumacaToggle()); botao('tCam', () => proxCam()); botao('tSair', () => sair());
+botao('tPular', () => pular()); botao('tEntrar', () => entrar()); botao('tGarras', () => garras()); botao('tParaq', () => paraquedas());
 $('tFreio').addEventListener('pointerdown', (e) => { e.preventDefault(); toque.freio = true; $('tFreio').classList.add('on'); });
 for (const ev of ['pointerup', 'pointercancel', 'pointerleave']) $('tFreio').addEventListener(ev, () => { toque.freio = false; $('tFreio').classList.remove('on'); });
 document.querySelectorAll('[data-leme]').forEach((b) => {
@@ -443,17 +639,18 @@ document.querySelectorAll('[data-leme]').forEach((b) => {
   for (const ev of ['pointerup', 'pointercancel', 'pointerleave']) b.addEventListener(ev, () => { toque.leme = 0; b.classList.remove('on'); });
 });
 $('bMenu').addEventListener('click', () => abrirMenu());
-$('bFoto').addEventListener('click', modoFoto);
 
-function trem() { if (A.chao && A.tremAlvo === 1) return mensagem('No chão não dá!', '', 1.2); A.tremAlvo = A.tremAlvo ? 0 : 1; mensagem(A.tremAlvo ? 'Trem baixado' : 'Trem recolhido', '', 1.2); }
-function flap() { A.flap = A.flap === 0 ? 0.5 : A.flap === 0.5 ? 1 : 0; mensagem(`Flap ${Math.round(A.flap * 30)}°`, '', 1.2); }
-function fumacaToggle() { A.fumaca = !A.fumaca; caudaAnt.copy(A.pos).addScaledVector(fwd.set(0, 0, -1).applyQuaternion(A.q), -4.9); }
-function proxCam() { cam.modo = (cam.modo + 1) % CAMS.length; cam.fixo.set(0, 0, 0); ent.olhaX = ent.olhaY = 0; mensagem('Câmera: ' + CAMS[cam.modo], '', 1.2); }
+function trem() { const a = jog.aviao; if (a.chao && a.tremAlvo === 1) return mensagem('No chão não dá!', '', 1.2); a.tremAlvo = a.tremAlvo ? 0 : 1; mensagem(a.tremAlvo ? 'Trem baixado' : 'Trem recolhido', '', 1.2); }
+function flap() { const a = jog.aviao; a.flap = a.flap === 0 ? 0.5 : a.flap === 0.5 ? 1 : 0; mensagem(`Flap ${Math.round(a.flap * 30)}°`, a.P.abrir ? (a.flap === 1 ? 'Rampa abrindo' : '') : '', 1.2); }
+function fumacaToggle() { const a = jog.aviao; a.fumaca = !a.fumaca; caudaAnt.copy(a.obj.localToWorld(tmpV.copy(a.P.cauda))); }
+function proxCam() { cam.modo = (cam.modo + 1) % CAMS.length; cam.fixo.set(0, 0, 0); ent.olhaX = ent.olhaY = 0; if (pilotando()) mensagem('Câmera: ' + CAMS[cam.modo], '', 1.2); }
 function modoFoto() { document.body.classList.toggle('foto'); }
 function renascer() {
-  if (desafio && desafio.i > 0) { const a = desafio.aneis[desafio.i - 1], n = desafio.aneis[desafio.i] || a; const d = n.c.clone().sub(a.c); nascer({ x: a.c.x, z: a.c.z, y: a.c.y, rumo: THREE.MathUtils.radToDeg(Math.atan2(d.x, -d.z)) }); a.lado = null; desafio.aneis.forEach((x) => (x.lado = null)); }
+  pessoa.obj.visible = false;
+  if (desafio && desafio.d.id === 'baia') return comecarDesafio(desafio.d);
+  if (desafio && desafio.i > 0) { const a = desafio.aneis[desafio.i - 1], n = desafio.aneis[desafio.i] || a; const d = n.c.clone().sub(a.c); nascer({ x: a.c.x, z: a.c.z, y: a.c.y, rumo: THREE.MathUtils.radToDeg(Math.atan2(d.x, -d.z)) }); jog.aviao.pos.y = a.c.y; desafio.aneis.forEach((x) => (x.lado = null)); }
   else if (desafio) { nascer({ ...desafio.d.inicio }); desafio.aneis.forEach((x) => (x.lado = null)); }
-  else nascer(ondeNasce);
+  else nascer(jog.ondeNasce);
 }
 
 // ---------- Hora do dia ----------
@@ -461,65 +658,69 @@ let hora = { de: S.hora, para: S.hora, t: 1 };
 function proxHora() { mudarHora((hora.para + 1) % HORAS.length); }
 function mudarHora(i) { hora = { de: hora.para, para: i, t: 0 }; S.hora = i; salvar(); mensagem(HORAS[i].nome, '', 1.5); }
 let envT = 0;
-function atualizarHora(dt) {
-  if (hora.t >= 1) return; hora.t = Math.min(1, hora.t + dt / 3); envT -= dt;
-  if (envT <= 0 || hora.t >= 1) { M.aplicarHora(hora.de, hora.para, hora.t); envT = 0.25; }
-}
+function atualizarHora(dt) { if (hora.t >= 1) return; hora.t = Math.min(1, hora.t + dt / 3); envT -= dt; if (envT <= 0 || hora.t >= 1) { M.aplicarHora(hora.de, hora.para, hora.t); envT = 0.25; } }
 
-// ---------- Lugares para descobrir ----------
-function verLugares() {
+// ---------- Lugares ----------
+function verLugares(p) {
   for (const l of LUGARES) {
-    if (S.desc[l.id] || Math.hypot(A.pos.x - l.x, A.pos.z - l.z) > l.r) continue;
+    if (S.desc[l.id] || Math.hypot(p.x - l.x, p.z - l.z) > l.r) continue;
     S.desc[l.id] = 1; salvar(); som.descobre();
-    const c = $('cartao'); c.innerHTML = `<div class="rot">📍 lugar descoberto · ${Object.keys(S.desc).length}/${LUGARES.length}</div><b>${l.nome}</b><small>${l.desc}</small>`;
+    const c = $('cartao'); c.innerHTML = `<div class="rot">lugar descoberto · ${Object.keys(S.desc).length}/${LUGARES.length}</div><b>${l.nome}</b><small>${l.desc}</small>`;
     c.classList.add('on'); clearTimeout(verLugares.t); verLugares.t = setTimeout(() => c.classList.remove('on'), 4500);
   }
 }
 
 // ---------- HUD ----------
-const bus = $('bussola').querySelector('canvas').getContext('2d'), mapaEl = $('mapa'), mapaG = mapaEl.getContext('2d');
+const bus = $('bussola').getContext('2d'), mapaEl = $('mapa'), mapaG = mapaEl.getContext('2d');
 const ALC = 4800, fundoMapa = document.createElement('canvas'); fundoMapa.width = fundoMapa.height = 200; M.miniMapa(fundoMapa, ALC);
 const alvoEl = $('alvo');
-let hudT = 0;
+let hudT = 0, modoBotoes = '';
 function hud(dt) {
   hudT -= dt; if (hudT > 0) return; hudT = 0.08;
-  $('vVel').textContent = Math.round(A.V * 3.6); $('vAlt').textContent = Math.round(Math.max(0, A.pos.y)); $('vMot').textContent = Math.round(A.acel * 100);
-  $('vs').textContent = `${A.vs >= 0 ? '▲' : '▼'} ${Math.abs(A.vs).toFixed(1)} m/s · ${A.G.toFixed(1)} G`;
-  $('acelFill').style.height = A.acel * 100 + '%'; $('acelPct').textContent = Math.round(A.acel * 100) + '%';
-  $('tTrem').classList.toggle('on', A.tremAlvo === 1); $('tFlap').classList.toggle('on', A.flap > 0); $('tFuma').classList.toggle('on', A.fumaca);
-  $('descobertos').textContent = `📍 ${Object.keys(S.desc).length}/${LUGARES.length}`;
-  const aviso = $('aviso'), solo = A.pos.y - Math.max(0, M.chao(A.pos.x, A.pos.z));
-  const av = !A.vivo ? '' : A.estol ? 'ESTOL — acelere e abaixe o nariz' : (!A.chao && solo < 60 && A.vs < -8) ? 'CHÃO! Puxe!' : (!A.chao && A.tremAlvo === 0 && solo < 25 && A.V < 45) ? 'Baixe o trem (G)' : Math.max(Math.abs(A.pos.x), Math.abs(A.pos.z)) > MUNDO * 0.6 ? 'Volte para as ilhas' : '';
-  aviso.style.display = av ? 'block' : 'none'; aviso.textContent = av;
+  const a = jog.aviao, piloto = jog.modo === 'piloto', p = piloto && a ? a.pos : jog.pos;
+  const vel = piloto && a ? a.V : jog.modo === 'sobre' && jog.sobre ? jog.sobre.V : jog.vel.length();
+  $('vVel').textContent = Math.round(vel * 3.6); $('vAlt').textContent = Math.round(Math.max(0, p.y));
+  $('linha2').textContent = piloto && a ? `${a.T.nome} · motor ${Math.round(a.acel * 100)}%${a.T.motor === 'jato' && a.acel > 0.85 ? ' 🔥' : ''} · ${a.vs >= 0 ? '▲' : '▼'}${Math.abs(a.vs).toFixed(1)} · ${a.G.toFixed(1)}G`
+    : { pe: 'a pé', queda: 'caindo!', paraquedas: 'paraquedas aberto', sobre: `em cima do ${jog.sobre === npc ? 'cargueiro' : 'avião'} · garras ${jog.garras ? 'presas' : 'soltas'}` }[jog.modo];
+  if (a) { $('acelFill').style.height = a.acel * 100 + '%'; $('acelPct').textContent = Math.round(a.acel * 100) + '%'; $('tTrem').classList.toggle('on', a.tremAlvo === 1); $('tFlap').classList.toggle('on', a.flap > 0); $('tFuma').classList.toggle('on', a.fumaca); }
+  $('tGarras').classList.toggle('on', jog.garras);
+  const m = piloto ? 'piloto' : 'ape';
+  if (m !== modoBotoes) { modoBotoes = m; document.querySelectorAll('#botoes [data-m]').forEach((b) => (b.hidden = b.dataset.m !== m)); }
+  if (!piloto) { $('tEntrar').hidden = !entrarPerto(); $('tGarras').hidden = jog.modo !== 'sobre'; $('tParaq').hidden = jog.modo !== 'queda'; $('tPular').hidden = !(jog.modo === 'pe' || jog.modo === 'sobre'); }
+  $('descobertos').textContent = `${Object.keys(S.desc).length}/${LUGARES.length} lugares`;
+  const solo = p.y - Math.max(0, M.chao(p.x, p.z));
+  const av = !jog.vivo ? '' : piloto && a ? (a.estol ? 'ESTOL — acelere e abaixe o nariz' : (!a.chao && solo < 60 && a.vs < -8 && !a.preso) ? 'CHÃO! Puxe!' : (!a.chao && a.tremAlvo === 0 && solo < 25 && a.V < 45) ? 'Baixe o trem (G)' : Math.max(Math.abs(p.x), Math.abs(p.z)) > MUNDO * 0.6 ? 'Volte para as ilhas' : '')
+    : jog.modo === 'queda' && solo < 400 ? 'Abra o paraquedas!' : jog.modo === 'sobre' && jog.sobre !== npc && jog.sobre.vivo && solo < 150 && jog.sobre.vs < -5 ? 'O avião vai cair — pule!' : '';
+  const aviso = $('aviso'); aviso.style.display = av ? 'block' : 'none'; aviso.textContent = av;
   // bússola
-  const W = 380, H = 40, rm = rumo(); bus.clearRect(0, 0, W, H); bus.fillStyle = '#fff'; bus.textAlign = 'center'; bus.font = 'bold 14px sans-serif';
-  for (let d = Math.floor((rm - 60) / 5) * 5; d <= rm + 60; d += 5) { const x = W / 2 + (d - rm) * 3.2, n = ((d % 360) + 360) % 360;
-    bus.fillRect(x - 0.5, 0, 1, n % 15 ? 5 : 10); if (n % 45 === 0) { bus.fillStyle = n % 90 ? '#ddd' : '#ffcc4d'; bus.fillText({ 0: 'N', 45: 'NE', 90: 'L', 135: 'SE', 180: 'S', 225: 'SO', 270: 'O', 315: 'NO' }[n], x, 30); bus.fillStyle = '#fff'; } }
-  bus.fillStyle = '#ffcc4d'; bus.beginPath(); bus.moveTo(W / 2 - 6, H); bus.lineTo(W / 2 + 6, H); bus.lineTo(W / 2, H - 8); bus.fill();
+  const W = 280, H = 30, rm = piloto && a ? rumoDe(a.q) : ((THREE.MathUtils.radToDeg(-jog.camYaw) % 360) + 360) % 360; bus.clearRect(0, 0, W, H); bus.fillStyle = 'rgba(255,255,255,.75)'; bus.textAlign = 'center'; bus.font = '12px sans-serif';
+  for (let d = Math.floor((rm - 50) / 5) * 5; d <= rm + 50; d += 5) { const x = W / 2 + (d - rm) * 2.6, n = ((d % 360) + 360) % 360;
+    bus.fillRect(x - 0.5, 0, 1, n % 15 ? 3 : 6); if (n % 45 === 0) { bus.fillStyle = n % 90 ? 'rgba(255,255,255,.75)' : '#ffd05a'; bus.fillText({ 0: 'N', 45: 'NE', 90: 'L', 135: 'SE', 180: 'S', 225: 'SO', 270: 'O', 315: 'NO' }[n], x, 22); bus.fillStyle = 'rgba(255,255,255,.75)'; } }
+  bus.fillStyle = '#ffd05a'; bus.fillRect(W / 2 - 1, 0, 2, 9);
   const alvo = desafio && desafio.aneis[desafio.i];
-  if (alvo) { let d = THREE.MathUtils.radToDeg(Math.atan2(alvo.c.x - A.pos.x, -(alvo.c.z - A.pos.z))) - rm; d = ((d + 540) % 360) - 180; const x = W / 2 + clamp(d, -58, 58) * 3.2; bus.fillStyle = '#ffcc4d'; bus.beginPath(); bus.arc(x, 8, 5, 0, 7); bus.fill(); }
-  // missão
+  const alvoPos = alvo ? alvo.c : desafio && desafio.d.id === 'baia' ? npc.obj.localToWorld(V3().set(0, 0, BAIA.rampaFim)) : null;
+  if (alvoPos) { let d = THREE.MathUtils.radToDeg(Math.atan2(alvoPos.x - p.x, -(alvoPos.z - p.z))) - rm; d = ((d + 540) % 360) - 180; bus.beginPath(); bus.arc(W / 2 + clamp(d, -48, 48) * 2.6, 4, 3.5, 0, 7); bus.fill(); }
   const mi = $('missao');
-  if (desafio) { mi.style.display = 'block'; mi.innerHTML = `${desafio.d.nome} · argola <b>${desafio.i + 1}/${desafio.aneis.length}</b> · <b>${fmtT(desafio.t)}</b>`; } else mi.style.display = 'none';
-  // marcador da próxima argola na tela
-  if (alvo) {
-    tmpV.copy(alvo.c).project(camera); const atras = tmpV.z > 1; let x = tmpV.x, y = tmpV.y; if (atras) { x = -x; y = -y; }
+  if (desafio) { mi.style.display = 'block'; mi.innerHTML = desafio.d.id === 'baia' ? `Cargueiro · <b>${Math.round(npc.pos.distanceTo(p))} m</b> · <b>${fmtT(desafio.t)}</b>` : `${desafio.d.nome} · <b>${desafio.i + 1}/${desafio.aneis.length}</b> · <b>${fmtT(desafio.t)}</b>`; } else mi.style.display = 'none';
+  if (alvoPos) {
+    tmpV.copy(alvoPos).project(camera); const atras = tmpV.z > 1; let x = tmpV.x, y = tmpV.y; if (atras) { x = -x; y = -y; }
     const fora = atras || Math.abs(x) > 0.92 || Math.abs(y) > 0.88;
     if (fora) { const k = 0.9 / Math.max(Math.abs(x), Math.abs(y) / 0.95, 1e-3); x *= k; y *= k; }
     alvoEl.style.display = 'block'; alvoEl.classList.toggle('fora', fora);
     alvoEl.style.transform = `translate(${(x * 0.5 + 0.5) * innerWidth}px,${(-y * 0.5 + 0.5) * innerHeight}px)` + (fora ? ` rotate(${Math.atan2(x, y)}rad)` : '');
-    alvoEl.querySelector('span').textContent = fora ? '' : Math.round(alvo.c.distanceTo(A.pos)) + ' m';
+    alvoEl.querySelector('span').textContent = fora ? '' : Math.round(alvoPos.distanceTo(p)) + ' m';
   } else alvoEl.style.display = 'none';
-  // minimapa (gira com o avião)
-  const S2 = 200, esc = S2 / (2 * ALC) * 1.6; mapaG.save(); mapaG.clearRect(0, 0, S2, S2); mapaG.beginPath(); mapaG.arc(100, 100, 100, 0, 7); mapaG.clip();
+  // minimapa
+  const S2 = 200; mapaG.save(); mapaG.clearRect(0, 0, S2, S2); mapaG.beginPath(); mapaG.arc(100, 100, 100, 0, 7); mapaG.clip();
   mapaG.fillStyle = '#0d3150'; mapaG.fillRect(0, 0, S2, S2);
   mapaG.translate(100, 100); mapaG.rotate(-THREE.MathUtils.degToRad(rm)); mapaG.scale(1.6, 1.6);
-  mapaG.drawImage(fundoMapa, -100 - A.pos.x / ALC * 100, -100 - A.pos.z / ALC * 100);
-  const pt = (x, z) => [(x - A.pos.x) / ALC * 100, (z - A.pos.z) / ALC * 100];
+  mapaG.drawImage(fundoMapa, -100 - p.x / ALC * 100, -100 - p.z / ALC * 100);
+  const pt = (x, z) => [(x - p.x) / ALC * 100, (z - p.z) / ALC * 100];
   for (const l of LUGARES) { const [x, z] = pt(l.x, l.z); mapaG.fillStyle = S.desc[l.id] ? '#fff' : 'rgba(255,255,255,.45)'; mapaG.beginPath(); mapaG.arc(x, z, 2.2, 0, 7); mapaG.fill(); }
-  if (desafio) desafio.aneis.forEach((a, k) => { if (k < desafio.i) return; const [x, z] = pt(a.c.x, a.c.z); mapaG.fillStyle = k === desafio.i ? '#ffcc4d' : 'rgba(255,204,77,.5)'; mapaG.fillRect(x - 1.6, z - 1.6, 3.2, 3.2); });
+  { const [x, z] = pt(npc.pos.x, npc.pos.z); mapaG.fillStyle = '#7fd0ff'; mapaG.fillRect(x - 2.5, z - 2.5, 5, 5); }
+  if (desafio) desafio.aneis.forEach((r, k) => { if (k < desafio.i) return; const [x, z] = pt(r.c.x, r.c.z); mapaG.fillStyle = k === desafio.i ? '#ffd05a' : 'rgba(255,208,90,.5)'; mapaG.fillRect(x - 1.6, z - 1.6, 3.2, 3.2); });
   mapaG.restore();
-  mapaG.fillStyle = '#ffcc4d'; mapaG.strokeStyle = '#000'; mapaG.lineWidth = 1.5; mapaG.beginPath(); mapaG.moveTo(100, 90); mapaG.lineTo(107, 108); mapaG.lineTo(100, 104); mapaG.lineTo(93, 108); mapaG.closePath(); mapaG.fill(); mapaG.stroke();
+  mapaG.fillStyle = '#ffd05a'; mapaG.beginPath(); mapaG.moveTo(100, 90); mapaG.lineTo(107, 108); mapaG.lineTo(100, 104); mapaG.lineTo(93, 108); mapaG.closePath(); mapaG.fill();
 }
 
 // ---------- Menu ----------
@@ -527,93 +728,134 @@ let estado = 'titulo';
 const painel = $('painelMenu');
 function abrirMenu() {
   if (estado !== 'voo') return; estado = 'menu'; document.body.classList.add('menu');
-  const desafios = DESAFIOS.map((d) => { const r = S.recordes[d.id]; return `<button class="card" data-desafio="${d.id}"><b>${d.nome}</b><small>${d.desc}${r ? `<br>${'⭐'.repeat(r.n)} ${fmtT(r.t)}` : ''}</small></button>`; }).join('');
-  const lugares = LUGARES.map((l) => `<button class="card" data-lugar="${l.id}"><b>${S.desc[l.id] ? '📍 ' : ''}${l.nome}</b><small>${l.desc}</small></button>`).join('');
-  const pint = PINTURAS.map((p, i) => `<button class="card${i === S.pintura ? ' sel' : ''}" data-pintura="${i}"><span class="bolinha" style="background:${p.base}"></span><span class="bolinha" style="background:${p.acc}"></span>${p.nome}</button>`).join('');
+  const T = TIPOS[S.tipo];
+  const avs = Object.entries(TIPOS).map(([id, t]) => `<button class="card${id === S.tipo ? ' sel' : ''}" data-tipo="${id}"><b>${t.nome}</b><small>${t.desc}</small></button>`).join('');
+  const desafios = [DESAFIO_BAIA, ...DESAFIOS].map((d) => { const r = S.recordes[d.id]; return `<button class="card" data-desafio="${d.id}"><b>${d.nome}</b><small>${d.desc}${r ? `<br>${'⭐'.repeat(r.n)} ${fmtT(r.t)}` : ''}</small></button>`; }).join('');
+  const lugares = LUGARES.map((l) => `<button class="card" data-lugar="${l.id}"><b>${S.desc[l.id] ? '· ' : ''}${l.nome}</b><small>${l.desc}</small></button>`).join('');
+  const pint = T.pinturas.map((p, i) => `<button class="card${i === S.pintura % T.pinturas.length ? ' sel' : ''}" data-pintura="${i}"><span class="bolinha" style="background:${p.base}"></span>${p.nome}</button>`).join('');
   const fum = CORES_FUMACA.map(([n, c], i) => `<button class="card${i === S.fumacaCor ? ' sel' : ''}" data-fumaca="${i}"><span class="bolinha" style="background:${c || 'conic-gradient(red,yellow,lime,cyan,blue,magenta,red)'}"></span>${n}</button>`).join('');
-  const horas = HORAS.map((h, i) => `<button class="card${i === hora.para ? ' sel' : ''}" data-hora="${i}">${['🌅', '☀️', '🌇', '🌙'][i]} ${h.nome}</button>`).join('');
-  const op = (id, txt, on) => `<button class="card${on ? ' sel' : ''}" data-op="${id}">${on ? '✔ ' : ''}${txt}</button>`;
-  painel.innerHTML = `<button id="fechar">Continuar ✈</button><h2>Pausa</h2>
-    <h3>Desafios de argolas</h3><div class="grade">${desafios}${desafio ? '<button class="card" data-parar="1"><b>Sair do desafio</b><small>Voltar ao voo livre</small></button>' : ''}</div>
-    <h3>Ir para um lugar</h3><div class="grade">${lugares}</div>
-    <h3>Pintura do avião</h3><div class="linha">${pint}</div>
-    <h3>Cor da fumaça</h3><div class="linha">${fum}</div>
+  const horas = HORAS.map((h, i) => `<button class="card${i === hora.para ? ' sel' : ''}" data-hora="${i}">${h.nome}</button>`).join('');
+  const op = (id, txt, on) => `<button class="card${on ? ' sel' : ''}" data-op="${id}">${txt}</button>`;
+  painel.innerHTML = `<button id="fechar">Continuar</button><h2>Pausa</h2>
+    <h3>Avião</h3><div class="grade">${avs}</div>
+    <h3>Pintura</h3><div class="linha">${pint}</div>
+    <h3>Desafios</h3><div class="grade">${desafios}${desafio ? '<button class="card" data-parar="1"><b>Sair do desafio</b><small>Voltar ao voo livre</small></button>' : ''}</div>
+    <h3>Ir para</h3><div class="grade">${lugares}</div>
     <h3>Hora do dia</h3><div class="linha">${horas}</div>
-    <h3>Opções</h3><div class="linha">${op('assist', 'Ajuda de voo (nivela sozinho)', S.assist)}${op('inverter', 'Inverter subir/descer', S.inverter)}${op('som', 'Som', S.som)}
+    <h3>Fumaça</h3><div class="linha">${fum}</div>
+    <h3>Opções</h3><div class="linha">${op('assist', 'Ajuda de voo', S.assist)}${op('inverter', 'Inverter subir/descer', S.inverter)}${op('som', 'Som', S.som)}${op('foto', 'Modo foto', document.body.classList.contains('foto'))}
       <button class="card" data-op="qual">Gráficos: ${{ alta: 'Bonito', media: 'Médio', baixa: 'Rápido' }[S.qual]}</button></div>
-    <h3>Comandos</h3><small style="opacity:.8;line-height:1.6;display:block">${TOQUE ? 'Bolinha à esquerda: manche (para cima sobe, para os lados inclina). Barra à direita: motor. Arraste a tela para olhar em volta.' : 'W/S ou ↑/↓: subir/descer · A/D ou ←/→: inclinar · Q/E: leme · Shift/Ctrl: motor · G: trem · F: flap · Espaço: fumaça · B: freio · C: câmera · T: hora · H: modo foto · Esc: menu'}<br>Para decolar: motor no máximo, espere passar de 110 km/h e puxe. Para pousar: devagar (130–160 km/h), trem e flap baixados, desça suave na pista.</small>`;
+    <h3>Comandos</h3><small style="color:var(--sub);line-height:1.7;display:block">${TOQUE ? 'Bolinha da esquerda: manche (no chão/a pé: anda). Barra da direita: motor. Arraste a tela para olhar. ⇪ sai do avião — em voo você fica em cima dele com as garras ⋔. Sem garras o vento te derruba; ☂ abre o paraquedas.' : 'W/S subir/descer · A/D inclinar · Q/E leme · Shift/Ctrl motor · G trem · F flap · Espaço fumaça · B freio · X sair do avião · C câmera · T hora · H foto · Esc menu<br>A pé: WASD anda · Espaço pula/abre paraquedas · E entra · K garras'}<br>Cargueiro gigante: chegue por trás na mesma velocidade, trem baixado, e pouse na rampa.</small>`;
   $('fechar').onclick = fecharMenu;
 }
 painel.addEventListener('click', (e) => {
   const b = e.target.closest('button'); if (!b) return; som.clique(); const d = b.dataset;
-  if (d.desafio) { comecarDesafio(DESAFIOS.find((x) => x.id === d.desafio)); return fecharMenu(); }
+  if (d.tipo) { S.tipo = d.tipo; S.pintura = 0; salvar(); pararDesafio(); trocarAviao(); return fecharMenu(); }
+  if (d.desafio) { comecarDesafio(d.desafio === 'baia' ? DESAFIO_BAIA : DESAFIOS.find((x) => x.id === d.desafio)); return fecharMenu(); }
   if (d.parar) { pararDesafio(); return fecharMenu(); }
   if (d.lugar) { pararDesafio(); nascerLugar(LUGARES.find((x) => x.id === d.lugar)); return fecharMenu(); }
-  if (d.pintura) trocarPintura(+d.pintura);
-  if (d.fumaca) { S.fumacaCor = +d.fumaca; A.fumaca = true; }
+  if (d.pintura) { S.pintura = +d.pintura; salvar(); trocarAviao(); }
+  if (d.fumaca) { S.fumacaCor = +d.fumaca; if (jog.aviao) jog.aviao.fumaca = true; }
   if (d.hora) mudarHora(+d.hora);
   if (d.op === 'qual') { S.qual = { alta: 'baixa', media: 'alta', baixa: 'media' }[S.qual]; salvar(); location.reload(); return; }
+  if (d.op === 'foto') { modoFoto(); return fecharMenu(); }
   if (d.op) { S[d.op] = !S[d.op]; if (d.op === 'som') som.mudo(!S.som); }
   salvar(); const sc = painel.scrollTop; estado = 'voo'; abrirMenu(); painel.scrollTop = sc;
 });
+function trocarAviao() { // troca o avião mantendo onde está
+  const v = jog.aviao, noAr = v && jog.modo === 'piloto' && !v.chao && v.vivo;
+  if (!v || !noAr) return nascerLugar(LUGARES[0]);
+  const n = novoAviao(S.tipo); n.colocar(v.pos.x, v.pos.z, rumoDe(v.q), true, v.pos.y); n.pos.y = v.pos.y; n.V = Math.max(v.V, n.T.VS * 1.3);
+  v.remover(); pilotar(n);
+}
 function fecharMenu() { estado = 'voo'; document.body.classList.remove('menu'); }
 
-// ---------- Título ----------
-$('dicas').textContent = TOQUE ? 'Bolinha da esquerda pilota · barra da direita acelera · arraste a tela para olhar' : 'W/S sobe e desce · A/D inclina · Shift acelera · C troca a câmera · Esc menu';
+// ---------- Título e aviões estacionados ----------
+$('dicas').textContent = TOQUE ? 'Bolinha da esquerda pilota · barra da direita acelera · ⇪ sai do avião' : 'W/S sobe e desce · A/D inclina · Shift acelera · X sai do avião · Esc menu';
 function comecar() {
   som.iniciar(); estado = 'voo'; document.body.classList.remove('titulo');
   nascerLugar(LUGARES[0]); cam.modo = 0; cam.iniciado = false;
   try { screen.orientation?.lock?.('landscape').catch(() => {}); } catch (e) {}
-  if (!S.visto) { S.visto = 1; salvar(); setTimeout(() => mensagem('Bem-vindo ao Céu Aberto!', TOQUE ? 'Suba a barra do MOTOR e puxe a bolinha para cima depois de 110 km/h' : 'Segure Shift para acelerar e W para subir depois de 110 km/h', 6), 600); }
+  if (!S.visto2) { S.visto2 = 1; salvar(); setTimeout(() => mensagem('Bem-vindo ao Céu Aberto!', TOQUE ? 'Suba a barra do motor e puxe a bolinha para cima depois de 110 km/h' : 'Segure Shift para acelerar e W para subir depois de 110 km/h', 6), 600); }
 }
 $('bVoar').addEventListener('click', comecar);
-function voarSozinho(t) { // avião de enfeite na tela inicial: dá voltas sobre a ilha
-  const a = t * 0.06, R = 700, cx = 200, cz = 300;
-  A.pos.set(cx + Math.cos(a) * R, 230 + Math.sin(t * 0.3) * 20, cz + Math.sin(a) * R);
-  const tg = tmpV.set(-Math.sin(a), 0, Math.cos(a));
-  A.q.setFromEuler(new THREE.Euler(0.04, Math.atan2(-tg.x, -tg.z), -0.32, 'YXZ'));
-  A.V = 60; A.acel = 0.75; A.rpm = 0.8; A.trem = A.tremAlvo = 0; A.vivo = true; A.chao = false; A.dir.set(0, 0, -1).applyQuaternion(A.q); aviao.visible = true;
-  const ang = t * 0.1; camera.position.copy(A.pos).add(tmpV.set(Math.cos(ang) * 22, 5 + Math.sin(t * 0.2) * 4, Math.sin(ang) * 22));
-  camera.up.copy(EY); camera.lookAt(A.pos); if (camera.fov !== 50) { camera.fov = 50; camera.updateProjectionMatrix(); }
+const estacionados = [['caca', 140, -30, 1], ['guerra', 140, 45, 0], ['cargueiro', 160, 175, 0], ['andorinha', 140, 100, 2]];
+for (const [t, x, z, pi] of estacionados) { const a = new Aero(t, pi); a.colocar(PISTA.x + x, z, 270, false); a.estacionado = true; a.ent.freio = true; }
+let titulo = null;
+function voarSozinho(t) {
+  if (!titulo) { titulo = jog.aviao || novoAviao(S.tipo); jog.aviao = titulo; }
+  const a = titulo, ang = t * 0.06, R = 700, cx = 200, cz = 300;
+  a.pos.set(cx + Math.cos(ang) * R, 230 + Math.sin(t * 0.3) * 20, cz + Math.sin(ang) * R);
+  const tg = tmpV.set(-Math.sin(ang), 0, Math.cos(ang));
+  a.q.setFromEuler(new THREE.Euler(0.04, Math.atan2(-tg.x, -tg.z), -0.32, 'YXZ'));
+  a.V = 60; a.acel = 0.75; a.rpm = 0.8; a.trem = a.tremAlvo = 0; a.vivo = true; a.chao = false; a.comPiloto = true; a.dir.set(0, 0, -1).applyQuaternion(a.q); a.obj.visible = true;
+  const k = t * 0.1; camera.position.copy(a.pos).add(tmpV.set(Math.cos(k) * 22, 5 + Math.sin(t * 0.2) * 4, Math.sin(k) * 22));
+  camera.up.copy(EY); camera.lookAt(a.pos); if (camera.fov !== 50) { camera.fov = 50; camera.updateProjectionMatrix(); atualizaEscala(); }
 }
 
 // ---------- Laço principal ----------
 M.aplicarHora(S.hora, S.hora, 1);
 redimensionar();
-nascerLugar(LUGARES[0]);
 $('carregando').style.opacity = 0; setTimeout(() => $('carregando').remove(), 700);
 let ult = performance.now(), tempo = 0, lugT = 0;
-function quadro(agora) {
-  requestAnimationFrame(quadro);
-  const dt = Math.min((agora - ult) / 1000, 0.05); ult = agora;
-  if (estado === 'menu') { renderer.render(cena, camera); return; }
+function passo(dt) {
   tempo += dt;
   if (estado === 'titulo') voarSozinho(tempo);
   else {
     const k = lerTeclado(dt);
     const alvoP = clamp(k.p + toque.p, -1, 1), alvoR = clamp(k.r + toque.r, -1, 1), alvoY = clamp(k.y + toque.leme, -1, 1);
-    const suave = 1 - Math.exp(-dt * (TOQUE ? 14 : 6));
-    ent.p = lerp(ent.p, alvoP, suave); ent.r = lerp(ent.r, alvoR, suave); ent.y = lerp(ent.y, alvoY, suave); ent.freio = k.freio || toque.freio;
-    if (toque.olha === null) { ent.olhaX *= 1 - Math.min(1, dt * 1.5); ent.olhaY *= 1 - Math.min(1, dt * 1.5); }
-    if (A.vivo) { fisica(dt / 2); if (A.vivo) fisica(dt / 2); }
-    else if ((A.morto += dt) > 2.8) renascer();
-    if (!A.vivo) cam.treme = Math.max(cam.treme, 2 - A.morto);
+    const av = jog.aviao;
+    if (pilotando() && av) { const suave = 1 - Math.exp(-dt * (TOQUE ? 14 : 6)); av.ent.p = lerp(av.ent.p, alvoP, suave); av.ent.r = lerp(av.ent.r, alvoR, suave); av.ent.y = lerp(av.ent.y, alvoY, suave); av.ent.freio = k.freio || toque.freio; }
+    else if (jog.vivo) fisicaPessoa(dt, { p: alvoP, r: alvoR });
+    if (toque.olha === null) { ent.olhaX *= 1 - Math.min(1, dt * 1.5); ent.olhaY *= 1 - Math.min(1, dt * 1.5); if (Math.abs(ent.olhaX) < 1e-3) ent.olhaX = 0; }
+    if (!jog.vivo && (jog.morteT += dt) > 2.8) renascer();
     atualizarDesafio(dt, tempo);
-    if ((lugT -= dt) < 0) { lugT = 0.5; verLugares(); }
+    if ((lugT -= dt) < 0) { lugT = 0.5; verLugares(pilotando() ? av.pos : jog.pos); }
   }
+  // todos os aviões
+  for (const a of [...frota]) {
+    if (a === npc) { voarNPC(a, dt); continue; }
+    if (a === titulo && estado === 'titulo') continue;
+    if (a.preso) { presoNoNPC(a, dt); continue; }
+    if (!a.vivo) { a.morteT = (a.morteT || 0) + dt; if (a !== jog.aviao && a.morteT > 6) a.remover(); continue; }
+    if (a.estacionado && a.chao && a.V < 0.01 && !a.comPiloto) continue;
+    if (!a.comPiloto) { a.ent.p = a.ent.r = a.ent.y = 0; }
+    fisica(a, dt / 2, tempo); if (a.vivo) fisica(a, dt / 2, tempo);
+    checarBaia(a, dt);
+    a.estacionado = a.chao && a.V < 0.5 && !a.comPiloto && !a.preso;
+  }
+  for (let i = destrocos.length - 1; i >= 0; i--) { const d = destrocos[i]; d.t += dt; d.v.y -= 9.8 * dt; d.p.addScaledVector(d.v, dt); d.m.position.copy(d.p); d.m.rotation.x += d.r.x * dt * 8; d.m.rotation.y += d.r.y * dt * 8;
+    if (Math.random() < 0.3) fumaca.emitir(d.p, tmpV.set(0, 1, 0), tmpC.set(0x333333), 1, 5, 0.5, 1.5);
+    if (d.p.y < Math.max(0, M.chao(d.p.x, d.p.z)) || d.t > 8) { cena.remove(d.m); destrocos.splice(i, 1); } }
+}
+function quadro(agora) {
+  requestAnimationFrame(quadro);
+  const dt = Math.min((agora - ult) / 1000, 0.05); ult = agora;
+  if (estado === 'menu') { renderer.render(cena, camera); return; }
+  passo(dt);
   atualizarHora(dt);
-  animarAviao(dt, tempo);
-  if (estado === 'voo') atualizarCamera(dt, tempo);
+  for (const a of frota) if (a.vivo) animarAero(a, dt, tempo, a.pos.distanceToSquared(camera.position) < (900 * a.esc) ** 2);
+  if (jog.aviao) efeitosJogador(jog.aviao, dt, tempo);
+  if (jog.modo !== 'piloto' && jog.vivo) {
+    pessoa.obj.position.copy(jog.pos);
+    if (jog.modo === 'sobre' && jog.sobre) { pessoa.obj.quaternion.copy(jog.sobre.q).multiply(tmpQ.setFromAxisAngle(EY, jog.yaw)); }
+    else pessoa.obj.quaternion.setFromAxisAngle(EY, jog.yaw);
+    animarPessoa(pessoa, jog.modo, jog.rapidez, tempo, jog.garras, jog.vento);
+  }
+  if (estado === 'voo' && !window.__camLivre) atualizarCamera(dt, tempo);
   for (const f of M.animar) f(tempo);
   M.uAgua.value = tempo;
   fumaca.atualizar(dt); fogo.atualizar(dt);
   M.ceu.position.copy(camera.position);
-  M.sol.position.copy(A.pos).addScaledVector(M.solDir, 200); M.sol.target.position.copy(A.pos);
+  const foco = jog.modo === 'piloto' && jog.aviao ? jog.aviao.pos : jog.pos;
+  M.sol.position.copy(foco).addScaledVector(M.solDir, 200); M.sol.target.position.copy(foco);
   if ((msgT -= dt) < 0) $('msg').classList.remove('on');
-  hud(dt); som.atualizar(cam.modo === 1);
+  hud(dt); som.atualizar(jog.aviao, cam.modo === 1 && pilotando(), !pilotando());
   renderer.render(cena, camera);
 }
 requestAnimationFrame(quadro);
 document.addEventListener('visibilitychange', () => { if (document.hidden && estado === 'voo') abrirMenu(); ult = performance.now(); });
-const simular = (seg, e) => { Object.assign(ent, e); const log = []; for (let i = 0; i < seg * 120; i++) { if (!A.vivo) break; fisica(1 / 120); if (i % 120 === 0) log.push([Math.round(A.V * 3.6), Math.round(A.pos.y), A.chao ? 'chão' : 'ar', Math.round(rumo())].join(' ')); } return log.join(' | ') + (A.vivo ? '' : ' | BATEU'); };
-window.__jogo = { horaJa: (i) => { hora = { de: i, para: i, t: 1 }; M.aplicarHora(i, i, 1); }, simular, A, cam, camera, comecar, mudarHora, comecarDesafio, nascerLugar, DESAFIOS, LUGARES, ent, proxCam }; // para testes
+
+// testes automáticos
+const simular = (seg, e = {}) => { const a = jog.aviao; toque.p = e.p || 0; toque.r = e.r || 0; toque.leme = e.y || 0; toque.freio = !!e.freio; if (e.acel !== undefined) a.acel = e.acel; const log = []; for (let i = 0; i < seg * 60; i++) { passo(1 / 60); if (i % 60 === 0) log.push([Math.round(a.V * 3.6), Math.round(a.pos.y), a.chao ? 'chão' : 'ar', jog.modo].join(' ')); if (!jog.vivo) break; } return log.join(' | ') + (jog.vivo ? '' : ' | MORREU'); };
+window.__jogo = { simular, passo, jog, npc, frota, cam, camera, comecar, mudarHora, comecarDesafio, nascerLugar, DESAFIOS, DESAFIO_BAIA, LUGARES, ent, proxCam, sair, pular, paraquedas, garras, entrar, S, horaJa: (i) => { hora = { de: i, para: i, t: 1 }; M.aplicarHora(i, i, 1); } };

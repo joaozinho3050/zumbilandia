@@ -7,123 +7,125 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="theme-color" content="#1b2a44">
+<meta name="theme-color" content="#101820">
 <link rel="apple-touch-icon" href="../icon-180.png">
+<script type="importmap">{"imports":{"three":"../lib/three.module.min.js"}}</script>
 <style>
   @font-face{font-family:"Atkinson Hyperlegible";font-weight:400;font-display:swap;src:url(../lib/fonts/AtkinsonHyperlegible-Regular.woff2) format("woff2")}
-  :root{--vidro:rgba(14,22,38,.55);--borda:rgba(255,255,255,.18);--txt:#f4f1ea;--ouro:#ffcc4d;--sl:env(safe-area-inset-left);--sr:env(safe-area-inset-right);--st:env(safe-area-inset-top);--sb:env(safe-area-inset-bottom)}
+  :root{--txt:#fff;--sub:rgba(255,255,255,.72);--fino:rgba(255,255,255,.28);--fundo:rgba(10,14,20,.32);--ouro:#ffd05a;--sl:env(safe-area-inset-left);--sr:env(safe-area-inset-right);--st:env(safe-area-inset-top);--sb:env(safe-area-inset-bottom)}
   html,body{margin:0;height:100%;overflow:hidden;background:#000;color:var(--txt);font-family:"Atkinson Hyperlegible",system-ui,sans-serif;touch-action:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
   canvas#c{position:fixed;inset:0;width:100%;height:100%;display:block}
   button{font:inherit;color:inherit;cursor:pointer}
-  .vidro{background:var(--vidro);border:1px solid var(--borda);border-radius:14px;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)}
+  .sombra{text-shadow:0 1px 3px rgba(0,0,0,.55)}
   #hud{position:fixed;inset:0;pointer-events:none;transition:opacity .4s}
-  body.titulo #hud,body.foto #hud>*:not(#bFoto){opacity:0;pointer-events:none!important}
-  #inst{position:absolute;left:calc(12px + var(--sl));top:calc(10px + var(--st));padding:8px 14px;display:flex;gap:16px;align-items:flex-end}
-  .num{font-size:30px;font-weight:700;line-height:1;font-variant-numeric:tabular-nums;text-shadow:0 1px 3px #0008}
-  .num small{font-size:12px;opacity:.75;margin-left:3px;font-weight:400}
-  .rot{font-size:10px;letter-spacing:.12em;opacity:.7;text-transform:uppercase}
-  #vs{font-size:13px;opacity:.9;font-variant-numeric:tabular-nums}
-  #bussola{position:absolute;left:50%;top:calc(8px + var(--st));transform:translateX(-50%);width:min(380px,44vw);height:40px;overflow:hidden}
-  #bussola canvas{width:100%;height:100%}
-  #missao{position:absolute;left:50%;top:calc(56px + var(--st));transform:translateX(-50%);padding:6px 14px;font-size:15px;display:none;white-space:nowrap}
+  body.titulo #hud,body.foto #hud{opacity:0}
+  body.titulo #hud *,body.foto #hud *{pointer-events:none!important}
+  #inst{position:absolute;left:calc(16px + var(--sl));top:calc(12px + var(--st));line-height:1.1}
+  #linha1{font-size:22px;font-weight:700;font-variant-numeric:tabular-nums;letter-spacing:.01em}
+  #linha1 small{font-size:12px;font-weight:400;color:var(--sub);margin:0 10px 0 3px}
+  #linha2{font-size:12px;color:var(--sub);font-variant-numeric:tabular-nums;margin-top:3px}
+  #bussola{position:absolute;left:50%;top:calc(8px + var(--st));transform:translateX(-50%);width:min(280px,36vw);height:30px}
+  #missao{position:absolute;left:50%;top:calc(40px + var(--st));transform:translateX(-50%);font-size:13px;display:none;white-space:nowrap;color:var(--sub)}
   #missao b{color:var(--ouro);font-variant-numeric:tabular-nums}
-  #mapa{position:absolute;right:calc(12px + var(--sr));top:calc(10px + var(--st));width:132px;height:132px;border-radius:50%;border:2px solid var(--borda);box-shadow:0 4px 18px #0006}
-  #descobertos{position:absolute;right:calc(150px + var(--sr));top:calc(12px + var(--st));font-size:12px;padding:4px 10px}
-  #msg{position:absolute;left:50%;top:30%;transform:translate(-50%,-50%);text-align:center;font-size:30px;font-weight:700;text-shadow:0 2px 12px #000a;opacity:0;transition:opacity .35s, transform .35s;white-space:nowrap}
-  #msg.on{opacity:1;transform:translate(-50%,-60%)}
-  #msg small{display:block;font-size:16px;font-weight:400;opacity:.9;margin-top:4px}
-  #cartao{position:absolute;left:50%;bottom:calc(24px + var(--sb));transform:translate(-50%,30px);padding:10px 20px;text-align:center;opacity:0;transition:.5s;max-width:70vw}
+  #mapa{position:absolute;right:calc(14px + var(--sr));top:calc(10px + var(--st));width:96px;height:96px;border-radius:50%;border:1px solid var(--fino);opacity:.92}
+  #descobertos{position:absolute;right:calc(14px + var(--sr));top:calc(110px + var(--st));width:96px;text-align:center;font-size:11px;color:var(--sub)}
+  #msg{position:absolute;left:50%;top:28%;transform:translate(-50%,-50%);text-align:center;font-size:24px;font-weight:700;opacity:0;transition:opacity .3s,transform .3s;white-space:nowrap}
+  #msg.on{opacity:1;transform:translate(-50%,-62%)}
+  #msg small{display:block;font-size:14px;font-weight:400;color:var(--sub);margin-top:4px}
+  #cartao{position:absolute;left:50%;bottom:calc(20px + var(--sb));transform:translate(-50%,20px);text-align:center;opacity:0;transition:.5s;max-width:60vw}
   #cartao.on{opacity:1;transform:translate(-50%,0)}
-  #cartao .rot{color:var(--ouro);opacity:1}
-  #cartao b{display:block;font-size:22px}
-  #alvo{position:absolute;left:0;top:0;width:34px;height:34px;margin:-17px 0 0 -17px;display:none}
-  #alvo i{position:absolute;inset:0;border:3px solid var(--ouro);border-radius:50%;box-shadow:0 0 10px var(--ouro)}
-  #alvo.fora i{border:none;box-shadow:none;width:0;height:0;border-left:13px solid transparent;border-right:13px solid transparent;border-bottom:26px solid var(--ouro);left:4px;top:4px;filter:drop-shadow(0 0 6px #000)}
-  #alvo span{position:absolute;top:38px;left:50%;transform:translateX(-50%);font-size:12px;font-weight:700;color:var(--ouro);text-shadow:0 1px 3px #000;white-space:nowrap}
-  #aviso{position:absolute;left:50%;top:calc(96px + var(--st));transform:translateX(-50%);color:#ff6a5a;font-weight:700;font-size:20px;text-shadow:0 1px 6px #000;display:none;animation:pisca .5s infinite alternate}
+  #cartao .rot{font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--ouro)}
+  #cartao b{display:block;font-size:20px}
+  #cartao small{color:var(--sub)}
+  #alvo{position:absolute;left:0;top:0;width:28px;height:28px;margin:-14px 0 0 -14px;display:none}
+  #alvo i{position:absolute;inset:0;border:2px solid var(--ouro);border-radius:50%}
+  #alvo.fora i{border:none;width:0;height:0;border-left:10px solid transparent;border-right:10px solid transparent;border-bottom:20px solid var(--ouro);left:4px;top:4px}
+  #alvo span{position:absolute;top:32px;left:50%;transform:translateX(-50%);font-size:11px;font-weight:700;color:var(--ouro);white-space:nowrap}
+  #aviso{position:absolute;left:50%;top:calc(64px + var(--st));transform:translateX(-50%);color:#ff8070;font-weight:700;font-size:16px;display:none;animation:pisca .5s infinite alternate}
   @keyframes pisca{to{opacity:.35}}
-  .bt{pointer-events:auto;border-radius:14px;background:var(--vidro);border:1px solid var(--borda);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);min-width:56px;height:46px;padding:0 10px;font-size:13px;font-weight:700;display:flex;align-items:center;justify-content:center;gap:5px;touch-action:none}
-  .bt.on{background:rgba(255,204,77,.85);color:#222}
-  #bMenu{position:absolute;right:calc(152px + var(--sr));top:calc(44px + var(--st));min-width:46px;font-size:20px}
-  #bFoto{position:absolute;right:calc(152px + var(--sr));top:calc(96px + var(--st));min-width:46px;font-size:18px}
-  /* Controles de toque */
+  .bt{pointer-events:auto;width:50px;height:50px;border-radius:50%;background:var(--fundo);border:1px solid var(--fino);display:flex;flex-direction:column;align-items:center;justify-content:center;font-size:18px;line-height:1;touch-action:none;padding:0}
+  .bt small{font-size:8px;letter-spacing:.06em;margin-top:3px;color:var(--sub);text-transform:uppercase}
+  .bt.on{background:rgba(255,208,90,.9);color:#1b1b1b;border-color:transparent}
+  .bt.on small{color:#1b1b1b}
+  .bt[hidden]{display:none}
+  #bMenu{position:absolute;right:calc(122px + var(--sr));top:calc(12px + var(--st));width:40px;height:40px;font-size:18px}
   #toque{display:none}
   body.touch #toque{display:block}
-  #zonaStick{position:absolute;left:0;bottom:0;width:42vw;height:72vh;pointer-events:auto;touch-action:none}
-  #stickBase{position:absolute;width:132px;height:132px;margin:-66px 0 0 -66px;border-radius:50%;border:2px solid rgba(255,255,255,.35);background:radial-gradient(circle,rgba(255,255,255,.08),rgba(255,255,255,.02));left:calc(110px + var(--sl));top:calc(100% - 110px - var(--sb))}
-  #stickPin{position:absolute;left:50%;top:50%;width:58px;height:58px;margin:-29px 0 0 -29px;border-radius:50%;background:rgba(255,255,255,.75);box-shadow:0 2px 10px #0006}
-  #stickBase:after{content:'';position:absolute;left:50%;top:6px;transform:translateX(-50%);border:7px solid transparent;border-bottom:9px solid rgba(255,255,255,.5)}
-  #acel{position:absolute;right:calc(22px + var(--sr));bottom:calc(24px + var(--sb));width:58px;height:min(46vh,220px);border-radius:16px;pointer-events:auto;overflow:hidden}
-  #acelFill{position:absolute;left:0;right:0;bottom:0;background:linear-gradient(0deg,#ff8a3a,#ffcc4d)}
-  #acelTxt{position:absolute;left:0;right:0;top:6px;text-align:center;font-size:10px;font-weight:700;letter-spacing:.08em;text-shadow:0 1px 2px #000}
-  #acelPct{position:absolute;left:0;right:0;bottom:6px;text-align:center;font-size:14px;font-weight:700;text-shadow:0 1px 2px #000}
-  #botoes{position:absolute;right:calc(92px + var(--sr));bottom:calc(24px + var(--sb));display:grid;grid-template-columns:repeat(2,auto);gap:8px}
-  #leme{position:absolute;left:calc(240px + var(--sl));bottom:calc(24px + var(--sb));display:flex;gap:8px}
-  /* Menu */
-  #menu{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:rgba(5,10,20,.45);z-index:5}
+  #zonaStick{position:absolute;left:0;bottom:0;width:44vw;height:74vh;pointer-events:auto;touch-action:none}
+  #stickBase{position:absolute;width:120px;height:120px;margin:-60px 0 0 -60px;border-radius:50%;border:1px solid var(--fino);background:rgba(255,255,255,.04);left:calc(100px + var(--sl));top:calc(100% - 100px - var(--sb))}
+  #stickPin{position:absolute;left:50%;top:50%;width:48px;height:48px;margin:-24px 0 0 -24px;border-radius:50%;background:rgba(255,255,255,.7)}
+  #acel{position:absolute;right:calc(18px + var(--sr));bottom:calc(22px + var(--sb));width:40px;height:min(44vh,200px);border-radius:20px;pointer-events:auto;overflow:hidden;background:var(--fundo);border:1px solid var(--fino)}
+  body.ape #acel{display:none}
+  #acelFill{position:absolute;left:0;right:0;bottom:0;background:linear-gradient(0deg,rgba(255,138,58,.85),rgba(255,208,90,.85))}
+  #acelPct{position:absolute;left:0;right:0;bottom:8px;text-align:center;font-size:11px;font-weight:700}
+  #botoes{position:absolute;right:calc(72px + var(--sr));bottom:calc(20px + var(--sb));display:grid;grid-template-columns:repeat(3,50px);gap:10px;direction:rtl}
+  body.ape #botoes{right:calc(18px + var(--sr))}
+  #leme{position:absolute;left:calc(206px + var(--sl));bottom:calc(20px + var(--sb));display:flex;gap:8px}
+  body.ape #leme{display:none}
+  #menu{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:rgba(6,10,16,.55);z-index:5;backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)}
   body.menu #menu{display:flex}
-  #painelMenu{width:min(760px,92vw);max-height:86vh;overflow:auto;padding:18px 20px;touch-action:pan-y}
-  #painelMenu h2{margin:4px 0 12px;font-size:24px}
-  #painelMenu h3{margin:16px 0 8px;font-size:13px;letter-spacing:.12em;text-transform:uppercase;opacity:.75}
-  .grade{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:8px}
-  .card{text-align:left;padding:10px 12px;border-radius:12px;background:rgba(255,255,255,.07);border:1px solid var(--borda);min-height:58px}
-  .card:hover,.card:focus-visible{background:rgba(255,255,255,.16);outline:none}
-  .card b{display:block;font-size:15px}
-  .card small{opacity:.75;font-size:12px}
-  .card.sel{border-color:var(--ouro);background:rgba(255,204,77,.18)}
-  .linha{display:flex;gap:8px;flex-wrap:wrap}
+  #painelMenu{width:min(760px,92vw);max-height:86vh;overflow:auto;padding:8px 6px;touch-action:pan-y}
+  #painelMenu h2{margin:4px 0 8px;font-size:22px;font-weight:700}
+  #painelMenu h3{margin:18px 0 8px;font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--sub);font-weight:400}
+  .grade{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:6px}
+  .card{text-align:left;padding:9px 12px;border-radius:10px;background:rgba(255,255,255,.06);border:1px solid transparent;min-height:50px}
+  .card:hover,.card:focus-visible{background:rgba(255,255,255,.13);outline:none}
+  .card b{display:block;font-size:14px}
+  .card small{color:var(--sub);font-size:12px}
+  .card.sel{border-color:var(--ouro)}
+  .linha{display:flex;gap:6px;flex-wrap:wrap}
   .linha .card{min-height:0}
-  .bolinha{display:inline-block;width:14px;height:14px;border-radius:50%;vertical-align:-2px;margin-right:6px;border:1px solid #fff6}
-  #fechar{position:sticky;top:0;float:right;border-radius:12px;background:var(--ouro);color:#222;border:0;padding:10px 18px;font-weight:700;font-size:15px}
-  /* Título */
-  #titulo{position:fixed;inset:0;display:none;flex-direction:column;align-items:center;justify-content:center;gap:14px;z-index:4;background:radial-gradient(ellipse at center,rgba(0,0,0,0) 30%,rgba(0,10,25,.45))}
+  .bolinha{display:inline-block;width:12px;height:12px;border-radius:50%;vertical-align:-1px;margin-right:6px}
+  #fechar{position:sticky;top:0;float:right;border-radius:999px;background:var(--ouro);color:#1b1b1b;border:0;padding:9px 18px;font-weight:700;font-size:14px}
+  #titulo{position:fixed;inset:0;display:none;flex-direction:column;align-items:center;justify-content:flex-end;padding-bottom:12vh;gap:12px;z-index:4;background:linear-gradient(0deg,rgba(0,8,20,.5),transparent 55%)}
   body.titulo #titulo{display:flex}
-  #titulo h1{margin:0;font-size:min(13vw,92px);letter-spacing:.02em;text-shadow:0 4px 24px rgba(0,0,0,.45);font-weight:700}
-  #titulo p{margin:0;opacity:.9;font-size:17px;text-shadow:0 1px 6px #000a;text-align:center}
-  #bVoar{margin-top:10px;border:0;border-radius:999px;padding:16px 46px;font-size:22px;font-weight:700;background:var(--ouro);color:#1b1b1b;box-shadow:0 8px 30px rgba(255,204,77,.35)}
-  #bVoar:focus-visible,.bt:focus-visible{outline:3px solid #fff}
-  #dicas{font-size:13px!important;opacity:.75!important;max-width:560px}
-  #carregando{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:#0d1626;z-index:9;font-size:18px;transition:opacity .6s}
-  #rot{display:none;position:fixed;inset:0;z-index:99;background:#1b2a44;flex-direction:column;align-items:center;justify-content:center;gap:16px;font-size:18px}
+  #titulo h1{margin:0;font-size:min(10vw,72px);letter-spacing:.04em;font-weight:700}
+  #titulo p{margin:0;color:var(--sub);font-size:15px;text-align:center}
+  #bVoar{margin-top:6px;border:0;border-radius:999px;padding:13px 40px;font-size:18px;font-weight:700;background:var(--ouro);color:#1b1b1b}
+  #bVoar:focus-visible,.bt:focus-visible,.card:focus-visible{outline:2px solid #fff}
+  #carregando{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:#0b1118;z-index:9;font-size:16px;color:var(--sub);transition:opacity .6s}
+  #rot{display:none;position:fixed;inset:0;z-index:99;background:#0b1118;flex-direction:column;align-items:center;justify-content:center;gap:16px;font-size:18px}
   @media (orientation:portrait) and (pointer:coarse){#rot{display:flex}}
-  @media (max-height:430px){.num{font-size:24px}#mapa{width:104px;height:104px}#descobertos,#bMenu,#bFoto{right:calc(124px + var(--sr))}#acel{height:42vh}}
+  @media (max-height:430px){#linha1{font-size:18px}#mapa{width:80px;height:80px}#bMenu{right:calc(104px + var(--sr))}#descobertos{top:calc(94px + var(--st));width:80px}.bt{width:44px;height:44px}#botoes{grid-template-columns:repeat(3,44px);gap:8px}}
 </style>
 </head>
 <body class="titulo">
 <canvas id="c"></canvas>
-<div id="hud">
-  <div id="inst" class="vidro">
-    <div><div class="rot">velocidade</div><div class="num"><span id="vVel">0</span><small>km/h</small></div></div>
-    <div><div class="rot">altitude</div><div class="num"><span id="vAlt">0</span><small>m</small></div></div>
-    <div><div class="rot">motor</div><div class="num"><span id="vMot">0</span><small>%</small></div><div id="vs"></div></div>
-  </div>
-  <div id="bussola" class="vidro"><canvas width="380" height="40"></canvas></div>
-  <div id="missao" class="vidro"></div>
+<div id="hud" class="sombra">
+  <div id="inst"><div id="linha1"><span id="vVel">0</span><small>km/h</small><span id="vAlt">0</span><small>m</small></div><div id="linha2"></div></div>
+  <canvas id="bussola" width="280" height="30"></canvas>
+  <div id="missao"></div>
   <div id="aviso"></div>
   <canvas id="mapa" width="200" height="200"></canvas>
-  <div id="descobertos" class="vidro"></div>
-  <button id="bMenu" class="bt" aria-label="Menu">☰</button>
-  <button id="bFoto" class="bt" aria-label="Modo foto">📷</button>
+  <div id="descobertos"></div>
+  <button id="bMenu" class="bt" aria-label="Menu">⋯</button>
   <div id="msg"></div>
-  <div id="cartao" class="vidro"></div>
+  <div id="cartao"></div>
   <div id="alvo"><i></i><span></span></div>
   <div id="toque">
     <div id="zonaStick"><div id="stickBase"><div id="stickPin"></div></div></div>
-    <div id="leme"><button class="bt" data-leme="-1" aria-label="Leme esquerda">◀ leme</button><button class="bt" data-leme="1" aria-label="Leme direita">leme ▶</button></div>
+    <div id="leme"><button class="bt" data-leme="-1" aria-label="Leme esquerda">◀<small>leme</small></button><button class="bt" data-leme="1" aria-label="Leme direita">▶<small>leme</small></button></div>
     <div id="botoes">
-      <button class="bt" id="tTrem">TREM</button><button class="bt" id="tFlap">FLAP</button>
-      <button class="bt" id="tFuma">FUMAÇA</button><button class="bt" id="tCam">CÂMERA</button>
-      <button class="bt" id="tFreio">FREIO</button><button class="bt" id="tHora">☀</button>
+      <button class="bt" id="tSair" data-m="piloto">⇪<small>sair</small></button>
+      <button class="bt" id="tTrem" data-m="piloto">⊥<small>trem</small></button>
+      <button class="bt" id="tFlap" data-m="piloto">⌇<small>flap</small></button>
+      <button class="bt" id="tFuma" data-m="piloto">≋<small>fumaça</small></button>
+      <button class="bt" id="tFreio" data-m="piloto">■<small>freio</small></button>
+      <button class="bt" id="tCam">◎<small>câmera</small></button>
+      <button class="bt" id="tPular" data-m="ape">⤒<small>pular</small></button>
+      <button class="bt" id="tEntrar" data-m="ape">⇩<small>entrar</small></button>
+      <button class="bt" id="tGarras" data-m="ape">⋔<small>garras</small></button>
+      <button class="bt" id="tParaq" data-m="ape">☂<small>paraq.</small></button>
     </div>
-    <div id="acel" class="vidro"><div id="acelFill"></div><div id="acelTxt">MOTOR</div><div id="acelPct">0%</div></div>
+    <div id="acel"><div id="acelFill"></div><div id="acelPct">0%</div></div>
   </div>
 </div>
-<div id="menu"><div id="painelMenu" class="vidro" role="dialog" aria-label="Menu"></div></div>
-<div id="titulo">
+<div id="menu"><div id="painelMenu" role="dialog" aria-label="Menu"></div></div>
+<div id="titulo" class="sombra">
   <h1>Céu Aberto</h1>
-  <p>Voe livre por um arquipélago de praias, montanhas e cânions.</p>
-  <button id="bVoar">Voar ✈</button>
-  <p id="dicas"></p>
+  <p>Jatos, caças, cargueiros e um arquipélago inteiro para explorar.</p>
+  <button id="bVoar">Voar</button>
+  <p id="dicas" style="font-size:12px"></p>
 </div>
 <div id="carregando">Construindo as ilhas…</div>
 <div id="rot"><span style="font-size:40px">⟲</span><span>Gire o celular</span></div>
