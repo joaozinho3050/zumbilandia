@@ -111,9 +111,18 @@ export function criarPessoa() {
     const linhas = [], topos = []; for (let k = 0; k <= N; k += 1.5) for (const j of [P / 2 + 1, P / 2 + 4, P - 2]) { const p0 = pt(Math.round(k), Math.round(j)); topos.push(p0); linhas.push(p0.clone(), new THREE.Vector3(p0.x > 0 ? 0.2 : -0.2, 1.62, 0.02)); }
     const cordas = new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(linhas), new THREE.LineBasicMaterial({ color: 0x2b2b2b })); cordas.frustumCulled = false; pq.add(cordas); pq.userData = { cordas, topos };
   }
+  // fuzil: corpo, cano, carregador, coronha e mira — aparece na hora de atirar
+  const fuzil = new THREE.Group(); fuzil.visible = false; fuzil.position.set(0.12, 0.16, -0.32); peito.add(fuzil);
+  { const mp = m('#26282b', 0.5, 0.6), mm = m('#5a4632', 0.8);
+    const corpoF = caixa(0.07, 0.11, 0.55, mp); fuzil.add(corpoF);
+    const cano = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, 0.45, 8), mp); cano.rotation.x = Math.PI / 2; cano.position.set(0, 0.02, -0.48); fuzil.add(cano);
+    const carreg = caixa(0.05, 0.18, 0.08, mp); carreg.position.set(0, -0.12, -0.05); carreg.rotation.x = 0.25; fuzil.add(carreg);
+    const coronha = caixa(0.06, 0.12, 0.25, mm); coronha.position.set(0, -0.02, 0.36); fuzil.add(coronha);
+    const mira = caixa(0.03, 0.05, 0.12, mp); mira.position.set(0, 0.08, -0.05); fuzil.add(mira);
+    const boca = new THREE.Mesh(new THREE.SphereGeometry(0.08, 8, 6), new THREE.MeshBasicMaterial({ color: 0xffd27a, transparent: true, opacity: 0.9 })); boca.position.z = -0.75; boca.visible = false; fuzil.add(boca); fuzil.userData.boca = boca; }
   raiz.traverse((o) => { if (o.isMesh) o.castShadow = true; });
   const pose = {}; for (const k of Object.keys(J)) pose[k] = new THREE.Euler();
-  return { obj: raiz, J, garras, pq, vel: pq.children[0], pose, fase: 0, y: 0, t0: 0, abrindo: 0, modoAnt: '' };
+  return { fuzil, obj: raiz, J, garras, pq, vel: pq.children[0], pose, fase: 0, y: 0, t0: 0, abrindo: 0, modoAnt: '' };
 }
 
 function texNome() { const c = document.createElement('canvas'); c.width = 64; c.height = 24; const g = c.getContext('2d'); g.fillStyle = '#2b2b22'; g.fillRect(0, 0, 64, 24); g.fillStyle = '#e8e2c8'; g.font = 'bold 13px sans-serif'; g.textAlign = 'center'; g.fillText('PILOTO', 32, 17); const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t; }
@@ -139,9 +148,9 @@ export function animarPessoa(p, modo, rapidez, t, dt, garras, vento = 0) {
     topos.forEach((v, i) => { const w = v.clone().applyMatrix4(p.vel.matrix); at.setXYZ(i * 2, w.x, w.y, w.z); }); at.needsUpdate = true;
   }
   if (modo === 'pe') {
-    const v = Math.min(rapidez, 7), corre = v > 3.6;
-    p.fase += dt * (v < 0.2 ? 0 : 2.2 + v * 1.25);
-    const f = p.fase, a = Math.min(1, v / 2.5) * (corre ? 0.85 : 0.55);
+    const v = Math.min(rapidez, 13), corre = v > 6.5; // corrida: passada longa, joelho alto, braços em 90° balançando forte
+    p.fase += dt * (v < 0.2 ? 0 : corre ? 6.5 + v * 0.55 : 2.2 + v * 1.25);
+    const f = p.fase, a = Math.min(1, v / 2.5) * (corre ? 1.15 : 0.55);
     if (v < 0.2) { // parado: respira e olha em volta
       const r = Math.sin(t * 1.6) * 0.03; set('peito', -r, 0, 0); set('cabeca', Math.sin(t * 0.3) * 0.08, Math.sin(t * 0.37) * 0.45, 0);
       set('ombroD', 0.05, 0, 0.1 + r); set('ombroE', 0.05, 0, -0.1 - r); set('cotoveloD', 0.18); set('cotoveloE', 0.18);
@@ -151,9 +160,10 @@ export function animarPessoa(p, modo, rapidez, t, dt, garras, vento = 0) {
       set('joelhoD', -(Math.max(0, Math.cos(f)) * a * 1.5 + 0.05)); set('joelhoE', -(Math.max(0, -Math.cos(f)) * a * 1.5 + 0.05));
       set('tornD', Math.max(0, Math.sin(f)) * 0.25); set('tornE', Math.max(0, -Math.sin(f)) * 0.25);
       set('ombroD', -Math.sin(f) * a * 0.9, 0, 0.08); set('ombroE', Math.sin(f) * a * 0.9, 0, -0.08);
-      set('cotoveloD', corre ? 1.5 : 0.25 + Math.max(0, -Math.sin(f)) * 0.5); set('cotoveloE', corre ? 1.5 : 0.25 + Math.max(0, Math.sin(f)) * 0.5);
-      set('tronco', corre ? -0.22 : -0.05, Math.sin(f) * 0.12, 0); set('peito', 0, -Math.sin(f) * 0.15, 0); set('cabeca', corre ? 0.18 : 0.04);
-      quadY = 0.98 - Math.abs(Math.sin(f)) * (corre ? 0.06 : 0.03);
+      set('cotoveloD', corre ? 1.6 : 0.25 + Math.max(0, -Math.sin(f)) * 0.5); set('cotoveloE', corre ? 1.6 : 0.25 + Math.max(0, Math.sin(f)) * 0.5);
+      if (corre) { set('ombroD', -Math.sin(f) * 1.25, 0, 0.12); set('ombroE', Math.sin(f) * 1.25, 0, -0.12); set('joelhoD', -(Math.max(0, Math.cos(f)) * 2.1 + 0.25)); set('joelhoE', -(Math.max(0, -Math.cos(f)) * 2.1 + 0.25)); }
+      set('tronco', corre ? -0.42 : -0.05, Math.sin(f) * (corre ? 0.2 : 0.12), 0); set('peito', 0, -Math.sin(f) * 0.15, 0); set('cabeca', corre ? 0.32 : 0.04);
+      quadY = 0.98 - Math.abs(Math.sin(f)) * (corre ? 0.11 : 0.03) + (corre ? Math.max(0, Math.cos(f * 2)) * 0.06 : 0); // na corrida o corpo "voa" entre as passadas
     }
   } else if (modo === 'pulo') {
     set('coxaD', 0.8); set('coxaE', 0.35); set('joelhoD', -1.3); set('joelhoE', -0.8); set('tornD', 0.3); set('tornE', 0.2);
@@ -187,6 +197,10 @@ export function animarPessoa(p, modo, rapidez, t, dt, garras, vento = 0) {
   } else if (modo === 'subindo') { // passando pela cabine
     quadY = 0.85; set('coxaD', 1.3); set('joelhoD', -1.6); set('coxaE', -0.2); set('joelhoE', -0.3); set('ombroD', 2.3); set('ombroE', 1.7); set('cotoveloD', 0.3); set('cotoveloE', 0.5); set('tronco', -0.3);
   }
+  if (p.mira > 0 && modo !== 'queda' && modo !== 'paraquedas') { // segurando o fuzil apontado pra frente
+    set('ombroD', 1.45, 0, 0.25); set('cotoveloD', 0.9); set('ombroE', 1.3, 0, -0.45); set('cotoveloE', 0.4); set('cabeca', 0.1, 0, 0);
+  }
+  p.fuzil.visible = p.mira > 0; p.mira = Math.max(0, (p.mira || 0) - dt); p.fuzil.userData.boca.visible = p.disparo > 0; p.disparo = Math.max(0, (p.disparo || 0) - dt);
   set('quadril', raizX); delete A.visor;
   const k = 1 - Math.exp(-dt * (modo === 'queda' || modo === 'pouso' ? 9 : 13));
   for (const [nome, [x, y, z]] of Object.entries(A)) { const e = p.pose[nome]; e.x += (x - e.x) * k; e.y += (y - e.y) * k; e.z += (z - e.z) * k; p.J[nome].rotation.copy(e); }

@@ -65,6 +65,14 @@ const checagens = () => {
   // 8. mapa novo: aeroporto da cidade e porta-aviões
   J.nascerLugar(J.LUGARES.find((l) => l.id === 'aero2')); ok('aeroporto da cidade', J.jog.aviao.chao && J.jog.vivo);
   ok('convés é chão', J.chao(1800, 6600) === 19);
+  // 9. gancho e fuzil
+  const tr2 = J.frota.find((f) => f.trafego && f.vivo); J.jog.modo = 'queda'; J.jog.pos.copy(tr2.pos).add(new V(60, 40, 0)); J.jog.vel.set(0, 0, 0); J.passo(1 / 60);
+  J.gancho(); for (let i = 0; i < 90; i++) J.passo(1 / 60); ok('gancho agarra avião rápido', J.jog.modo === 'sobre' && J.jog.sobre === tr2);
+  J.S.tipo = 'caca'; J.comecarDesafio(J.DESAFIO_COMBATE); const eu2 = J.jog.aviao; J.sair(); for (let i = 0; i < 10; i++) J.passo(1 / 60);
+  const al2 = J.inimigos[0]; for (const x of J.inimigos.slice(1)) { x.vivo = false; x.obj.visible = false; }
+  J.cameraJa(); const fc = J.camera.getWorldDirection(new V()); al2.pos.copy(J.camera.position).addScaledVector(fc, 300); al2.q.copy(eu2.q); al2.dir.copy(eu2.dir); al2.V = eu2.V * 0.95; al2.comPiloto = false; al2.inimigo = false; al2.sincronizar();
+  for (let i = 0; i < 240 && al2.vivo; i++) { J.cameraJa(); J.camera.lookAt(al2.pos); J.atirarFuzil(1 / 60); J.passo(1 / 60); }
+  ok('fuzil em cima da asa derruba avião', !al2.vivo);
   return res;
 };
 
