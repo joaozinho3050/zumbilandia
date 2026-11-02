@@ -57,6 +57,11 @@ const checagens = () => {
   c.pos.copy(al.position).add(new V(0, 1, 250)); c.q.identity(); c.dir.set(0, 0, -1); c.V = 80; c.queda = 0; c.vAnt.set(0, 0, -80);
   document.getElementById('tAtirar').dispatchEvent(new PointerEvent('pointerdown')); J.simular(0.6, {}); document.getElementById('tAtirar').dispatchEvent(new PointerEvent('pointerup'));
   ok('tiro acerta o alvo', alvosVivos().length === antes - 1, `${antes} -> ${alvosVivos().length}`);
+  // 7. combate: inimigos atiram; míssil trava e derruba
+  J.comecarDesafio(J.DESAFIO_COMBATE); const eu = J.jog.aviao; ok('combate começa', J.inimigos.length === 3 && eu.misseis === 4);
+  const ini = J.inimigos[0]; eu.pos.copy(ini.pos).add(new V(0, 0, 1200).applyQuaternion(ini.q)); eu.q.copy(ini.q); eu.dir.set(0, 0, -1).applyQuaternion(eu.q); eu.V = ini.V; eu.vAnt.copy(eu.velocidade(new V()));
+  ok('míssil trava', J.alvoTravado(eu) === ini); J.dispararMissil(eu); for (let i = 0; i < 60 * 12 && ini.vivo; i++) J.passo(1 / 60);
+  ok('míssil derruba o inimigo', !ini.vivo);
   return res;
 };
 

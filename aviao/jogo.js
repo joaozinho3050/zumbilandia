@@ -361,29 +361,108 @@ function colisaoNoAr(a) { // dois aviões se tocando no ar: os dois caem (o carg
   }
 }
 // ---------- Tiros (caça a jato e caça da 2ª Guerra) e alvos ----------
-const balas = [], alvos = [];
-let cadT = 0, canoI = 0;
+const balas = [], alvos = [], misseis = [], inimigos = [];
+// traçantes: riscos brilhantes de 14 m que voam com a bala (bem visíveis de longe)
+const gTraco = new THREE.BoxGeometry(0.5, 0.5, 24).translate(0, 0, 12);
+const mTraco = { j: new THREE.MeshBasicMaterial({ color: 0xffe08a, transparent: true, opacity: 0.95, blending: THREE.AdditiveBlending, depthWrite: false }), i: new THREE.MeshBasicMaterial({ color: 0xff5040, transparent: true, opacity: 0.95, blending: THREE.AdditiveBlending, depthWrite: false }) };
+const poolTraco = [];
 function atirar(a, dt) {
   const W = a.T.armas; if (!W || !a.vivo || a.preso) return;
-  cadT -= dt; if (cadT > 0) return; cadT = 1 / W.cadencia;
-  const c = W.canos[canoI++ % W.canos.length], p = a.obj.localToWorld(V3().set(...c));
-  const v = a.velocidade(V3()).addScaledVector(tmpV.set(0, 0, -1).applyQuaternion(a.q), W.vel).add(tmpV.set((Math.random() - 0.5) * 6, (Math.random() - 0.5) * 6, 0));
-  balas.push({ p, v, t: 0 }); fogo.emitir(p, a.velocidade(tmpV2), tmpC.set(0xffd27a), 2.5, 0.5, 1, 0.06, 0); som.tiro();
+  a.cadT = (a.cadT || 0) - dt; if (a.cadT > 0) return; a.cadT = 1 / W.cadencia;
+  const c = W.canos[(a.canoI = (a.canoI || 0) + 1) % W.canos.length], p = a.obj.localToWorld(V3().set(...c));
+  const disp = a.inimigo ? 14 : 5; // inimigo erra mais
+  const v = a.velocidade(V3()).addScaledVector(tmpV.set(0, 0, -1).applyQuaternion(a.q), W.vel).add(tmpV.set((Math.random() - 0.5) * disp, (Math.random() - 0.5) * disp, (Math.random() - 0.5) * disp));
+  const m = poolTraco.pop() || new THREE.Mesh(gTraco); m.material = a.inimigo ? mTraco.i : mTraco.j; m.frustumCulled = false; m.position.copy(p); m.quaternion.setFromUnitVectors(EZ, tmpV.copy(v).normalize().negate()); cena.add(m);
+  balas.push({ p, v, t: 0, m, dono: a });
+  fogo.emitir(p, a.velocidade(tmpV2), tmpC.set(0xffe2a0), 6, 2, 1, 0.08, 0); // clarão na boca do cano
+  if (a === jog.aviao || camera.position.distanceToSquared(p) < 600 * 600) som.tiro();
 }
+function danificar(a, dano, porQuem) { // aviões têm "vida"; com pouca vida soltam fumaça; zero = explode
+  if (!a.vivo || a.fixo || a === npc) return;
+  a.hp = (a.hp ?? 100) - dano;
+  for (let k = 0; k < 4; k++) fogo.emitir(a.pos, tmpV.randomDirection().multiplyScalar(10), tmpC.set(0xffc060), 1.5, 0.3, 1, 0.25, 2); // faíscas do impacto
+  if (a === jog.aviao) { cam.treme = Math.max(cam.treme, 0.8); piscarDano(); }
+  if (a.hp <= 0) { bater(a, false, a === jog.aviao ? 'Você foi abatido!' : null); if (porQuem === jog.aviao && a !== jog.aviao) { mensagem('Abatido!', a.inimigo ? `${inimigos.filter((x) => x.vivo).length} inimigo(s) restante(s)` : 'Você derrubou um avião', 2); som.descobre(); } }
+}
+function piscarDano() { const d = $('dano'); d.style.opacity = 0.45; clearTimeout(piscarDano.t); piscarDano.t = setTimeout(() => (d.style.opacity = 0), 120); }
 function atualizarBalas(dt) {
   for (let i = balas.length - 1; i >= 0; i--) {
-    const b = balas[i], ant = tmpV3.copy(b.p); b.t += dt; b.v.y -= 9.8 * dt; b.p.addScaledVector(b.v, dt);
-    fogo.emitir(b.p, tmpV.set(0, 0, 0), tmpC.set(0xffc060), 1.1, 0.4, 0.9, 0.05, 0); // traçante
-    let fim = b.t > 2.2;
-    for (let k = alvos.length - 1; k >= 0 && !fim; k--) { // segmento da bala contra a esfera do alvo
-      const al = alvos[k], seg = tmpV2.copy(b.p).sub(ant), u = clamp(tmpV.copy(al.g.position).sub(ant).dot(seg) / Math.max(seg.lengthSq(), 1e-6), 0, 1);
-      if (tmpV.copy(ant).addScaledVector(seg, u).distanceTo(al.g.position) < al.r) { acertou(al, k); fim = true; }
+    const b = balas[i], ant = tmpV3.copy(b.p); b.t += dt; b.v.y -= 9.8 * dt; b.p.addScaledVector(b.v, dt); b.m.position.copy(b.p);
+    for (let k = 0; k < 3; k++) fogo.emitir(tmpV.copy(ant).lerp(b.p, k / 3), tmpV2.set(0, 0, 0), b.dono.inimigo ? tmpC.set(0xff5040) : tmpC.set(0xffd27a), 2.6, 1, 1, 0.3, 0); // rastro brilhante contínuo (visível de qualquer ângulo)
+    let fim = b.t > 2.4;
+    const seg = tmpV2.copy(b.p).sub(ant), L2 = Math.max(seg.lengthSq(), 1e-6);
+    const toca = (c, r) => { const u = clamp(tmpV.copy(c).sub(ant).dot(seg) / L2, 0, 1); return tmpV.copy(ant).addScaledVector(seg, u).distanceTo(c) < r; };
+    for (let k = alvos.length - 1; k >= 0 && !fim; k--) if (toca(alvos[k].g.position, alvos[k].r)) { acertou(alvos[k], k); fim = true; }
+    for (const a of frota) { // bala contra avião (no ar, vivo, que não é quem atirou)
+      if (fim || a === b.dono || !a.vivo || a.chao || a.fixo || a === npc || a.pos.distanceToSquared(b.p) > 250 * 250) continue;
+      if (toca(a.pos, a.P.envergadura * a.esc * 0.4)) { danificar(a, a === jog.aviao ? 4 : 9, b.dono); fim = true; }
     }
     const h = M.chao(b.p.x, b.p.z);
-    if (!fim && b.p.y < Math.max(h, 0)) { fumaca.emitir(b.p, tmpV.set(0, 3, 0), tmpC.set(h < 0 ? 0xf4fbff : 0x9a8a70), 1, 4, 0.6, 0.8); fim = true; }
-    if (fim) balas.splice(i, 1);
+    if (!fim && b.p.y < Math.max(h, 0)) { fumaca.emitir(b.p, tmpV.set(0, 3, 0), tmpC.set(h < 0 ? 0xf4fbff : 0x9a8a70), 1.5, 5, 0.6, 0.8); fim = true; }
+    if (fim) { cena.remove(b.m); poolTraco.push(b.m); balas.splice(i, 1); }
+  }
+  atualizarMisseis(dt);
+}
+// ---------- Mísseis guiados (caça a jato): trava num alvo à frente e persegue ----------
+const gMissil = (() => { const g = new THREE.CylinderGeometry(0.09, 0.09, 2.6, 8); g.rotateX(Math.PI / 2); return g; })(), mMissil = new THREE.MeshStandardMaterial({ color: 0xe6e6e2, roughness: 0.4 });
+function alvoTravado(a) { // avião no ar, à frente (até 28°), a menos de 3 km
+  if (!a || !a.T.armas?.misseis) return null;
+  const f = tmpV.set(0, 0, -1).applyQuaternion(a.q); let melhor = null, mv = Infinity;
+  for (const o of frota) {
+    if (o === a || !o.vivo || o.chao || o.fixo || o === npc || o.preso) continue;
+    const d = tmpV2.copy(o.pos).sub(a.pos), dist = d.length(); if (dist > 3000 || dist < 60) continue;
+    const ang = Math.acos(clamp(d.dot(f) / dist, -1, 1)); if (ang > 0.49) continue;
+    const nota = ang * 2000 + dist + (o.inimigo ? -1500 : 0); if (nota < mv) { mv = nota; melhor = o; }
+  }
+  return melhor;
+}
+function dispararMissil(a) {
+  const W = a?.T.armas; if (!W?.misseis || !a.vivo) return;
+  a.misseis ??= W.misseis; if (a.misseis <= 0) return mensagem('Sem mísseis', 'Eles voltam quando você renasce', 1.5);
+  const alvo = alvoTravado(a); if (!alvo) return mensagem('Nenhum alvo travado', 'Aponte o nariz para um avião (até 3 km)', 1.6);
+  a.misseis--; const lado = a.misseis % 2 ? 1 : -1;
+  const p = a.obj.localToWorld(V3().set(lado * a.P.envergadura * 0.45, -0.3, 0));
+  const m = new THREE.Mesh(gMissil, mMissil); m.position.copy(p); cena.add(m);
+  misseis.push({ p, v: a.velocidade(V3()), alvo, t: 0, m, dono: a }); som.missil(); mensagem('Fox 2!', `Míssil lançado · ${a.misseis} restante(s)`, 1.3);
+}
+function atualizarMisseis(dt) {
+  for (let i = misseis.length - 1; i >= 0; i--) {
+    const s = misseis[i]; s.t += dt; const al = s.alvo;
+    const vel = Math.min(480, s.v.length() + 260 * dt); // acelera até ~1700 km/h
+    if (al.vivo && s.t > 0.35) { // navegação: aponta para onde o alvo vai estar
+      const tgo = s.p.distanceTo(al.pos) / vel, quer = tmpV.copy(al.pos).addScaledVector(al.velocidade(tmpV2), tgo).sub(s.p).normalize();
+      const atual = tmpV2.copy(s.v).normalize(), ang = Math.acos(clamp(atual.dot(quer), -1, 1)), max = 2.6 * dt; // curva máxima por quadro
+      s.v.copy(ang > max ? atual.lerp(quer, max / ang).normalize() : quer).multiplyScalar(vel);
+    } else { s.v.setLength(vel); s.v.y -= 9.8 * dt; }
+    s.p.addScaledVector(s.v, dt); s.m.position.copy(s.p); s.m.quaternion.setFromUnitVectors(EZ, tmpV.copy(s.v).normalize());
+    fumaca.emitir(s.p, tmpV.set(0, 0.5, 0), tmpC.set(0xeeeeee), 1.2, 6, 0.7, 2.5, 0.8); fogo.emitir(s.p, tmpV.set(0, 0, 0), tmpC.set(0xffb060), 2.2, 0.5, 1, 0.08, 0);
+    const bateu = al.vivo && s.p.distanceTo(al.pos) < 14, chao = s.p.y < Math.max(M.chao(s.p.x, s.p.z), 0);
+    if (bateu || chao || s.t > 12) {
+      if (bateu) danificar(al, 999, s.dono); else explosao(s.p.clone(), chao && M.chao(s.p.x, s.p.z) < 0, 0.4);
+      cena.remove(s.m); misseis.splice(i, 1);
+    }
   }
 }
+// ---------- Inimigos: caças com piloto NPC que te perseguem e atiram ----------
+function criarInimigo(tipo, x, z, y, rumo) {
+  const a = new Aero(tipo, tipo === 'caca' ? 1 : 2); a.colocar(x, z, rumo, true, y); a.pos.y = y;
+  a.inimigo = true; a.comPiloto = true; a.hp = 100; a.acel = 0.85; a.V = tipo === 'caca' ? 130 : 80; a.vAnt.copy(a.velocidade(V3()));
+  inimigos.push(a); return a;
+}
+function pilotarInimigo(a, dt) {
+  const alvo = jog.aviao && jog.modo === 'piloto' && jog.vivo ? jog.aviao : null; if (!alvo) { a.ent.r = a.ent.p = 0; return; }
+  const f = tmpV.set(0, 0, -1).applyQuaternion(a.q), d = tmpV2.copy(alvo.pos).addScaledVector(alvo.velocidade(tmpV3), clamp(a.pos.distanceTo(alvo.pos) / 900, 0, 1.5)).sub(a.pos);
+  const dist = d.length(), solo = a.pos.y - Math.max(0, M.chao(a.pos.x, a.pos.z), M.chao(a.pos.x + f.x * 400, a.pos.z + f.z * 400));
+  const rumoErr = Math.atan2(f.x * d.z - f.z * d.x, f.x * d.x + f.z * d.z); // erro de rumo (horizontal)
+  const subir = Math.atan2(d.y, Math.hypot(d.x, d.z)) - Math.asin(clamp(f.y, -1, 1));
+  a.ent.r = clamp(rumoErr * 1.6, -0.9, 0.9);
+  a.ent.p = clamp(subir * 2.2 + Math.abs(a.ent.r) * 0.35, -0.7, 1);
+  if (solo < 180) { a.ent.r *= 0.3; a.ent.p = 1; } // perto do chão: nivela e puxa
+  a.acel = dist > 1500 ? 1 : dist < 300 ? 0.55 : 0.85;
+  const ang = Math.acos(clamp(f.dot(d) / dist, -1, 1));
+  if (dist < 800 && ang < 0.12) atirar(a, dt); // tem você na mira: atira
+}
+function limparInimigos() { for (const a of inimigos) a.remover(); inimigos.length = 0; }
 function criarAlvos(cx, cz, n) {
   const c = document.createElement('canvas'); c.width = 64; c.height = 32; const g = c.getContext('2d');
   for (let i = 0; i < 8; i++) { g.fillStyle = i % 2 ? '#ffffff' : '#e8322a'; g.fillRect(i * 8, 0, 8, 32); }
@@ -435,7 +514,7 @@ const pessoa = criarPessoa(); cena.add(pessoa.obj); pessoa.obj.visible = false;
 const jog = { camPit: 0.28, hop: 0, hopV: 0, correr: false, modo: 'piloto', aviao: null, sobre: null, L: V3(), pos: V3(), vel: V3(), yaw: 0, camYaw: 0, garras: true, vivo: true, morteT: 0, rapidez: 0, noChao: true, ondeNasce: null, trans: null, poucoT: 0 };
 function pilotar(a) {
   if (jog.aviao && jog.aviao !== a) { if (jog.aviao === npc && npc.comPiloto && npc.vivo) pilotoAutomatico(npc); else jog.aviao.comPiloto = false; }
-  jog.hop = jog.hopV = 0;
+  jog.hop = jog.hopV = 0; if (!a.inimigo) { a.hp ??= 100; }
   jog.aviao = a; a.comPiloto = true; jog.modo = 'piloto'; jog.vivo = true; jog.sobre = null; jog.trans = null; pessoa.obj.visible = false;
   if (a.trafego) { a.npc = null; a.trafego = false; a.vAnt.copy(a.velocidade(tmpV)); } // tomou o avião do tráfego
   if (a === npc) { a.npc.blend = 0; a.ent.p = a.ent.r = a.ent.y = 0; a.vAnt.copy(a.velocidade(tmpV)); }
@@ -447,7 +526,7 @@ function nascer(o) { // o = {x,z,y?,rumo,chao?}
   let a = jog.aviao;
   const meu = a && a !== npc && !a.preso && !a.fixo; // avião do jogador que pode ser reaproveitado ou apagado
   if (!meu || a.tipo !== S.tipo || a.pint !== S.pintura % TIPOS[S.tipo].pinturas.length) { if (meu) a.remover(); a = novoAviao(S.tipo); }
-  a.colocar(o.x, o.z, o.rumo || 0, !o.chao, o.y);
+  a.colocar(o.x, o.z, o.rumo || 0, !o.chao, o.y); a.hp = 100; a.misseis = a.T.armas?.misseis || 0;
   limparFrota(a); pilotar(a);
 }
 function nascerLugar(l) {
@@ -456,7 +535,7 @@ function nascerLugar(l) {
   nascer({ x: l.x - Math.sin(a) * 900, z: l.z + Math.cos(a) * 900, y: l.y, rumo: l.rumo });
 }
 function limparFrota(manter) { // tira aviões abandonados longe demais (mantém estacionados, os que estão no cargueiro e o NPC)
-  for (const a of [...frota]) if (a !== manter && !a.npc && !a.estacionado && !a.fixo && !a.preso && (!a.vivo || a.pos.distanceTo(manter.pos) > 6000)) a.remover();
+  for (const a of [...frota]) if (a !== manter && !a.npc && !a.inimigo && !a.estacionado && !a.fixo && !a.preso && (!a.vivo || a.pos.distanceTo(manter.pos) > 6000)) a.remover();
 }
 
 // colisão do boneco com aviões parados: as peças viram "caixas" na altura certa
@@ -743,9 +822,17 @@ function criarAlvoCarga(x, z) {
   const m = new THREE.Mesh(gm, new THREE.MeshBasicMaterial({ map: t, polygonOffset: true, polygonOffsetFactor: -4 })); m.position.set(x, 0, z); cena.add(m);
   const fum = { x, z, g: m }; return fum;
 }
+const DESAFIO_COMBATE = { id: 'combate', nome: 'Combate Aéreo', desc: '3 caças inimigos te caçam. Derrube todos com tiros (✦/V) e mísseis (◆/M).', inicio: { x: 0, z: 2600, y: 900, rumo: 0 } };
 const DESAFIO_TIRO = { id: 'tiro', nome: 'Tiro ao Alvo', desc: 'Com um caça, derrube os 12 balões-alvo. Botão ✦ ou tecla V atira.', inicio: { x: -1500, z: 2400, y: 320, rumo: 20 } };
 function comecarDesafio(d) {
   pararDesafio();
+  if (d.id === 'combate') {
+    if (!TIPOS[S.tipo].armas) S.tipo = 'caca';
+    nascer({ ...d.inicio }); limparInimigos(); jog.aviao.hp = 100; jog.aviao.misseis = jog.aviao.T.armas.misseis || 0; jog.aviao.V = Math.max(jog.aviao.V, jog.aviao.T.VS * 2);
+    const ti = S.tipo === 'caca' ? 'caca' : 'guerra';
+    for (const [x, z] of [[-500, -1400], [0, -1800], [500, -1500]]) criarInimigo(ti, x, z, 950 + Math.random() * 150, 180);
+    desafio = { d, aneis: [], i: 0, t: 0 }; mensagem(d.nome, 'Eles vêm de frente! Aponte e atire', 3.5); return;
+  }
   if (d.id === 'carga') {
     if (!TIPOS[S.tipo].criar || !['cargueiro'].includes(S.tipo)) S.tipo = 'cargueiro';
     nascer({ ...d.inicio }); const a = jog.aviao; a.portaAlvo = 1; a.abre = 1; a.V = 62;
@@ -781,7 +868,7 @@ function comecarDesafio(d) {
   nascer({ ...d.inicio });
   mensagem(d.nome, 'Passe por dentro das argolas douradas!', 3);
 }
-function pararDesafio() { if (!desafio) return; if (desafio.alvos) for (const al of desafio.alvos) cena.remove(al.g); for (const a of desafio.aneis) cena.remove(a.g); if (desafio.d.id === 'tiro') limparAlvos(); desafio = null; $('missao').style.display = 'none'; }
+function pararDesafio() { if (!desafio) return; if (desafio.d.id === 'combate') limparInimigos(); if (desafio.alvos) for (const al of desafio.alvos) cena.remove(al.g); for (const a of desafio.aneis) cena.remove(a.g); if (desafio.d.id === 'tiro') limparAlvos(); desafio = null; $('missao').style.display = 'none'; }
 function atualizarDesafio(dt, t) {
   if (!desafio) return; const D = desafio; if (jog.vivo) D.t += dt;
   D.aneis.forEach((a, k) => { a.g.visible = k >= D.i && k < D.i + 4; a.m.material = k === D.i ? matArg : matArgFraca; a.brilho.material.opacity = k === D.i ? 0.25 + 0.15 * Math.sin(t * 6) : 0; if (k === D.i) a.g.scale.setScalar(1 + 0.04 * Math.sin(t * 5)); });
@@ -798,11 +885,12 @@ function atualizarDesafio(dt, t) {
 }
 function terminarDesafio(esp) { // esp: 'baia' ou 'tiro' (pontuação só por tempo)
   const D = desafio; let n; const baia = esp === 'baia';
-  if (esp === 'carga') n = Math.max(1, Math.round(D.pontos / 3));
+  if (esp === 'combate') n = (jog.aviao?.hp ?? 0) > 60 ? 3 : (jog.aviao?.hp ?? 0) > 25 ? 2 : 1;
+  else if (esp === 'carga') n = Math.max(1, Math.round(D.pontos / 3));
   else if (esp) n = D.t < (baia ? 40 : 70) ? 3 : D.t < (baia ? 90 : 140) ? 2 : 1;
   else { const comp = D.aneis.reduce((s, a, i) => s + (i ? a.c.distanceTo(D.aneis[i - 1].c) : 0), 0), par = comp / 62 + 4; n = D.t <= par ? 3 : D.t <= par * 1.3 ? 2 : 1; }
   const t = D.t, rec = S.recordes[D.d.id], novo = !rec || t < rec.t; if (novo) { S.recordes[D.d.id] = { t, n }; salvar(); }
-  if (!baia || esp === 'carga') mensagem(`${D.d.nome} completo!`, `${'⭐'.repeat(n)}  ${fmtT(t)}${novo ? ' · novo recorde!' : ` · recorde ${fmtT(rec.t)}`}`, 5);
+  if (!baia || esp === 'carga' || esp === 'combate') mensagem(`${D.d.nome} completo!`, `${'⭐'.repeat(n)}  ${fmtT(t)}${novo ? ' · novo recorde!' : ` · recorde ${fmtT(rec.t)}`}`, 5);
   som.vitoria(); pararDesafio();
 }
 const fmtT = (t) => `${Math.floor(t / 60)}:${(t % 60).toFixed(1).padStart(4, '0')}`;
@@ -870,6 +958,7 @@ const luzPouso = new THREE.SpotLight(0xfff2d8, 0, 700, 0.38, 0.5, 1); cena.add(l
 const corFumaca = new THREE.Color(), caudaAnt = V3(), cauda = V3();
 function animarAero(a, dt, t, perto) {
   a.sincronizar(); const P = a.P;
+  if (a.vivo && a.hp < 50 && Math.random() < 0.6) fumaca.emitir(a.pos, a.velocidade(tmpV).multiplyScalar(-0.2), tmpC.setRGB(0.18, 0.18, 0.18), 2, 14, 0.7, 3, 0.6, 1); // avião avariado solta fumaça preta
   for (const h of P.helices) { h.pas.rotation.z -= Math.min(a.rpm * 55 * dt / Math.sqrt(h.raio), 1.1); h.disco.material.opacity = smooth(0.25, 0.7, a.rpm) * 0.85; h.disco.rotation.z += dt * 3; }
   if (P.brasa) P.brasa.emissiveIntensity = 0.3 + a.acel * 2.5 + (Math.random() - 0.5) * 0.4;
   if (P.chama) { const ab = a.vivo && a.acel > 0.85 ? (a.acel - 0.85) / 0.15 : 0; P.chama.visible = ab > 0.01; P.chama.scale.set(0.8 + ab * 0.3, 0.8 + ab * 0.3, (0.5 + ab * 0.7) * (0.92 + Math.random() * 0.16)); }
@@ -957,6 +1046,7 @@ const som = (() => {
     },
     argola(i) { [0, 4, 7].forEach((s, k) => bip(523 * 2 ** ((s + i % 5) / 12), k * 0.07, 0.35, 'triangle', 0.2)); },
     vitoria() { [0, 4, 7, 12, 16].forEach((s, k) => bip(392 * 2 ** (s / 12), k * 0.12, 0.6, 'triangle', 0.22)); },
+    missil() { ruido(1.2, 1400, 0.5); },
     tiro() { ruido(0.07, 2200, 0.16); },
     batida(v = 1) { ruido(1.6, 500, 1.2 * v); }, pneu() { ruido(0.35, 2500, 0.35); },
     clique() { bip(900, 0, 0.05, 'square', 0.06); }, descobre() { [0, 7, 12].forEach((s, k) => bip(659 * 2 ** (s / 12), k * 0.15, 0.8, 'sine', 0.18)); },
@@ -974,7 +1064,7 @@ addEventListener('keydown', (e) => {
   if (estado !== 'voo') return;
   const av = jog.aviao;
   const comum = { KeyC: proxCam, KeyH: modoFoto, KeyT: proxHora };
-  const voo = { KeyJ: () => soltarCarga(jog.aviao), KeyG: trem, KeyF: flap, Space: fumacaToggle, KeyX: sair, KeyO: () => porta(jog.aviao), KeyL: soltarAviao };
+  const voo = { KeyM: () => dispararMissil(jog.aviao), KeyJ: () => soltarCarga(jog.aviao), KeyG: trem, KeyF: flap, Space: fumacaToggle, KeyX: sair, KeyO: () => porta(jog.aviao), KeyL: soltarAviao };
   const pe = { Space: pular, KeyE: entrar, KeyK: garras, KeyX: entrar, KeyO: () => porta(portaPerto()) };
   const f = comum[e.code] || (pilotando() ? voo : jog.vivo ? pe : {})[e.code];
   if (f) { e.preventDefault(); f(); }
@@ -1018,6 +1108,7 @@ const botao = (id, f) => $(id).addEventListener('pointerdown', (e) => { e.preven
 botao('tTrem', () => trem()); botao('tFlap', () => flap()); botao('tFuma', () => fumacaToggle()); botao('tCam', () => proxCam()); botao('tSair', () => sair());
 $('tAtirar').addEventListener('pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); toque.atira = true; $('tAtirar').classList.add('on'); });
 for (const ev of ['pointerup', 'pointercancel', 'pointerleave']) $('tAtirar').addEventListener(ev, () => { toque.atira = false; $('tAtirar').classList.remove('on'); });
+botao('tMissil', () => dispararMissil(jog.aviao));
 botao('tCarga', () => soltarCarga(jog.aviao));
 botao('tPorta', () => porta(pilotando() ? jog.aviao : portaPerto())); botao('tSoltar', () => soltarAviao());
 botao('tPular', () => pular()); botao('tCorrer', () => { jog.correr = !jog.correr; }); botao('tEntrar', () => entrar()); botao('tGarras', () => garras()); botao('tParaq', () => paraquedas());
@@ -1037,6 +1128,7 @@ function modoFoto() { document.body.classList.toggle('foto'); }
 function renascer() {
   pessoa.obj.visible = false;
   if (desafio && desafio.d.id === 'baia') return comecarDesafio(desafio.d);
+  if (desafio && desafio.d.id === 'combate') return comecarDesafio(desafio.d);
   if (desafio && desafio.d.id === 'tiro') return nascer({ ...desafio.d.inicio });
   if (desafio && desafio.d.id === 'carga') { nascer({ ...desafio.d.inicio }); jog.aviao.portaAlvo = 1; jog.aviao.abre = 1; return; }
   if (desafio && desafio.i > 0) { const a = desafio.aneis[desafio.i - 1], n = desafio.aneis[desafio.i] || a; const d = n.c.clone().sub(a.c); nascer({ x: a.c.x, z: a.c.z, y: a.c.y, rumo: THREE.MathUtils.radToDeg(Math.atan2(d.x, -d.z)) }); jog.aviao.pos.y = a.c.y; desafio.aneis.forEach((x) => (x.lado = null)); }
@@ -1071,7 +1163,7 @@ function hud(dt) {
   const a = jog.aviao, piloto = jog.modo === 'piloto', p = piloto && a ? a.pos : jog.pos;
   const vel = piloto && a ? a.V : jog.modo === 'sobre' && jog.sobre ? jog.sobre.V : jog.vel.length();
   $('vVel').textContent = Math.round(vel * 3.6); $('vAlt').textContent = Math.round(Math.max(0, p.y));
-  $('linha2').textContent = piloto && a ? `${a.T.nome} · motor ${Math.round(a.acel * 100)}%${a.T.motor === 'jato' && a.acel > 0.85 ? ' 🔥' : ''} · ${a.vs >= 0 ? '▲' : '▼'}${Math.abs(a.vs).toFixed(1)} · ${a.G.toFixed(1)}G`
+  $('linha2').textContent = piloto && a ? `${a.hp !== undefined && a.hp < 100 ? '♥ ' + Math.max(0, Math.round(a.hp)) + ' · ' : ''}${a.T.nome} · motor ${Math.round(a.acel * 100)}%${a.T.motor === 'jato' && a.acel > 0.85 ? ' 🔥' : ''} · ${a.vs >= 0 ? '▲' : '▼'}${Math.abs(a.vs).toFixed(1)} · ${a.G.toFixed(1)}G`
     : { trans: '…', pe: 'a pé', queda: 'caindo!', paraquedas: 'paraquedas aberto', sobre: `em cima do ${jog.sobre === npc ? 'cargueiro' : 'avião'} · garras ${jog.garras ? 'presas' : 'soltas'}` }[jog.modo];
   if (a) { $('acelFill').style.height = a.acel * 100 + '%'; $('acelPct').textContent = Math.round(a.acel * 100) + '%'; $('tTrem').classList.toggle('on', a.tremAlvo === 1); $('tFlap').classList.toggle('on', a.flap > 0); $('tFuma').classList.toggle('on', a.fumaca); }
   $('tGarras').classList.toggle('on', jog.garras); $('tCorrer').classList.toggle('on', jog.correr);
@@ -1079,6 +1171,7 @@ function hud(dt) {
   if (m !== modoBotoes) { modoBotoes = m; document.querySelectorAll('#botoes [data-m]').forEach((b) => (b.hidden = b.dataset.m !== m)); }
   $('tPorta').hidden = !(piloto && a && a.P.abrir) && !(!piloto && portaPerto()); $('tPorta').classList.toggle('on', !!(piloto ? a && a.portaAlvo : portaPerto()?.portaAlvo));
   $('tSoltar').hidden = !(piloto && a && a.preso);
+  $('tMissil').hidden = !(piloto && a && a.T.armas?.misseis && !a.preso); if (a?.T.armas?.misseis) $('tMissil').querySelector('small').textContent = `míssil ${a.misseis ?? a.T.armas.misseis}`;
   $('tCarga').hidden = !(piloto && a && a.P.baia && a.abre > 0.9 && !a.preso);
   $('tAtirar').hidden = !(piloto && a && a.T.armas && !a.preso);
   if (!piloto) { const ep = entrarPerto(); $('tEntrar').hidden = !ep; $('tEntrar').querySelector('small').textContent = ep === npc ? 'pilotar' : 'entrar'; $('tGarras').hidden = jog.modo !== 'sobre' || naBaia(); $('tParaq').hidden = jog.modo !== 'queda'; $('tPular').hidden = !(jog.modo === 'pe' || jog.modo === 'sobre'); }
@@ -1093,17 +1186,19 @@ function hud(dt) {
     bus.fillRect(x - 0.5, 0, 1, n % 15 ? 3 : 6); if (n % 45 === 0) { bus.fillStyle = n % 90 ? 'rgba(255,255,255,.75)' : '#ffd05a'; bus.fillText({ 0: 'N', 45: 'NE', 90: 'L', 135: 'SE', 180: 'S', 225: 'SO', 270: 'O', 315: 'NO' }[n], x, 22); bus.fillStyle = 'rgba(255,255,255,.75)'; } }
   bus.fillStyle = '#ffd05a'; bus.fillRect(W / 2 - 1, 0, 2, 9);
   const alvo = desafio && desafio.aneis[desafio.i];
-  const alvoPos = alvo ? alvo.c : desafio && desafio.d.id === 'baia' ? npc.obj.localToWorld(V3().set(0, 0, BAIA.rampaFim)) : desafio && desafio.d.id === 'carga' && desafio.alvos[desafio.feitos] ? tmpV2.set(desafio.alvos[desafio.feitos].x, Math.max(M.chao(desafio.alvos[desafio.feitos].x, desafio.alvos[desafio.feitos].z), 0), desafio.alvos[desafio.feitos].z).clone() : desafio && desafio.d.id === 'tiro' && alvos.length ? alvos.reduce((m, al) => (al.g.position.distanceToSquared(p) < m.distanceToSquared(p) ? al.g.position : m), alvos[0].g.position) : null;
+  const trava = piloto && a ? alvoTravado(a) : null, inimPerto = desafio?.d.id === 'combate' ? inimigos.filter((x) => x.vivo).sort((x, y) => x.pos.distanceToSquared(p) - y.pos.distanceToSquared(p))[0] : null;
+  $('alvo').classList.toggle('trava', !!trava);
+  const alvoPos = trava ? trava.pos : inimPerto ? inimPerto.pos : alvo ? alvo.c : desafio && desafio.d.id === 'baia' ? npc.obj.localToWorld(V3().set(0, 0, BAIA.rampaFim)) : desafio && desafio.d.id === 'carga' && desafio.alvos[desafio.feitos] ? tmpV2.set(desafio.alvos[desafio.feitos].x, Math.max(M.chao(desafio.alvos[desafio.feitos].x, desafio.alvos[desafio.feitos].z), 0), desafio.alvos[desafio.feitos].z).clone() : desafio && desafio.d.id === 'tiro' && alvos.length ? alvos.reduce((m, al) => (al.g.position.distanceToSquared(p) < m.distanceToSquared(p) ? al.g.position : m), alvos[0].g.position) : null;
   if (alvoPos) { let d = THREE.MathUtils.radToDeg(Math.atan2(alvoPos.x - p.x, -(alvoPos.z - p.z))) - rm; d = ((d + 540) % 360) - 180; bus.beginPath(); bus.arc(W / 2 + clamp(d, -48, 48) * 2.6, 4, 3.5, 0, 7); bus.fill(); }
   const mi = $('missao');
-  if (desafio) { mi.style.display = 'block'; mi.innerHTML = desafio.d.id === 'carga' ? `Carga · alvo <b>${desafio.feitos + 1}/${desafio.alvos.length}</b> · <b>${desafio.pontos} pts</b> · ${Math.round(Math.hypot(p.x - desafio.alvos[Math.min(desafio.feitos, desafio.alvos.length - 1)].x, p.z - desafio.alvos[Math.min(desafio.feitos, desafio.alvos.length - 1)].z))} m${previsaoCarga()}` : desafio.d.id === 'baia' && guiaBaia() ? guiaBaia() : desafio.d.id === 'tiro' ? `Tiro ao Alvo · <b>${desafio.total - alvos.length}/${desafio.total}</b> · <b>${fmtT(desafio.t)}</b>` : desafio.d.id === 'baia' ? `Cargueiro · <b>${Math.round(npc.pos.distanceTo(p))} m</b> · <b>${fmtT(desafio.t)}</b>` : `${desafio.d.nome} · <b>${desafio.i + 1}/${desafio.aneis.length}</b> · <b>${fmtT(desafio.t)}</b>`; } else mi.style.display = 'none';
+  if (desafio) { mi.style.display = 'block'; mi.innerHTML = desafio.d.id === 'combate' ? `Combate · inimigos <b>${inimigos.filter((x) => x.vivo).length}/${inimigos.length}</b> · <b>${fmtT(desafio.t)}</b>` : desafio.d.id === 'carga' ? `Carga · alvo <b>${desafio.feitos + 1}/${desafio.alvos.length}</b> · <b>${desafio.pontos} pts</b> · ${Math.round(Math.hypot(p.x - desafio.alvos[Math.min(desafio.feitos, desafio.alvos.length - 1)].x, p.z - desafio.alvos[Math.min(desafio.feitos, desafio.alvos.length - 1)].z))} m${previsaoCarga()}` : desafio.d.id === 'baia' && guiaBaia() ? guiaBaia() : desafio.d.id === 'tiro' ? `Tiro ao Alvo · <b>${desafio.total - alvos.length}/${desafio.total}</b> · <b>${fmtT(desafio.t)}</b>` : desafio.d.id === 'baia' ? `Cargueiro · <b>${Math.round(npc.pos.distanceTo(p))} m</b> · <b>${fmtT(desafio.t)}</b>` : `${desafio.d.nome} · <b>${desafio.i + 1}/${desafio.aneis.length}</b> · <b>${fmtT(desafio.t)}</b>`; } else mi.style.display = 'none';
   if (alvoPos) {
     tmpV.copy(alvoPos).project(camera); const atras = tmpV.z > 1; let x = tmpV.x, y = tmpV.y; if (atras) { x = -x; y = -y; }
     const fora = atras || Math.abs(x) > 0.92 || Math.abs(y) > 0.88;
     if (fora) { const k = 0.9 / Math.max(Math.abs(x), Math.abs(y) / 0.95, 1e-3); x *= k; y *= k; }
     alvoEl.style.display = 'block'; alvoEl.classList.toggle('fora', fora);
     alvoEl.style.transform = `translate(${(x * 0.5 + 0.5) * telaW()}px,${(-y * 0.5 + 0.5) * telaH()}px)` + (fora ? ` rotate(${Math.atan2(x, y)}rad)` : '');
-    alvoEl.querySelector('span').textContent = fora ? '' : Math.round(alvoPos.distanceTo(p)) + ' m';
+    alvoEl.querySelector('span').textContent = fora ? '' : (trava ? 'TRAVADO ' : '') + Math.round(alvoPos.distanceTo(p)) + ' m';
   } else alvoEl.style.display = 'none';
   // minimapa
   const S2 = 200; mapaG.save(); mapaG.clearRect(0, 0, S2, S2); mapaG.beginPath(); mapaG.arc(100, 100, 100, 0, 7); mapaG.clip();
@@ -1125,7 +1220,7 @@ function abrirMenu() {
   if (estado !== 'voo') return; estado = 'menu'; document.body.classList.add('menu');
   const T = TIPOS[S.tipo];
   const avs = Object.entries(TIPOS).map(([id, t]) => `<button class="card${id === S.tipo && jog.aviao !== npc ? ' sel' : ''}" data-tipo="${id}"><b>${t.nome}</b><small>${t.desc}</small></button>`).join('') + `<button class="card${jog.aviao === npc ? ' sel' : ''}" data-gigante="1"><b>Cargueiro gigante</b><small>O NPC enorme: pilote, abra a rampa e leve aviões dentro.</small></button>`;
-  const desafios = [DESAFIO_BAIA, DESAFIO_TIRO, DESAFIO_CARGA, ...DESAFIOS].map((d) => { const r = S.recordes[d.id]; return `<button class="card" data-desafio="${d.id}"><b>${d.nome}</b><small>${d.desc}${r ? `<br>${'⭐'.repeat(r.n)} ${fmtT(r.t)}` : ''}</small></button>`; }).join('');
+  const desafios = [DESAFIO_COMBATE, DESAFIO_BAIA, DESAFIO_TIRO, DESAFIO_CARGA, ...DESAFIOS].map((d) => { const r = S.recordes[d.id]; return `<button class="card" data-desafio="${d.id}"><b>${d.nome}</b><small>${d.desc}${r ? `<br>${'⭐'.repeat(r.n)} ${fmtT(r.t)}` : ''}</small></button>`; }).join('');
   const lugares = LUGARES.map((l) => `<button class="card" data-lugar="${l.id}"><b>${S.desc[l.id] ? '· ' : ''}${l.nome}</b><small>${l.desc}</small></button>`).join('');
   const pint = T.pinturas.map((p, i) => `<button class="card${i === S.pintura % T.pinturas.length ? ' sel' : ''}" data-pintura="${i}"><span class="bolinha" style="background:${p.base}"></span>${p.nome}</button>`).join('');
   const fum = CORES_FUMACA.map(([n, c], i) => `<button class="card${i === S.fumacaCor ? ' sel' : ''}" data-fumaca="${i}"><span class="bolinha" style="background:${c || 'conic-gradient(red,yellow,lime,cyan,blue,magenta,red)'}"></span>${n}</button>`).join('');
@@ -1142,7 +1237,7 @@ function abrirMenu() {
     <h3>Filtro de imagem</h3><div class="linha">${FILTROS.map((f, i) => `<button class="card${i === S.filtro ? ' sel' : ''}" data-filtro="${i}">${f.nome}</button>`).join('')}</div>`,
     opcoes: `<h3>Opções</h3><div class="linha">${op('assist', 'Ajuda de voo (desligue para fazer tonneau)', S.assist)}${op('inverter', 'Controles invertidos (puxar pra trás sobe)', S.inverter)}${op('incl', 'Pilotar inclinando o celular', S.incl)}${op('som', 'Som', S.som)}${op('foto', 'Modo foto', document.body.classList.contains('foto'))}
       <button class="card" data-op="qual">Gráficos: ${{ alta: 'Bonito', media: 'Médio', baixa: 'Rápido' }[S.qual]}</button></div>
-    <h3>Comandos</h3><small style="color:var(--sub);line-height:1.7;display:block">${TOQUE ? 'Bolinha da esquerda: manche ' + (S.inverter ? '(puxe para baixo para subir, como avião de verdade)' : '(para cima sobe)') + '; no chão/a pé: anda. Barra da direita: motor. Arraste a tela para olhar. ⇪ sai do avião — em voo você fica em cima dele com as garras ⋔. Sem garras o vento te derruba; ☂ abre o paraquedas.' : (S.inverter ? 'S sobe / W desce' : 'W sobe / S desce') + ' · A/D inclinar · Q/E leme · Shift/Ctrl motor · G trem · F flap · Espaço fumaça · B freio · X sair do avião · V atira (caças) · C câmera · T hora · H foto · Esc menu<br>A pé: WASD anda · Espaço pula/abre paraquedas · E entra · K garras'}<br>Cargueiro gigante: chegue por trás na mesma velocidade, trem baixado, e pouse na rampa.</small>`
+    <h3>Comandos</h3><small style="color:var(--sub);line-height:1.7;display:block">${TOQUE ? 'Bolinha da esquerda: manche ' + (S.inverter ? '(puxe para baixo para subir, como avião de verdade)' : '(para cima sobe)') + '; no chão/a pé: anda. Barra da direita: motor. Arraste a tela para olhar. ⇪ sai do avião — em voo você fica em cima dele com as garras ⋔. Sem garras o vento te derruba; ☂ abre o paraquedas.' : (S.inverter ? 'S sobe / W desce' : 'W sobe / S desce') + ' · A/D inclinar · Q/E leme · Shift/Ctrl motor · G trem · F flap · Espaço fumaça · B freio · X sair do avião · V atira · M míssil (caça a jato) · C câmera · T hora · H foto · Esc menu<br>A pé: WASD anda · Espaço pula/abre paraquedas · E entra · K garras'}<br>Cargueiro gigante: chegue por trás na mesma velocidade, trem baixado, e pouse na rampa.</small>`
   };
   painel.innerHTML = `<div id="topoMenu"><div id="abas" role="tablist">${ABAS.map(([id, nome]) => `<button class="aba${id === abaMenu ? ' on' : ''}" role="tab" aria-selected="${id === abaMenu}" data-aba="${id}">${nome}</button>`).join('')}</div><button id="fechar">Continuar</button></div>
     <div id="conteudoAba" role="tabpanel">${conteudo[abaMenu]}</div>`;
@@ -1153,7 +1248,7 @@ painel.addEventListener('click', (e) => {
   if (d.aba) { abaMenu = d.aba; estado = 'voo'; abrirMenu(); painel.scrollTop = 0; return; }
   if (d.tipo) { S.tipo = d.tipo; S.pintura = 0; salvar(); pararDesafio(); trocarAviao(); return fecharMenu(); }
   if (d.gigante) { pararDesafio(); if (!npc.vivo) return fecharMenu(); const v = jog.aviao; if (v && v !== npc && !v.preso && !v.estacionado) v.remover(); pilotar(npc); mensagem('Pilotando o cargueiro gigante', '⊓ abre/fecha a rampa · ⇪ devolve ao piloto automático', 3); return fecharMenu(); }
-  if (d.desafio) { comecarDesafio([DESAFIO_BAIA, DESAFIO_TIRO, DESAFIO_CARGA, ...DESAFIOS].find((x) => x.id === d.desafio)); return fecharMenu(); }
+  if (d.desafio) { comecarDesafio([DESAFIO_COMBATE, DESAFIO_BAIA, DESAFIO_TIRO, DESAFIO_CARGA, ...DESAFIOS].find((x) => x.id === d.desafio)); return fecharMenu(); }
   if (d.parar) { pararDesafio(); return fecharMenu(); }
   if (d.lugar) { pararDesafio(); nascerLugar(LUGARES.find((x) => x.id === d.lugar)); return fecharMenu(); }
   if (d.pintura) { S.pintura = +d.pintura; salvar(); trocarAviao(); }
@@ -1221,7 +1316,9 @@ function passo(dt) {
   // todos os aviões: o cargueiro primeiro (os aviões guardados nele dependem dele), e a posição 3D atualizada logo após a física
   for (const a of [npc, ...frota.filter((f) => f !== npc)]) { atualizarAero(a, dt); a.sincronizar(); }
   if ((jog.modo === 'sobre' || (jog.modo === 'trans' && jog.trans.ref)) && jog.sobre && jog.vivo) jog.pos.copy(posSobre(tmpV)); // boneco acompanha o avião no mesmo quadro
-  atualizarBalas(dt); atualizarCaixas(dt); if (jog.aviao?.recargaCarga > 0) jog.aviao.recargaCarga -= dt;
+  atualizarBalas(dt); atualizarCaixas(dt);
+  if (desafio?.d.id === 'combate' && jog.vivo && inimigos.length && inimigos.every((x) => !x.vivo)) terminarDesafio('combate');
+  for (const x of inimigos) if (!x.vivo) x.morteT = 0; // não renascem if (jog.aviao?.recargaCarga > 0) jog.aviao.recargaCarga -= dt;
   for (let i = incendios.length - 1; i >= 0; i--) { const f = incendios[i]; f.t += dt; const k = 1 - f.t / f.vida; if (k <= 0) { incendios.splice(i, 1); continue; }
     if (Math.random() < 0.6 * k) fogo.emitir(tmpV.copy(f.p).add(tmpV2.set((Math.random() - 0.5) * 4 * f.f, 0, (Math.random() - 0.5) * 4 * f.f)), tmpV2.set(0, 4 + Math.random() * 4, 0), tmpC.setHSL(0.05 + Math.random() * 0.05, 1, 0.55), 3 * f.f, 1, 0.9, 0.8, 0.5, 2);
     if (Math.random() < 0.5) fumaca.emitir(tmpV.copy(f.p).add(tmpV2.set(0, 2 * f.f, 0)), tmpV2.set(1.5, 3, 0), tmpC.setRGB(0.15, 0.15, 0.15), 4 * f.f, 22 * f.f, 0.6 * k, 7, 0.2, 1.5); }
@@ -1238,6 +1335,7 @@ function atualizarAero(a, dt) {
   if (a.preso) { if (npc.vivo) presoNoNPC(a, dt); return; }
   if (!a.vivo) { a.morteT = (a.morteT || 0) + dt; if (a !== jog.aviao && a.morteT > 6) a.remover(); return; }
   if (a.estacionado && a.chao && a.V < 0.01 && !a.comPiloto) return;
+  if (a.inimigo) { if (!a.vivo) return; pilotarInimigo(a, dt); }
   if (!a.comPiloto) { a.ent.p = a.ent.r = a.ent.y = 0; }
   fisica(a, dt / 2, tempo); if (a.vivo) fisica(a, dt / 2, tempo);
   checarBaia(a, dt);
@@ -1276,4 +1374,4 @@ document.addEventListener('visibilitychange', () => { if (document.hidden && est
 
 // testes automáticos
 const simular = (seg, e = {}) => { const a = jog.aviao; toque.p = e.p || 0; toque.r = e.r || 0; toque.leme = e.y || 0; toque.freio = !!e.freio; if (e.acel !== undefined) a.acel = e.acel; const log = []; for (let i = 0; i < seg * 60; i++) { passo(1 / 60); if (i % 60 === 0) log.push([Math.round(a.V * 3.6), Math.round(a.pos.y), a.chao ? 'chão' : 'ar', jog.modo].join(' ')); if (!jog.vivo) break; } toque.p = toque.r = toque.leme = 0; toque.freio = false; return log.join(' | ') + (jog.vivo ? '' : ' | MORREU'); };
-window.__jogo = { bloqueado: (p, i) => bloqueado(p, i), incl, M, chao: (x, z) => M.chao(x, z), simular, passo, jog, npc, frota, cam, camera, comecar, mudarHora, comecarDesafio, nascerLugar, DESAFIOS, DESAFIO_BAIA, DESAFIO_TIRO, DESAFIO_CARGA, soltarCarga, caixas, previsaoCarga: () => previsaoCarga(), LUGARES, ent, proxCam, sair, pular, paraquedas, garras, entrar, S, horaJa: (i) => { hora = { de: i, para: i, t: 1 }; M.aplicarHora(i, i, 1); } };
+window.__jogo = { bloqueado: (p, i) => bloqueado(p, i), incl, M, chao: (x, z) => M.chao(x, z), simular, passo, jog, npc, frota, cam, camera, comecar, mudarHora, comecarDesafio, nascerLugar, DESAFIOS, DESAFIO_BAIA, DESAFIO_TIRO, DESAFIO_CARGA, DESAFIO_COMBATE, inimigos, dispararMissil, alvoTravado, misseis, balas, soltarCarga, caixas, previsaoCarga: () => previsaoCarga(), LUGARES, ent, proxCam, sair, pular, paraquedas, garras, entrar, S, horaJa: (i) => { hora = { de: i, para: i, t: 1 }; M.aplicarHora(i, i, 1); } };

@@ -42,6 +42,8 @@
   #alvo{position:absolute;left:0;top:0;width:28px;height:28px;margin:-14px 0 0 -14px;display:none}
   #alvo i{position:absolute;inset:0;border:2px solid var(--ouro);border-radius:50%}
   #alvo.fora i{border:none;width:0;height:0;border-left:10px solid transparent;border-right:10px solid transparent;border-bottom:20px solid var(--ouro);left:4px;top:4px}
+  #alvo.trava i{border-color:#ff4b3e;box-shadow:0 0 10px #ff4b3e;border-radius:4px;transform:rotate(45deg)}
+  #alvo.trava span{color:#ff6a5a}
   #alvo span{position:absolute;top:32px;left:50%;transform:translateX(-50%);font-size:11px;font-weight:700;color:var(--ouro);white-space:nowrap}
   #aviso{position:absolute;left:50%;top:calc(64px + var(--st));transform:translateX(-50%);color:#ff8070;font-weight:700;font-size:16px;display:none;animation:pisca .5s infinite alternate}
   @keyframes pisca{to{opacity:.35}}
@@ -108,6 +110,7 @@
   <canvas id="mapa" width="200" height="200"></canvas>
   <div id="descobertos"></div>
   <button id="bMenu" class="bt" aria-label="Menu">⋯</button>
+  <div id="dano" style="position:absolute;inset:0;background:radial-gradient(ellipse at center,transparent 40%,rgba(255,30,20,.9));opacity:0;transition:opacity .15s;pointer-events:none"></div>
   <div id="msg"></div>
   <div id="cartao"></div>
   <div id="alvo"><i></i><span></span></div>
@@ -124,6 +127,7 @@
       <button class="bt" id="tPorta" hidden>⊓<small>rampa</small></button>
       <button class="bt" id="tSoltar" hidden>⇲<small>soltar</small></button>
       <button class="bt" id="tAtirar" hidden>✦<small>atirar</small></button>
+      <button class="bt" id="tMissil" hidden>◆<small>míssil</small></button>
       <button class="bt" id="tCarga" hidden>▣<small>carga</small></button>
       <button class="bt" id="tPular" data-m="ape">⤒<small>pular</small></button>
       <button class="bt" id="tCorrer" data-m="ape">»<small>correr</small></button>
