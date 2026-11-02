@@ -384,7 +384,8 @@ function entrar() {
   jog.modo = 'trans'; jog.trans = { de: jog.pos.clone(), a, t: 0, dur: 0.7, arco: 0.9, fim: () => { pilotar(a); mensagem('Pilotando: ' + nome, a === npc ? 'Botão ⇪ devolve ao piloto automático' : '', 2); } };
 }
 function pular() {
-  if (jog.modo === 'pe' && jog.noChao) { jog.vel.y = 5.5; jog.noChao = false; return; }
+  if (jog.modo === 'pe' && jog.noChao) { if (escalar()) return; jog.vel.y = 6; jog.noChao = false; return; }
+  if (jog.modo === 'sobre' && jog.sobre.chao && jog.sobre.V < 2) { const a = jog.sobre; jog.pos.copy(a.obj.localToWorld(tmpV.copy(jog.L))); jog.modo = 'pe'; jog.noChao = false; jog.vel.set(-Math.sin(jog.yaw) * 2, 5, -Math.cos(jog.yaw) * 2); jog.ignorar = { a, t: 0.8 }; cam.iniciado = false; return; }
   if (jog.modo === 'sobre') { const a = jog.sobre; jog.pos.copy(a.obj.localToWorld(tmpV.copy(jog.L))); a.velocidade(jog.vel).add(tmpV.set(0, 4, 0).applyQuaternion(a.q)); jog.ignorar = { a, t: 1.2 }; jog.modo = 'queda'; jog.yaw = Math.atan2(-tmpV2.set(0, 0, -1).applyQuaternion(a.q).x, -tmpV2.z); cam.iniciado = false; mensagem('Pulou!', 'Abra o paraquedas (☂ / espaço)', 2); return; }
   if (jog.modo === 'queda') return paraquedas();
 }
@@ -414,16 +415,18 @@ function fisicaPessoa(dt, k) {
     return;
   }
   if (jog.modo === 'pe') {
-    jog.poucoT -= dt;
+    jog.poucoT -= dt; if (jog.ignorar) jog.ignorar.t -= dt;
     desencalhar();
     const h = M.chao(jog.pos.x, jog.pos.z), agua = h < -0.8, chao = agua ? -1.0 : h;
     const mv = { x: 0, z: 0 }; jog.rapidez = andar(mv, agua ? 2 : 5.5);
     jog.vel.x = mv.x; jog.vel.z = mv.z; jog.vel.y -= 9.8 * dt;
-    // anda separando x e z: se bater num avião, desliza pelo lado
-    const x0 = jog.pos.x, z0 = jog.pos.z;
-    jog.pos.x += jog.vel.x * dt; if (bloqueado(jog.pos)) jog.pos.x = x0;
-    jog.pos.z += jog.vel.z * dt; if (bloqueado(jog.pos)) jog.pos.z = z0;
+    // anda separando x e z: se bater num avião ou prédio, desliza pelo lado; degrau baixo de avião parado = sobe nele
+    const x0 = jog.pos.x, z0 = jog.pos.z, y0 = jog.pos.y;
+    const livre = () => !bloqueado(jog.pos) && !M.bateObst(jog.pos.x, jog.pos.z, 0.35);
+    jog.pos.x += jog.vel.x * dt; if (!livre()) { if (subirEm()) return; jog.pos.x = x0; }
+    jog.pos.z += jog.vel.z * dt; if (!livre()) { if (subirEm()) return; jog.pos.z = z0; }
     jog.pos.y += jog.vel.y * dt;
+    if (!jog.noChao && jog.vel.y < 0 && pousarEmAviao(y0)) return; // pulou em cima de um avião
     if (jog.pos.y <= chao) { if (!jog.noChao && jog.vel.y < -4) jog.poucoT = 0.3; jog.pos.y = chao; jog.vel.y = 0; jog.noChao = true; }
   } else if (jog.modo === 'queda' || jog.modo === 'paraquedas') {
     if (jog.modo === 'queda') {
@@ -454,24 +457,73 @@ function fisicaPessoa(dt, k) {
     const a = jog.sobre, e = a.esc;
     if (!a.vivo) return;
     jog.poucoT -= dt;
-    const mv = { x: 0, z: 0 }; jog.rapidez = andar(mv, 2.4);
-    const Lx = jog.L.x, Lz = jog.L.z;
-    jog.L.x += mv.x * dt / e; jog.L.z += mv.z * dt / e;
-    prenderNaBaia();
-    if (presos().length && bloqueado(a.obj.localToWorld(tmpV.copy(jog.L)), a)) { jog.L.x = Lx; jog.L.z = Lz; } // não atravessa o avião guardado
+    const mv = { x: 0, z: 0 }; jog.rapidez = andar(mv, 2.6);
     up.set(0, 1, 0).applyQuaternion(a.q);
     const dentroBaia = a.P.baia && Math.abs(jog.L.x) < BAIA.meia && jog.L.z < BAIA.rampaFim && jog.L.y < 0;
-    const vento = dentroBaia ? 0 : smooth(18, 70, a.V);
+    const vento = dentroBaia || a.chao ? 0 : smooth(18, 70, a.V);
     jog.vento = vento;
-    if (!jog.garras) { // o vento empurra pra trás; de cabeça pra baixo, cai
-      jog.L.z += vento * (3 + Math.sin(tempo * 7) * 1.5) * dt / e; jog.L.x += Math.sin(tempo * 3.1) * vento * 0.6 * dt / e;
-      if (up.y < 0.2 && !dentroBaia) return soltar(a);
+    let dx = mv.x * dt / e, dz = mv.z * dt / e;
+    if (!jog.garras && !dentroBaia) { // sem garras o vento empurra pra trás; de cabeça pra baixo, cai
+      dz += vento * (3 + Math.sin(tempo * 7) * 1.5) * dt / e; dx += Math.sin(tempo * 3.1) * vento * 0.6 * dt / e;
+      if (up.y < 0.2 && vento > 0) return soltar(a);
     }
-    const ys = a.P.superficies(jog.L.x, jog.L.z).filter((y) => y <= jog.L.y + 0.6 / e);
-    if (!ys.length) return soltar(a);
+    // onde dá pra pisar: sobe degraus de até 1,15 m (asa -> fuselagem), peça mais alta é parede, sem nada é a borda
+    const rc = a.P.raioCorpo || 0.8;
+    const passo = (nx, nz) => { // peça que sobe acima do degrau e passa da cabeça = parede (ex.: deriva); oco do baú não conta
+      const ys = a.P.superficies(nx, nz); if (!ys.length) return 'borda';
+      const vao = vaoDaBaia(a, tmpV3.set(nx, jog.L.y + 0.1 / e, nz)), cab = jog.L.y + 1.75 / e;
+      if (!vao && ys.some((y) => y > jog.L.y + 1.15 / e && (Math.abs(nx) < rc ? y - 2 * rc : y - 0.45) < cab)) return 'parede';
+      const ok = ys.filter((y) => y <= jog.L.y + 1.15 / e); return ok.length ? Math.max(...ok) : 'parede'; };
+    const solta = !jog.garras && vento > 0; // sem garras e com vento: a borda derruba
+    let r = passo(jog.L.x + dx, jog.L.z + dz);
+    if (typeof r !== 'number' && Math.abs(dx) > 1e-7 && Math.abs(dz) > 1e-7) { // tenta deslizar só em x ou só em z
+      const rx = passo(jog.L.x + dx, jog.L.z), rz = passo(jog.L.x, jog.L.z + dz);
+      if (typeof rx === 'number') { dz = 0; r = rx; } else if (typeof rz === 'number') { dx = 0; r = rz; }
+    }
+    if (typeof r === 'number') { jog.L.x += dx; jog.L.z += dz; jog.L.y = r; }
+    else if (r === 'borda' && a.chao && a.V < 2) { // avião parado: desce da borda pro chão
+      jog.L.x += dx; jog.L.z += dz; jog.pos.copy(a.obj.localToWorld(tmpV.copy(jog.L))); jog.modo = 'pe'; jog.noChao = false; jog.vel.set(0, 0, 0); jog.ignorar = { a, t: 0.6 }; cam.iniciado = false; return;
+    } else if (r === 'borda' && solta) { jog.L.x += dx; jog.L.z += dz; return soltar(a); }
+    prenderNaBaia();
+    if (presos().length && bloqueado(a.obj.localToWorld(tmpV.copy(jog.L)), a)) { jog.L.x -= dx; jog.L.z -= dz; } // não atravessa o avião guardado
+    const ys = a.P.superficies(jog.L.x, jog.L.z).filter((y) => y <= jog.L.y + 1.15 / e);
+    if (!ys.length) { if (a.chao) { jog.modo = 'pe'; jog.noChao = false; jog.pos.copy(a.obj.localToWorld(tmpV.copy(jog.L))); return; } return soltar(a); }
     jog.L.y = Math.max(...ys);
     jog.pos.copy(a.obj.localToWorld(tmpV.copy(jog.L)));
   }
+}
+function pousarEmAviao(yAnt) { // caindo/pulando: se passar por cima de uma superfície de avião, fica em pé nela
+  for (const a of frota) {
+    if (!a.vivo || (jog.ignorar && jog.ignorar.a === a && jog.ignorar.t > 0) || a.pos.distanceToSquared(jog.pos) > (60 * a.esc) ** 2) continue;
+    const L = a.obj.worldToLocal(tmpV.copy(jog.pos)), La = a.obj.worldToLocal(tmpV3.copy(jog.pos).setY(yAnt));
+    for (const y of a.P.superficies(L.x, L.z)) if (L.y <= y + 0.05 && La.y >= y - 0.3 / a.esc) {
+      jog.modo = 'sobre'; jog.sobre = a; jog.L.copy(L).setY(y); jog.poucoT = 0.3; jog.vel.set(0, 0, 0);
+      jog.yaw = 0; jog.camYaw = lerpAng(0, jog.camYaw, 1); cam.iniciado = false; prenderNaBaia(); return true;
+    }
+  }
+  return false;
+}
+function subirEm() { // degrau baixo (até 0,9 m) de um avião parado: sobe andando
+  const a = bloqueado(jog.pos); if (!a || a.V > 2) return false;
+  const L = a.obj.worldToLocal(tmpV.copy(jog.pos)), feet = L.y;
+  const ys = a.P.superficies(L.x, L.z).filter((y) => (y - feet) * a.esc <= 0.9 && y >= feet);
+  if (!ys.length) return false;
+  jog.modo = 'sobre'; jog.sobre = a; jog.L.copy(L).setY(Math.max(...ys)); jog.yaw = 0; cam.iniciado = false; return true;
+}
+function escalar() { // a pé, na frente de um avião parado: pula/escala até 3 m e fica em cima
+  const f = tmpV2.set(-Math.sin(jog.yaw), 0, -Math.cos(jog.yaw));
+  for (let d = 0.6; d <= 2.2; d += 0.4) {
+    const p = V3().copy(jog.pos).addScaledVector(f, d);
+    for (const a of frota) {
+      if (!a.vivo || a.V > 2 || a.pos.distanceToSquared(p) > (25 * a.esc + 25) ** 2) continue;
+      const L = a.obj.worldToLocal(V3().copy(p)), ys = a.P.superficies(L.x, L.z).filter((y) => (y - L.y) * a.esc <= 3.0 && y > L.y);
+      if (!ys.length) continue;
+      const topo = a.obj.localToWorld(V3().copy(L).setY(Math.max(...ys)));
+      jog.modo = 'trans'; jog.trans = { de: jog.pos.clone(), para: topo, t: 0, dur: 0.75, arco: 0.8, fim: () => { jog.modo = 'sobre'; jog.sobre = a; jog.L.copy(a.obj.worldToLocal(V3().copy(topo))); jog.poucoT = 0.3; cam.iniciado = false; } };
+      return true;
+    }
+  }
+  return false;
 }
 function soltar(a) { jog.ignorar = { a, t: 1.2 }; jog.modo = 'queda'; jog.pos.copy(a.obj.localToWorld(tmpV.copy(jog.L))); a.velocidade(jog.vel); cam.iniciado = false; mensagem('Caiu do avião!', 'Abra o paraquedas (☂ / espaço)', 2.5); }
 const lerpAng = (a, b, t) => { const d = Math.atan2(Math.sin(b - a), Math.cos(b - a)); return a + d * t; };

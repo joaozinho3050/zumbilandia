@@ -14,6 +14,8 @@ export function criarCenario(renderer, Q) {
   const cena = new THREE.Scene();
   const R = rng(1234);
   const out = { cena, animar: [], noite: 0 };
+  const obst = []; // prédios sólidos: { x, z, r } círculo ou { x, z, hx, hz } caixa
+  out.bateObst = (x, z, raio) => obst.some((o) => o.r ? Math.hypot(x - o.x, z - o.z) < o.r + raio : Math.abs(x - o.x) < o.hx + raio && Math.abs(z - o.z) < o.hz + raio);
 
   // ---------- Céu ----------
   const ceuU = { top: { value: C('#2a68d0') }, hor: { value: C('#bfdcf5') }, low: { value: C('#88aed6') }, solDir: { value: new THREE.Vector3(0, 1, 0) }, solCor: { value: C('#fff') }, estrelas: { value: 0 }, lua: { value: 0 } };
@@ -166,7 +168,7 @@ export function criarCenario(renderer, Q) {
     const corpo = new THREE.Mesh(gc, new THREE.MeshLambertMaterial({ color: cor })); corpo.receiveShadow = true;
     const gp = new THREE.CircleGeometry(16.5, 24, 0, Math.PI); gp.rotateY(-Math.PI / 2); gp.scale(1, 0.75, 1);
     const porta = new THREE.Mesh(gp, new THREE.MeshLambertMaterial({ color: 0x3d3f44 })); porta.position.x = -20.15;
-    hg.add(corpo, porta); cena.add(hg);
+    hg.add(corpo, porta); cena.add(hg); obst.push({ x: PISTA.x + 230, z, hx: 20, hz: 18 });
   }
   // torre de controle
   { const t = new THREE.Group(); t.position.set(PISTA.x + 170, PISTA.h, 330);
@@ -177,7 +179,7 @@ export function criarCenario(renderer, Q) {
     // radar giratório
     const radar = new THREE.Mesh(new THREE.BoxGeometry(6, 1.2, 0.4), new THREE.MeshLambertMaterial({ color: 0xffffff })); radar.position.y = 31;
     out.animar.push((t) => { radar.rotation.y = t * 1.5; });
-    t.add(base, cab, tp, an, radar); cena.add(t); }
+    t.add(base, cab, tp, an, radar); cena.add(t); obst.push({ x: PISTA.x + 170, z: 330, r: 4.2 }); }
   // biruta (aponta para o vento e balança)
   { const b = new THREE.Group(); b.position.set(PISTA.x - 50, PISTA.h, PISTA.z1 - 260);
     const poste = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.15, 7, 6), new THREE.MeshLambertMaterial({ color: 0xdddddd })); poste.position.y = 3.5; b.add(poste);
@@ -235,7 +237,7 @@ export function criarCenario(renderer, Q) {
       const a = R() * 6.28, r = 30 + Math.sqrt(R()) * 230, x = vila.x + Math.cos(a) * r, z = vila.z + Math.sin(a) * r, h = out.chao(x, z);
       if (h < 4 || out.normalY(x, z) < 0.94 || casas.some((c) => Math.hypot(c[0] - x, c[2] - z) < 16)) continue;
       const w = 7 + R() * 4, d = 8 + R() * 5, alt = 5 + R() * 3, rot = Math.round(a / (Math.PI / 2)) * Math.PI / 2 + (R() - 0.5) * 0.3;
-      casas.push([x, h, z, w, alt, d, rot, cores[Math.floor(R() * cores.length)]]);
+      casas.push([x, h, z, w, alt, d, rot, cores[Math.floor(R() * cores.length)]]); obst.push({ x, z, r: Math.max(w, d) * 0.5 });
       luzP.push(x + Math.cos(rot) * (w / 2 + 0.3), h + 2.5, z - Math.sin(rot) * (w / 2 + 0.3)); luzC.push(1, 0.75, 0.4);
     }
     const gC = new THREE.BoxGeometry(1, 1, 1).translate(0, 0.5, 0);
@@ -258,7 +260,7 @@ export function criarCenario(renderer, Q) {
     const cruz2 = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.3, 0.3), branco); cruz2.position.set(0, 30.4, -13);
     const porta = new THREE.Mesh(new THREE.BoxGeometry(3, 5, 0.3), azul); porta.position.set(0, 2.5, 11.1);
     const praca = new THREE.Mesh(new THREE.CircleGeometry(34, 24).rotateX(-Math.PI / 2), new THREE.MeshLambertMaterial({ color: 0xd8c8a8, polygonOffset: true, polygonOffsetFactor: -2 })); praca.position.y = 1.05;
-    ig.add(nave, tn, torre, cup, cruz, cruz2, porta, praca); cena.add(ig);
+    ig.add(nave, tn, torre, cup, cruz, cruz2, porta, praca); cena.add(ig); obst.push({ x: vila.x, z: vila.z - 2, hx: 6, hz: 14 });
     luzesNoite.push(pontosLuz(luzP, luzC, 6)); }
 
   // ---------- Turbinas de vento nos morros ----------
@@ -275,7 +277,7 @@ export function criarCenario(renderer, Q) {
       const rot = new THREE.Group(); rot.position.set(0, 62, -3.2);
       const cubo = new THREE.Mesh(new THREE.SphereGeometry(1.6, 10, 8), bco); cubo.scale.z = 1.4; rot.add(cubo);
       for (let i = 0; i < 3; i++) { const p = new THREE.Mesh(new THREE.BoxGeometry(1.6, 28, 0.4).translate(0, 15, 0), bco); p.rotation.z = i * Math.PI * 2 / 3; rot.add(p); }
-      t.add(torre, nac, rot); cena.add(t); const fase = R() * 6;
+      t.add(torre, nac, rot); cena.add(t); obst.push({ x, z, r: 2.4 }); const fase = R() * 6;
       out.animar.push((tt) => { rot.rotation.z = tt * 1.4 + fase; });
       luzes.push(x, h + 64, z); cl.push(1, 0.1, 0.1);
     }
@@ -293,7 +295,7 @@ export function criarCenario(renderer, Q) {
     const dom = new THREE.Mesh(new THREE.SphereGeometry(3, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2), new THREE.MeshLambertMaterial({ color: 0xc02020 })); dom.position.y = 34.6;
     const casa = new THREE.Mesh(new THREE.BoxGeometry(10, 5, 8), new THREE.MeshLambertMaterial({ color: 0xf8f4ea })); casa.position.set(10, 2.5, 4);
     const tt = new THREE.Mesh(new THREE.ConeGeometry(7.5, 3.5, 4).rotateY(Math.PI / 4), new THREE.MeshLambertMaterial({ color: 0xc02020 })); tt.scale.set(1, 1, 0.8); tt.position.set(10, 6.7, 4);
-    f.add(torre, gal, vid, dom, casa, tt);
+    f.add(torre, gal, vid, dom, casa, tt); obst.push({ x: FAROL.x, z: FAROL.z, r: 5.4 }, { x: FAROL.x + 10, z: FAROL.z + 4, hx: 5, hz: 4 });
     const gc = document.createElement('canvas'); gc.width = 4; gc.height = 128; const gg = gc.getContext('2d'); const gr = gg.createLinearGradient(0, 0, 0, 128); gr.addColorStop(0, 'rgba(255,240,190,0)'); gr.addColorStop(1, 'rgba(255,240,190,1)'); gg.fillStyle = gr; gg.fillRect(0, 0, 4, 128);
     const mat = new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(gc), transparent: true, opacity: 0.1, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, fog: false });
     const rot = new THREE.Group(); rot.position.y = 32.6; f.add(rot);

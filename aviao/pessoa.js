@@ -96,76 +96,96 @@ export function criarPessoa() {
     garras.push(gr);
   };
   perna(1); perna(-1);
-  // paraquedas: velame retangular em gomos + cordas + manetes
+  // paraquedas tipo asa (ram-air): células coloridas em arco, cordas até os ombros
   const pq = new THREE.Group(); pq.visible = false; raiz.add(pq);
-  const c = document.createElement('canvas'); c.width = 256; c.height = 32; const g = c.getContext('2d');
-  for (let i = 0; i < 9; i++) { g.fillStyle = ['#ff6b35', '#ffffff', '#1d4fa3'][i % 3]; g.fillRect(i * 256 / 9, 0, 256 / 9 + 1, 32); }
-  const tx = new THREE.CanvasTexture(c); tx.colorSpace = THREE.SRGBColorSpace;
-  const gV = new THREE.CylinderGeometry(3.6, 3.6, 2.6, 18, 1, true, -Math.PI * 0.32, Math.PI * 0.64); gV.rotateX(-Math.PI / 2); gV.scale(1, 0.55, 1);
-  const velame = new THREE.Mesh(gV, m('#fff', 0.8, 0, { map: tx, side: THREE.DoubleSide })); velame.position.y = 3.2; velame.castShadow = true; pq.add(velame);
-  const pts = []; for (let i = 0; i <= 8; i++) { const a = -Math.PI * 0.32 + i / 8 * Math.PI * 0.64, x = Math.sin(a) * 3.6, y = 3.2 + Math.cos(a) * 3.6 * 0.55 - 0.2; for (const z of [-1.2, 1.2]) pts.push(new THREE.Vector3(x, y, z), new THREE.Vector3(x > 0 ? 0.2 : -0.2, 1.55, 0)); }
-  pq.add(new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineBasicMaterial({ color: 0x333333 })));
+  const vel = new THREE.Group(); vel.position.y = 6.3; pq.add(vel);
+  { const N = 9, P = 14, R = 7, A0 = 0.5, corda = 3.0, cores = ['#ff6b35', '#f4f4f0', '#1d4fa3'].map((h) => new THREE.Color(h));
+    const sec = []; for (let i = 0; i < P; i++) { const t = i / P * Math.PI * 2, x = (1 - Math.cos(t)) / 2; const esp = 0.13 * Math.sqrt(Math.max(0, Math.sin(Math.PI * Math.pow(x, 0.7)))); sec.push([x * corda - corda * 0.35, (Math.sin(t) >= 0 ? 1 : -0.35) * esp * corda + 0.06 * Math.sin(Math.PI * x)]); }
+    const pt = (k, j) => { const a = -A0 + 2 * A0 * k / N, [z, y] = sec[j % P]; return new THREE.Vector3(Math.sin(a) * (R + y), Math.cos(a) * (R + y) - R, z); };
+    const pos = [], col = [];
+    const tri = (a, b, c, cor) => { for (const v of [a, b, c]) { pos.push(v.x, v.y, v.z); col.push(cor.r, cor.g, cor.b); } };
+    for (let k = 0; k < N; k++) { const c = cores[k % 3]; for (let j = 0; j < P; j++) { const a = pt(k, j), b = pt(k, j + 1), c2 = pt(k + 1, j), d = pt(k + 1, j + 1); tri(a, c2, b, c); tri(b, c2, d, c); } }
+    for (const [k, inv] of [[0, true], [N, false]]) { const c0 = pt(k, 0).add(pt(k, P / 2)).multiplyScalar(0.5); for (let j = 0; j < P; j++) inv ? tri(c0, pt(k, j), pt(k, j + 1), cores[0]) : tri(c0, pt(k, j + 1), pt(k, j), cores[0]); }
+    const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3)); g.computeVertexNormals();
+    const velame = new THREE.Mesh(g, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85, side: THREE.DoubleSide })); velame.castShadow = true; vel.add(velame);
+    const linhas = [], topos = []; for (let k = 0; k <= N; k += 1.5) for (const j of [P / 2 + 1, P / 2 + 4, P - 2]) { const p0 = pt(Math.round(k), Math.round(j)); topos.push(p0); linhas.push(p0.clone(), new THREE.Vector3(p0.x > 0 ? 0.2 : -0.2, 1.62, 0.02)); }
+    const cordas = new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(linhas), new THREE.LineBasicMaterial({ color: 0x2b2b2b })); cordas.frustumCulled = false; pq.add(cordas); pq.userData = { cordas, topos };
+  }
   raiz.traverse((o) => { if (o.isMesh) o.castShadow = true; });
   const pose = {}; for (const k of Object.keys(J)) pose[k] = new THREE.Euler();
-  return { obj: raiz, J, garras, pq, pose, fase: 0, y: 0, t0: 0 };
+  return { obj: raiz, J, garras, pq, vel: pq.children[0], pose, fase: 0, y: 0, t0: 0, abrindo: 0, modoAnt: '' };
 }
 
 function texNome() { const c = document.createElement('canvas'); c.width = 64; c.height = 24; const g = c.getContext('2d'); g.fillStyle = '#2b2b22'; g.fillRect(0, 0, 64, 24); g.fillStyle = '#e8e2c8'; g.font = 'bold 13px sans-serif'; g.textAlign = 'center'; g.fillText('PILOTO', 32, 17); const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t; }
 function texBandeira() { const c = document.createElement('canvas'); c.width = 48; c.height = 32; const g = c.getContext('2d'); g.fillStyle = '#1f9d4a'; g.fillRect(0, 0, 48, 32); g.fillStyle = '#ffd400'; g.beginPath(); g.moveTo(4, 16); g.lineTo(24, 3); g.lineTo(44, 16); g.lineTo(24, 29); g.fill(); g.fillStyle = '#1e3c96'; g.beginPath(); g.arc(24, 16, 7, 0, 7); g.fill(); const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t; }
 
 // Pose desejada para cada situação; a função mistura suavemente da pose atual para ela.
+// Convenções (corpo em pé, de frente para -Z): coxa.x>0 perna pra frente · joelho.x<0 dobra o joelho
+// tornozelo.x>0 ponta do pé pra cima · ombro.x>0 braço pra frente · ombro.z>0 (direito) abre pro lado
+// cotovelo.x>0 dobra o cotovelo · tronco.x<0 inclina pra frente · cabeça.x>0 olha pra cima · quadril.x<0 corpo deita de bruços
 // modo: 'pe' | 'pulo' | 'queda' | 'paraquedas' | 'sobre' | 'subindo' | 'pouso'
 export function animarPessoa(p, modo, rapidez, t, dt, garras, vento = 0) {
   const A = {}; const set = (k, x = 0, y = 0, z = 0) => (A[k] = [x, y, z]);
   for (const k of Object.keys(p.J)) set(k);
   let quadY = 0.98, raizX = 0;
   p.garras.forEach((g) => (g.visible = garras));
-  p.pq.visible = modo === 'paraquedas';
+  if (modo === 'paraquedas' && p.modoAnt !== 'paraquedas') p.abrindo = 0;
+  p.modoAnt = modo; p.pq.visible = modo === 'paraquedas';
+  if (p.pq.visible) { // velame inflando: estica de lado, enche e balança
+    p.abrindo = Math.min(1, p.abrindo + dt / 1.1); const u = p.abrindo, e = 1 - Math.pow(1 - u, 3);
+    p.vel.scale.set(0.15 + 0.85 * e, 0.3 + 0.7 * e + Math.sin(u * 14) * 0.08 * (1 - u), 0.4 + 0.6 * e); p.vel.position.y = 2.5 + 3.8 * e;
+    p.vel.rotation.z = Math.sin(t * 0.9) * 0.05; p.vel.rotation.x = -0.12 + Math.sin(t * 1.3) * 0.03;
+    p.vel.updateMatrix(); const { cordas, topos } = p.pq.userData, at = cordas.geometry.attributes.position; // cordas presas no velame enquanto ele infla
+    topos.forEach((v, i) => { const w = v.clone().applyMatrix4(p.vel.matrix); at.setXYZ(i * 2, w.x, w.y, w.z); }); at.needsUpdate = true;
+  }
   if (modo === 'pe') {
     const v = Math.min(rapidez, 7), corre = v > 3.6;
     p.fase += dt * (v < 0.2 ? 0 : 2.2 + v * 1.25);
-    const f = p.fase, a = Math.min(1, v / 2.5) * (corre ? 0.95 : 0.6);
+    const f = p.fase, a = Math.min(1, v / 2.5) * (corre ? 0.85 : 0.55);
     if (v < 0.2) { // parado: respira e olha em volta
-      const r = Math.sin(t * 1.6) * 0.03; set('peito', r, 0, 0); set('cabeca', Math.sin(t * 0.3) * 0.08, Math.sin(t * 0.37) * 0.45, 0);
-      set('ombroD', 0.05, 0, 0.1 + r); set('ombroE', 0.05, 0, -0.1 - r); set('cotoveloD', -0.18); set('cotoveloE', -0.18);
+      const r = Math.sin(t * 1.6) * 0.03; set('peito', -r, 0, 0); set('cabeca', Math.sin(t * 0.3) * 0.08, Math.sin(t * 0.37) * 0.45, 0);
+      set('ombroD', 0.05, 0, 0.1 + r); set('ombroE', 0.05, 0, -0.1 - r); set('cotoveloD', 0.18); set('cotoveloE', 0.18);
       set('coxaD', 0, 0, 0.03); set('coxaE', 0, 0, -0.03); quadY = 0.98 + r * 0.2;
     } else {
       set('coxaD', Math.sin(f) * a); set('coxaE', -Math.sin(f) * a);
-      set('joelhoD', Math.max(0, -Math.cos(f)) * a * 1.6 + 0.05); set('joelhoE', Math.max(0, Math.cos(f)) * a * 1.6 + 0.05);
-      set('tornD', -Math.max(0, Math.sin(f)) * 0.3); set('tornE', -Math.max(0, -Math.sin(f)) * 0.3);
+      set('joelhoD', -(Math.max(0, Math.cos(f)) * a * 1.5 + 0.05)); set('joelhoE', -(Math.max(0, -Math.cos(f)) * a * 1.5 + 0.05));
+      set('tornD', Math.max(0, Math.sin(f)) * 0.25); set('tornE', Math.max(0, -Math.sin(f)) * 0.25);
       set('ombroD', -Math.sin(f) * a * 0.9, 0, 0.08); set('ombroE', Math.sin(f) * a * 0.9, 0, -0.08);
-      set('cotoveloD', corre ? -1.5 : -0.25 - Math.max(0, Math.sin(f)) * 0.5); set('cotoveloE', corre ? -1.5 : -0.25 - Math.max(0, -Math.sin(f)) * 0.5);
-      set('tronco', corre ? -0.22 : -0.05, Math.sin(f) * 0.12, 0); set('peito', 0, -Math.sin(f) * 0.15, 0); set('cabeca', corre ? 0.2 : 0.05);
-      quadY = 0.98 - Math.abs(Math.cos(f)) * (corre ? 0.07 : 0.035);
+      set('cotoveloD', corre ? 1.5 : 0.25 + Math.max(0, -Math.sin(f)) * 0.5); set('cotoveloE', corre ? 1.5 : 0.25 + Math.max(0, Math.sin(f)) * 0.5);
+      set('tronco', corre ? -0.22 : -0.05, Math.sin(f) * 0.12, 0); set('peito', 0, -Math.sin(f) * 0.15, 0); set('cabeca', corre ? 0.18 : 0.04);
+      quadY = 0.98 - Math.abs(Math.sin(f)) * (corre ? 0.06 : 0.03);
     }
   } else if (modo === 'pulo') {
-    set('coxaD', -0.7); set('coxaE', -0.3); set('joelhoD', 1.2); set('joelhoE', 0.8); set('ombroD', -0.4, 0, 0.6); set('ombroE', -0.4, 0, -0.6); set('cotoveloD', -0.6); set('cotoveloE', -0.6);
+    set('coxaD', 0.8); set('coxaE', 0.35); set('joelhoD', -1.3); set('joelhoE', -0.8); set('tornD', 0.3); set('tornE', 0.2);
+    set('ombroD', 0.5, 0, 0.6); set('ombroE', 0.5, 0, -0.6); set('cotoveloD', 0.6); set('cotoveloE', 0.6);
   } else if (modo === 'pouso') {
-    quadY = 0.72; set('coxaD', -1.1); set('coxaE', -1.1); set('joelhoD', 1.9); set('joelhoE', 1.9); set('tornD', -0.7); set('tornE', -0.7); set('tronco', -0.5); set('cabeca', 0.4);
-    set('ombroD', -0.6, 0, 0.3); set('ombroE', -0.6, 0, -0.3); set('cotoveloD', -0.4); set('cotoveloE', -0.4);
-  } else if (modo === 'queda') { // barriga pra baixo, arqueado, braços e pernas abertos
-    raizX = -1.35; quadY = 0.55; const fl = Math.sin(t * 11) * 0.06;
-    set('ombroD', -0.3, 0, 1.35 + fl); set('ombroE', -0.3, 0, -1.35 - fl); set('cotoveloD', -0.9); set('cotoveloE', -0.9);
-    set('coxaD', 0.35, 0, 0.28); set('coxaE', 0.35, 0, -0.28); set('joelhoD', 1.0 + fl); set('joelhoE', 1.0 - fl);
-    set('tronco', 0.25); set('cabeca', 0.75); set('pescoco', 0.3);
+    quadY = 0.72; set('coxaD', 1.1, 0, 0.1); set('coxaE', 1.1, 0, -0.1); set('joelhoD', -1.9); set('joelhoE', -1.9); set('tornD', 0.8); set('tornE', 0.8); set('tronco', -0.45); set('cabeca', 0.4);
+    set('ombroD', 0.6, 0, 0.3); set('ombroE', 0.6, 0, -0.3); set('cotoveloD', 0.4); set('cotoveloE', 0.4);
+  } else if (modo === 'queda') { // queda livre de bruços, posição "caixa": braços abertos com antebraço pra frente, joelhos dobrados
+    raizX = -1.42; quadY = 0.6; const fl = Math.sin(t * 11) * 0.05, fl2 = Math.sin(t * 9.3) * 0.05;
+    set('ombroD', 0, 0, 1.5 + fl); set('ombroE', 0, 0, -1.5 - fl2); set('cotoveloD', 0, 0, 1.3); set('cotoveloE', 0, 0, -1.3);
+    set('coxaD', 0.05, 0, 0.32); set('coxaE', 0.05, 0, -0.32); set('joelhoD', -1.0 + fl2); set('joelhoE', -1.0 + fl); set('tornD', 0.5); set('tornE', 0.5);
+    set('tronco', 0.18); set('pescoco', 0.35); set('cabeca', 0.55);
   } else if (modo === 'paraquedas') { // pendurado nas manetes, pernas balançando
-    const b = Math.sin(t * 1.3) * 0.12;
-    set('ombroD', 0.2, 0, 2.55); set('ombroE', 0.2, 0, -2.55); set('cotoveloD', -0.5); set('cotoveloE', -0.5);
-    set('coxaD', 0.15 + b, 0, 0.05); set('coxaE', 0.15 - b, 0, -0.05); set('joelhoD', 0.25); set('joelhoE', 0.35); set('cabeca', -0.25, Math.sin(t * 0.4) * 0.5, 0);
+    const b = Math.sin(t * 1.3) * 0.12, puxa = Math.sin(t * 0.7) * 0.15;
+    set('ombroD', 2.75 - puxa, 0, 0.32); set('ombroE', 2.75 + puxa, 0, -0.32); set('cotoveloD', 0.35); set('cotoveloE', 0.35);
+    set('coxaD', 0.18 + b, 0, 0.06); set('coxaE', 0.18 - b, 0, -0.06); set('joelhoD', -0.3); set('joelhoE', -0.4); set('tornD', -0.3); set('tornE', -0.3);
+    set('cabeca', 0.1, Math.sin(t * 0.4) * 0.5, 0);
   } else if (modo === 'sobre') {
     const ag = garras ? Math.min(1, vento * 1.3) : 0;
     if (!garras && vento > 0.15) { // sem garras: se debatendo contra o vento
-      set('tronco', 0.35); set('ombroD', -1.2 + Math.sin(t * 9) * 1.0, 0, 0.6); set('ombroE', -1.2 + Math.sin(t * 8 + 1) * 1.0, 0, -0.6);
-      set('cotoveloD', -0.6); set('cotoveloE', -0.6); set('coxaD', -0.5); set('coxaE', 0.3); set('joelhoD', 0.8); set('joelhoE', 0.4); set('cabeca', -0.3);
-    } else {
-      p.fase += dt * rapidez * 2.4; const f = p.fase, a = Math.min(1, rapidez / 1.5) * 0.45;
+      set('tronco', 0.3); set('ombroD', 1.4 + Math.sin(t * 9) * 1.0, 0, 0.6); set('ombroE', 1.4 + Math.sin(t * 8 + 1) * 1.0, 0, -0.6);
+      set('cotoveloD', 0.6); set('cotoveloE', 0.6); set('coxaD', 0.5); set('coxaE', -0.2); set('joelhoD', -0.8); set('joelhoE', -0.4); set('cabeca', -0.2);
+    } else { // anda; com vento forte vai agachado, uma mão perto da superfície
+      p.fase += dt * (rapidez < 0.1 ? 0 : 2.2 + rapidez * 1.4); const f = p.fase, a = Math.min(1, rapidez / 1.5) * 0.45;
       quadY = 0.98 - 0.32 * ag;
-      set('coxaD', -1.15 * ag + Math.sin(f) * a); set('coxaE', -1.15 * ag - Math.sin(f) * a); set('joelhoD', 2.0 * ag + Math.max(0, -Math.cos(f)) * a * 1.4); set('joelhoE', 2.0 * ag + Math.max(0, Math.cos(f)) * a * 1.4);
-      set('tornD', -0.8 * ag); set('tornE', -0.8 * ag); set('tronco', -0.55 * ag); set('cabeca', 0.5 * ag);
-      set('ombroD', -1.2 * ag - Math.sin(f) * a, 0, 0.15); set('cotoveloD', -0.2); set('ombroE', -0.3 * ag + Math.sin(f) * a, 0, -0.15 - 0.9 * ag); set('cotoveloE', -0.3);
+      set('coxaD', 1.15 * ag + Math.sin(f) * a); set('coxaE', 1.15 * ag - Math.sin(f) * a);
+      set('joelhoD', -(2.0 * ag + Math.max(0, Math.cos(f)) * a * 1.4)); set('joelhoE', -(2.0 * ag + Math.max(0, -Math.cos(f)) * a * 1.4));
+      set('tornD', 0.8 * ag); set('tornE', 0.8 * ag); set('tronco', -0.5 * ag); set('cabeca', 0.45 * ag);
+      set('ombroD', 0.9 * ag - Math.sin(f) * a, 0, 0.15); set('cotoveloD', 0.2); set('ombroE', 0.3 * ag + Math.sin(f) * a, 0, -0.15 - 0.9 * ag); set('cotoveloE', 0.3);
     }
   } else if (modo === 'subindo') { // passando pela cabine
-    quadY = 0.85; set('coxaD', -1.3); set('joelhoD', 1.6); set('coxaE', 0.2); set('ombroD', -2.2); set('ombroE', -1.6); set('cotoveloD', -0.3); set('cotoveloE', -0.5); set('tronco', -0.3);
+    quadY = 0.85; set('coxaD', 1.3); set('joelhoD', -1.6); set('coxaE', -0.2); set('joelhoE', -0.3); set('ombroD', 2.3); set('ombroE', 1.7); set('cotoveloD', 0.3); set('cotoveloE', 0.5); set('tronco', -0.3);
   }
   set('quadril', raizX); delete A.visor;
   const k = 1 - Math.exp(-dt * (modo === 'queda' || modo === 'pouso' ? 9 : 13));

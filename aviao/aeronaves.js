@@ -180,6 +180,7 @@ export function criarJato(p = PINT_JATO[0]) {
     const ax = Math.abs(x), r = [];
     if (ax < 0.55 && z > -6 && z < 5.5) r.push(z > -3 && z < 4.6 ? 1.0 : rf(z) * 0.92);
     if (ax > 0.7 && ax < 4.6) { const a = asa(ax); if (z > a.le && z < a.le + a.c) r.push(a.y + 0.05); }
+    if (ax < 0.16 && z > 3.1 && z < 6.8) r.push(4.0); // deriva
     return r;
   };
   parts.helices = [];
@@ -278,6 +279,7 @@ export function criarWarbird(p = PINT_WAR[0]) {
     const ax = Math.abs(x), r = [];
     if (ax < 0.45 && z > Z0 + 0.3 && z < Z1 - 0.3) { let y = rf(z) * 1.18 + Math.max(0, z - 0.8) * 0.05; const k = (z - 0.15) / 1.25; if (Math.abs(k) < 1) y = Math.max(y, 0.64 + 0.5 * Math.sqrt(1 - k * k)); r.push(y); }
     if (ax > 0.4 && ax < 5.6) { const a = asa(ax); if (z > a.le && z < a.le + a.c) r.push(a.y + a.c * 0.11); }
+    if (ax < 0.14 && z > 3.0 && z < 4.8) r.push(2.25); // deriva
     return r;
   };
   mesclar(A);
@@ -386,6 +388,7 @@ export function criarCargueiro(p = PINT_CARGA[0]) {
     if (ax < BAIA.meia && z > BAIA.frente && z < BAIA.fim) r.push(BAIA.piso);
     if (ax < BAIA.meia && z >= BAIA.fim && z < BAIA.fim + 4.6 && parts.rampaAberta) r.push(BAIA.piso);
     if (ax > 0.2 && ax < 20.2) { const a = asa(ax); if (z > a.le && z < a.le + a.c) r.push(a.y + a.c * 0.1); }
+    if (ax < 0.35 && z > 8.3 && z < 14.4) r.push(9.0); // deriva
     return r;
   };
   parts.baia = BAIA;

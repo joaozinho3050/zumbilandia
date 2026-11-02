@@ -271,6 +271,7 @@ export function criarAviao(pintura = PINTURAS[0], comPainel = true) {
     if (ax < 0.5 && z > FUS_Z0 + 0.4 && z < FUS_Z1 - 0.3) { let y = raioFus(z) * 1.12 + 0.05 + Math.max(0, z - 0.5) * 0.11; const k = (z + 0.25) / 1.55; if (Math.abs(k) < 1) y = Math.max(y, 0.62 + 0.52 * Math.sqrt(1 - k * k)); r.push(y); }
     if (ax > 0.4 && ax < 5.2) { const a = asa(ax); if (z > a.le && z < a.le + a.c) r.push(a.y + a.c * 0.1); }
     if (ax < 1.95) { const e = est(ax); if (z > e.le && z < e.le + e.c) r.push(e.y + e.c * 0.07); }
+    if (ax < 0.14 && z > 2.8 && z < 4.45) r.push(2.15); // deriva (parede)
     return r;
   };
   parts.envergadura = 10.6; parts.raioCorpo = 0.75; parts.saida = new THREE.Vector3(1.4, 0, 2.3);
