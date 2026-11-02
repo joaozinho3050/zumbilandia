@@ -895,7 +895,7 @@ function hud(dt) {
 }
 
 // ---------- Menu ----------
-let estado = 'titulo';
+let estado = 'titulo', abaMenu = 'aviao';
 const painel = $('painelMenu');
 function abrirMenu() {
   if (estado !== 'voo') return; estado = 'menu'; document.body.classList.add('menu');
@@ -907,21 +907,26 @@ function abrirMenu() {
   const fum = CORES_FUMACA.map(([n, c], i) => `<button class="card${i === S.fumacaCor ? ' sel' : ''}" data-fumaca="${i}"><span class="bolinha" style="background:${c || 'conic-gradient(red,yellow,lime,cyan,blue,magenta,red)'}"></span>${n}</button>`).join('');
   const horas = HORAS.map((h, i) => `<button class="card${i === hora.para ? ' sel' : ''}" data-hora="${i}">${h.nome}</button>`).join('');
   const op = (id, txt, on) => `<button class="card${on ? ' sel' : ''}" data-op="${id}">${txt}</button>`;
-  painel.innerHTML = `<button id="fechar">Continuar</button><h2>Pausa</h2>
-    <h3>Avião</h3><div class="grade">${avs}</div>
+  const ABAS = [['aviao', 'Avião'], ['desafios', 'Desafios'], ['lugares', 'Lugares'], ['visual', 'Visual'], ['opcoes', 'Opções']];
+  const conteudo = {
+    aviao: `<h3>Avião</h3><div class="grade">${avs}</div>
     <h3>Pintura</h3><div class="linha">${pint}</div>
-    <h3>Desafios</h3><div class="grade">${desafios}${desafio ? '<button class="card" data-parar="1"><b>Sair do desafio</b><small>Voltar ao voo livre</small></button>' : ''}</div>
-    <h3>Ir para</h3><div class="grade">${lugares}</div>
-    <h3>Hora do dia</h3><div class="linha">${horas}</div>
-    <h3>Fumaça</h3><div class="linha">${fum}</div>
-    <h3>Filtro de imagem</h3><div class="linha">${FILTROS.map((f, i) => `<button class="card${i === S.filtro ? ' sel' : ''}" data-filtro="${i}">${f.nome}</button>`).join('')}</div>
-    <h3>Opções</h3><div class="linha">${op('assist', 'Ajuda de voo', S.assist)}${op('inverter', 'Controles invertidos (puxar pra trás sobe)', S.inverter)}${op('som', 'Som', S.som)}${op('foto', 'Modo foto', document.body.classList.contains('foto'))}
+    <h3>Fumaça</h3><div class="linha">${fum}</div>`,
+    desafios: `<h3>Desafios</h3><div class="grade">${desafios}${desafio ? '<button class="card" data-parar="1"><b>Sair do desafio</b><small>Voltar ao voo livre</small></button>' : ''}</div>`,
+    lugares: `<h3>Ir para</h3><div class="grade">${lugares}</div>`,
+    visual: `<h3>Hora do dia</h3><div class="linha">${horas}</div>
+    <h3>Filtro de imagem</h3><div class="linha">${FILTROS.map((f, i) => `<button class="card${i === S.filtro ? ' sel' : ''}" data-filtro="${i}">${f.nome}</button>`).join('')}</div>`,
+    opcoes: `<h3>Opções</h3><div class="linha">${op('assist', 'Ajuda de voo', S.assist)}${op('inverter', 'Controles invertidos (puxar pra trás sobe)', S.inverter)}${op('som', 'Som', S.som)}${op('foto', 'Modo foto', document.body.classList.contains('foto'))}
       <button class="card" data-op="qual">Gráficos: ${{ alta: 'Bonito', media: 'Médio', baixa: 'Rápido' }[S.qual]}</button></div>
-    <h3>Comandos</h3><small style="color:var(--sub);line-height:1.7;display:block">${TOQUE ? 'Bolinha da esquerda: manche ' + (S.inverter ? '(puxe para baixo para subir, como avião de verdade)' : '(para cima sobe)') + '; no chão/a pé: anda. Barra da direita: motor. Arraste a tela para olhar. ⇪ sai do avião — em voo você fica em cima dele com as garras ⋔. Sem garras o vento te derruba; ☂ abre o paraquedas.' : (S.inverter ? 'S sobe / W desce' : 'W sobe / S desce') + ' · A/D inclinar · Q/E leme · Shift/Ctrl motor · G trem · F flap · Espaço fumaça · B freio · X sair do avião · C câmera · T hora · H foto · Esc menu<br>A pé: WASD anda · Espaço pula/abre paraquedas · E entra · K garras'}<br>Cargueiro gigante: chegue por trás na mesma velocidade, trem baixado, e pouse na rampa.</small>`;
+    <h3>Comandos</h3><small style="color:var(--sub);line-height:1.7;display:block">${TOQUE ? 'Bolinha da esquerda: manche ' + (S.inverter ? '(puxe para baixo para subir, como avião de verdade)' : '(para cima sobe)') + '; no chão/a pé: anda. Barra da direita: motor. Arraste a tela para olhar. ⇪ sai do avião — em voo você fica em cima dele com as garras ⋔. Sem garras o vento te derruba; ☂ abre o paraquedas.' : (S.inverter ? 'S sobe / W desce' : 'W sobe / S desce') + ' · A/D inclinar · Q/E leme · Shift/Ctrl motor · G trem · F flap · Espaço fumaça · B freio · X sair do avião · C câmera · T hora · H foto · Esc menu<br>A pé: WASD anda · Espaço pula/abre paraquedas · E entra · K garras'}<br>Cargueiro gigante: chegue por trás na mesma velocidade, trem baixado, e pouse na rampa.</small>`
+  };
+  painel.innerHTML = `<div id="topoMenu"><div id="abas" role="tablist">${ABAS.map(([id, nome]) => `<button class="aba${id === abaMenu ? ' on' : ''}" role="tab" aria-selected="${id === abaMenu}" data-aba="${id}">${nome}</button>`).join('')}</div><button id="fechar">Continuar</button></div>
+    <div id="conteudoAba" role="tabpanel">${conteudo[abaMenu]}</div>`;
   $('fechar').onclick = fecharMenu;
 }
 painel.addEventListener('click', (e) => {
   const b = e.target.closest('button'); if (!b || b.id === 'fechar') return; som.clique(); const d = b.dataset;
+  if (d.aba) { abaMenu = d.aba; estado = 'voo'; abrirMenu(); painel.scrollTop = 0; return; }
   if (d.tipo) { S.tipo = d.tipo; S.pintura = 0; salvar(); pararDesafio(); trocarAviao(); return fecharMenu(); }
   if (d.gigante) { pararDesafio(); if (!npc.vivo) return fecharMenu(); const v = jog.aviao; if (v && v !== npc && !v.preso && !v.estacionado) v.remover(); pilotar(npc); mensagem('Pilotando o cargueiro gigante', '⊓ abre/fecha a rampa · ⇪ devolve ao piloto automático', 3); return fecharMenu(); }
   if (d.desafio) { comecarDesafio(d.desafio === 'baia' ? DESAFIO_BAIA : DESAFIOS.find((x) => x.id === d.desafio)); return fecharMenu(); }
