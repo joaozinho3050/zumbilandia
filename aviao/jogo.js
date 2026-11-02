@@ -243,7 +243,7 @@ function bater(a, agua, motivo) {
 }
 
 // cargueiro gigante NPC: voa sozinho em círculo; a porta abre e fecha; dá pra pilotar e devolver ao piloto automático
-const ESC_GIG = 5.5;
+const ESC_GIG = 3.2; // vão quase justo: caça da 2ª Guerra (11,3 m) passa com ~70 cm de cada lado; Andorinha ~1 m; caça a jato ~1,6 m
 const npc = new Aero('gigante', 0, ESC_GIG);
 npc.npc = { R: 3300, cx: 0, cz: 300, alt: 560, ang: 0.6, s: 1, blend: 0, v: 66 }; npc.V = 66; npc.trem = npc.tremAlvo = 0; npc.chao = false; npc.acel = 0.7; npc.rpm = 0.8; npc.portaAlvo = 1; npc.abre = 1;
 npc.P.entrada = new THREE.Vector3(0, BAIA.piso, BAIA.frente + 0.35); // painel de comando na frente da baía
@@ -302,7 +302,7 @@ function checarBaia(a, dt) {
   if (!a.entrouAtras) return bater(a, false);
   if (npc.abre < 0.9) return bater(a, false, 'A rampa estava fechada!');
   const larg = Math.sqrt(Math.max(0, B.raio * B.raio - (L.y + 0.2) ** 2)), teto = L.z > B.fim ? B.teto - (L.z - B.fim) * 0.1 : B.raio - 0.3;
-  if (Math.abs(L.x) + meia * 0.92 > larg + 0.15 || L.y + 0.9 * a.esc / e > teto) return bater(a, false, 'Raspou a asa!');
+  if (Math.abs(L.x) + meia > larg + 0.04 / e || L.y + 0.9 * a.esc / e > teto) return bater(a, false, 'Raspou a asa!');
   for (const o of presos()) if (o.preso.L.distanceTo(L) * e < (o.P.envergadura + a.P.envergadura) * 0.42) return bater(a, false, 'Bateu no outro avião!');
   if (L.z < B.frente + 7 / e) return bater(a, false);
   if (L.y - trem <= B.piso + 0.02) {
@@ -692,6 +692,7 @@ function comecarDesafio(d) {
     mensagem(d.nome, TOQUE ? 'Segure ✦ para atirar' : 'Segure V para atirar', 3.5); return;
   }
   if (d.id === 'baia') {
+    for (const o of presos()) o.remover(); // recomeçar o desafio esvazia o baú (com o vão justo só cabe um avião)
     const f = tmpV.set(0, 0, -1).applyQuaternion(npc.q), p = npc.pos.clone().addScaledVector(f, -700).add(tmpV2.set(0, -8, 0));
     const rumo = (THREE.MathUtils.radToDeg(Math.atan2(f.x, -f.z)) + 360) % 360;
     if (S.tipo === 'cargueiro') S.tipo = 'andorinha';

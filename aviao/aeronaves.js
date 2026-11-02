@@ -340,8 +340,8 @@ export function criarCargueiro(p = PINT_CARGA[0]) {
     const piso = new THREE.Mesh(new THREE.BoxGeometry(B.meia * 2, 0.12, comp), [mPiso, mPiso, mat('#fff', 0.8, 0.3, { map: t }), mPiso, mPiso, mPiso]); piso.position.set(0, B.piso - 0.06, meioZ); A.add(piso); }
   for (const x of [-0.9, 0.9]) { const tr = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.04, comp), mMet); tr.position.set(x, B.piso + 0.02, meioZ); A.add(tr); }
   for (const s2 of [-1, 1]) { // rodapé: tampa o vão entre o piso e a parede curva
-    const r = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.5, comp), mat('#4f584a', 0.9)); r.position.set(s2 * (B.meia + 0.15), B.piso + 0.2, meioZ); A.add(r);
-    const b = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.06, comp * 0.55), mat('#7a2b2b', 0.9)); b.position.set(s2 * (B.meia - 0.1), B.piso + 0.5, meioZ - comp * 0.15); A.add(b); // banco de lona
+    const r = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.3, comp), mat('#4f584a', 0.9)); r.position.set(s2 * (B.meia + 0.15), B.piso + 0.1, meioZ); // baixo: a asa do avião guardado passa por cima A.add(r);
+    const b = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.06, comp * 0.3), mat('#7a2b2b', 0.9)); b.position.set(s2 * (B.meia - 0.1), B.piso + 0.5, B.frente + comp * 0.2); // bancos lá na frente, longe da vaga do avião A.add(b); // banco de lona
     for (const [z, w, h] of [[B.frente + 1.4, 0.7, 0.8], [B.frente + 2.4, 0.6, 0.6]]) { // caixas presas na lateral, fora do caminho
       const cx = new THREE.Mesh(new THREE.BoxGeometry(w, h, 0.9), mat('#8a6a3e', 0.9)); cx.position.set(s2 * (B.meia - w / 2 - 0.05), B.piso + h / 2, z); A.add(cx);
       const ci = new THREE.Mesh(new THREE.BoxGeometry(w + 0.03, 0.06, 0.93), mat('#c49a1a', 0.8)); ci.position.copy(cx.position); A.add(ci); }
