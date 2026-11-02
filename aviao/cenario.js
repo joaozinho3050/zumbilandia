@@ -199,8 +199,12 @@ export function criarCenario(renderer, Q) {
     luzesNoite.push(pontosLuz(ps, cs, 7)); }
 
   // ---------- Árvores ----------
-  const geoPinho = juntar([[cil(0.35, 0.5, 3, 5).translate(0, 1.5, 0), '#5a3b25'], [cone(3, 5.5, 7).translate(0, 5, 0), '#2d5a2e'], [cone(2.3, 4.5, 7).translate(0, 7.5, 0), '#326636'], [cone(1.4, 3.5, 7).translate(0, 9.8, 0), '#3a7040']]);
-  const geoArv = juntar([[cil(0.35, 0.55, 4, 5).translate(0, 2, 0), '#6a4a2e'], [new THREE.IcosahedronGeometry(3.4, 1).scale(1, 0.85, 1).translate(0, 6.2, 0), '#4b8a35'], [new THREE.IcosahedronGeometry(2.4, 1).translate(1.6, 7.6, 0.8), '#5a9a3c'], [new THREE.IcosahedronGeometry(2.2, 1).translate(-1.5, 7.2, -1), '#468032']]);
+  const torto = (g, k) => { const p = g.attributes.position; for (let i = 0; i < p.count; i++) { const x = p.getX(i), y = p.getY(i), z = p.getZ(i), n = 1 + k * Math.sin(x * 3.1 + y * 1.7 + z * 2.3); p.setXYZ(i, x * n, y, z * n); } return g; }; // contorno irregular
+  const geoPinho = juntar([[cil(0.3, 0.55, 3.5, 6).translate(0, 1.75, 0), '#5a3b25'],
+    ...[[3.2, 4.2, 3.6, '#2b5a2e'], [2.7, 3.8, 5.6, '#2f6232'], [2.2, 3.4, 7.5, '#326636'], [1.6, 3.0, 9.3, '#377039'], [1.0, 2.4, 11.0, '#3c763e']].map(([r, h, y, c]) => [torto(cone(r, h, 9).translate(0, y, 0), 0.12), c])]);
+  const geoArv = juntar([[cil(0.32, 0.55, 4.2, 6).translate(0, 2.1, 0), '#6a4a2e'], [cil(0.12, 0.18, 2.2, 5).rotateZ(0.8).translate(0.9, 4.2, 0), '#6a4a2e'], [cil(0.1, 0.16, 2, 5).rotateZ(-0.7).translate(-0.8, 4.4, 0.3), '#6a4a2e'],
+    ...[[0, 6.4, 0, 3.3, 0.85, '#4b8a35'], [1.8, 7.4, 0.9, 2.3, 1, '#5a9a3c'], [-1.7, 7.0, -1.0, 2.2, 1, '#468032'], [0.4, 8.6, -0.6, 2.0, 0.9, '#559538'], [-0.6, 7.6, 1.6, 1.9, 1, '#4f8e37'], [1.2, 5.8, -1.6, 1.8, 0.9, '#43792f']]
+      .map(([x, y, z, r, sy, c]) => [torto(new THREE.IcosahedronGeometry(r, 1), 0.1).scale(1, sy, 1).translate(x, y, z), c])]);
   const coq = [];
   for (let i = 0; i < 5; i++) coq.push([cil(0.32 - i * 0.03, 0.36 - i * 0.03, 2.2, 6).rotateZ(0.06 * i).translate(i * 0.25, 1.1 + i * 2.1, 0), '#8a6a48']);
   for (let i = 0; i < 8; i++) { const f = new THREE.BoxGeometry(0.9, 0.08, 4.6); f.translate(0, 0, 2.3); f.rotateX(0.35); f.rotateY(i * Math.PI / 4); f.translate(1.2, 10.6, 0); coq.push([f, i % 2 ? '#3f8a3a' : '#4fa043']); }
@@ -493,6 +497,9 @@ function juntar(lista) { // junta geometrias com cor por vértice
     pos.push(...g.attributes.position.array); nor.push(...g.attributes.normal.array);
     for (let i = 0; i < g.attributes.position.count; i++) cor.push(c.r, c.g, c.b);
   }
+  // sombra de baixo pra cima (folhas de dentro/de baixo recebem menos luz) + leve variação por vértice
+  let y0 = Infinity, y1 = -Infinity; for (let i = 1; i < pos.length; i += 3) { y0 = Math.min(y0, pos[i]); y1 = Math.max(y1, pos[i]); }
+  for (let i = 0; i < cor.length; i += 3) { const k = (0.62 + 0.38 * (pos[i + 1] - y0) / (y1 - y0 || 1)) * (0.93 + 0.14 * Math.abs(Math.sin(pos[i] * 7.3 + pos[i + 2] * 5.1))); cor[i] *= k; cor[i + 1] *= k; cor[i + 2] *= k; }
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3)); g.setAttribute('color', new THREE.Float32BufferAttribute(cor, 3));
   return g;
@@ -529,7 +536,7 @@ function texNuvem() {
   const S = 256, c = document.createElement('canvas'); c.width = c.height = S; const g = c.getContext('2d'), r = rng(99);
   for (let i = 0; i < 26; i++) {
     const x = S * (0.22 + r() * 0.56), y = S * (0.35 + r() * 0.3) - (i < 8 ? 0 : 20), rad = S * (0.1 + r() * 0.16);
-    const gr = g.createRadialGradient(x, y - rad * 0.3, 0, x, y, rad); const sombra = 0.82 + (y / S) * -0.2;
+    const gr = g.createRadialGradient(x, y - rad * 0.3, 0, x, y, rad); const sombra = 1.08 - (y / S) * 0.45; // embaixo da nuvem é mais escuro
     gr.addColorStop(0, `rgba(255,255,255,${0.55})`); gr.addColorStop(0.6, `rgba(${235 * sombra | 0},${238 * sombra | 0},${245 * sombra | 0},0.35)`); gr.addColorStop(1, 'rgba(230,235,245,0)');
     g.fillStyle = gr; g.beginPath(); g.arc(x, y, rad, 0, 7); g.fill();
   }

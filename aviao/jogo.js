@@ -35,7 +35,7 @@ function aplicarFiltro() {
   v.style.cssText = `position:fixed;inset:0;pointer-events:none;background:radial-gradient(ellipse at center,transparent 55%,rgba(0,0,0,${f.vinheta || 0}));` + (f.faixas ? 'box-shadow:inset 0 9vh 0 #000,inset 0 -9vh 0 #000;' : '');
 }
 aplicarFiltro();
-const Q = { alta: S.qual === 'alta', sombra: S.qual === 'baixa' ? 0 : S.qual === 'alta' ? 2048 : 1024, pr: Math.min(devicePixelRatio, S.qual === 'alta' ? 2 : S.qual === 'media' ? 1.5 : 1) };
+const Q = { alta: S.qual === 'alta', sombra: S.qual === 'baixa' ? 0 : S.qual === 'alta' && !TOQUE ? 2048 : 1024, pr: Math.min(devicePixelRatio, S.qual === 'alta' ? (TOQUE ? 1.75 : 2) : S.qual === 'media' ? 1.4 : 1) }; // no celular, sombra 2048 + tela 3x estourava a memória
 
 // ---------- Renderizador ----------
 const canvas = $('c');
@@ -53,6 +53,12 @@ addEventListener('resize', redimensionar); vv?.addEventListener('resize', redime
 await new Promise((r) => setTimeout(r, 30));
 const M = criarCenario(renderer, Q);
 const cena = M.cena;
+
+function recarregar(txt) { // recarrega mostrando um aviso (sem parecer travado)
+  const d = document.createElement('div'); d.textContent = txt + ' — recarregando…'; d.style.cssText = 'position:fixed;inset:0;z-index:99;display:flex;align-items:center;justify-content:center;background:#0b1118;color:#fff;font:16px sans-serif';
+  document.body.appendChild(d); renderer.setAnimationLoop?.(null); setTimeout(() => location.reload(), 150);
+}
+canvas.addEventListener('webglcontextlost', (e) => { e.preventDefault(); if (S.qual !== 'baixa') S.qual = S.qual === 'alta' ? 'media' : 'baixa'; salvar(); recarregar('O celular ficou sem memória de vídeo. Baixando os gráficos'); });
 
 // ---------- Partículas ----------
 function sistema(max, aditivo) {
@@ -222,16 +228,17 @@ function explosao(c, agua, forca = 1) {
   const d = camera.position.distanceTo(c); cam.treme = Math.max(cam.treme, 2.5 * smooth(400, 20, d));
   som.batida(smooth(1500, 50, d));
 }
-const destrocos = [], gPedaco = new THREE.BoxGeometry(0.6, 0.15, 0.9), mPedaco = new THREE.MeshStandardMaterial({ color: 0x333333, roughness: 0.8 });
+const incendios = [], destrocos = [], gPedaco = new THREE.BoxGeometry(0.6, 0.15, 0.9), mPedaco = new THREE.MeshStandardMaterial({ color: 0x333333, roughness: 0.8 });
 function pedaco() { const m = new THREE.Mesh(gPedaco, mPedaco); m.scale.setScalar(0.5 + Math.random() * 1.5); cena.add(m); return m; }
 function bater(a, agua, motivo) {
   if (!a.vivo) return;
   a.vivo = false; a.V = 0; a.obj.visible = false; a.acel = 0; a.morteT = 0;
   const c = a.pos.clone(); if (agua) c.y = 0.5;
+  if (!agua) incendios.push({ p: c.clone().setY(Math.max(M.chao(c.x, c.z), 0) + 1), t: 0, vida: 14 + a.esc * 3, f: Math.min(4, a.esc) });
   explosao(c, agua, Math.min(4, a.esc * (a.tipo === 'cargueiro' ? 2 : 1)));
   if (a === npc) for (const o of presos()) bater(o, agua);
   if (jog.aviao === a && jog.modo === 'piloto') { jog.vivo = false; jog.morteT = 0; mensagem(motivo || (agua ? 'Splash!' : 'Bateu!'), 'Voltando em instantes…', 3); }
-  else if (jog.modo === 'sobre' && jog.sobre === a) { jog.vivo = false; jog.morteT = 0; pessoa.obj.visible = false; mensagem('O avião caiu com você em cima!', 'Da próxima vez pule e abra o paraquedas', 3.5); }
+  else if ((jog.modo === 'sobre' || jog.modo === 'trans') && jog.sobre === a) { jog.vivo = false; jog.morteT = 0; pessoa.obj.visible = false; mensagem('O avião caiu com você em cima!', 'Da próxima vez pule e abra o paraquedas', 3.5); }
   else if (camera.position.distanceTo(c) < 3000) mensagem(a.npc ? '' : 'Avião sem piloto caiu!', 'Boom!', 1.8);
 }
 
@@ -248,7 +255,11 @@ for (const [t, pi, cx, cz, R, alt, v, s] of [['andorinha', 1, -1200, -700, 900, 
 function voarNPC(a, dt) {
   const n = a.npc; n.ang += n.s * a.V / n.R * dt;
   const x = n.cx + Math.cos(n.ang) * n.R, z = n.cz + Math.sin(n.ang) * n.R, tg = tmpV.set(-Math.sin(n.ang), 0, Math.cos(n.ang)).multiplyScalar(n.s);
-  alvoNPC.p.set(x, n.alt + Math.sin(n.ang * 3) * 25, z);
+  // piloto NPC olha 1,5 km à frente e sobe/desce para passar a pelo menos 'folga' metros do chão
+  let topo = 0; for (let d = 0; d <= 1500; d += 150) { const an = n.ang + n.s * d / n.R; topo = Math.max(topo, M.chao(n.cx + Math.cos(an) * n.R, n.cz + Math.sin(an) * n.R)); }
+  const quer = Math.max(n.alt, topo + (a === npc ? 160 : 90)); n.altAtual ??= quer;
+  n.altAtual += clamp(quer - n.altAtual, -6 * dt, 14 * dt); // sobe até 14 m/s, desce devagar
+  alvoNPC.p.set(x, n.altAtual + Math.sin(n.ang * 3) * 25, z);
   const bank = Math.atan(a.V * a.V / (9.8 * n.R));
   alvoNPC.q.setFromEuler(tmpE.set(0.03, Math.atan2(-tg.x, -tg.z), -n.s * bank, 'YXZ'));
   if (n.blend > 0) { // voltando suave para o circuito depois que o jogador pilotou
@@ -257,9 +268,16 @@ function voarNPC(a, dt) {
     a.V = lerp(a.V, n.v, k); a.dir.set(0, 0, -1).applyQuaternion(a.q);
   } else { a.vs = Math.cos(n.ang * 3) * 3 * 25 * a.V / n.R; a.pos.copy(alvoNPC.p); a.q.copy(alvoNPC.q); a.dir.copy(tg).multiplyScalar(n.v).setY(a.vs).normalize(); a.V = Math.hypot(n.v, a.vs); }
   a.queda = 0; a.acel = 0.7; a.trem = a.tremAlvo = 0; a.flap = 0;
+  a.sincronizar(); if (tocaChao(a)) bater(a, M.chao(a.pos.x, a.pos.z) < 0.3, 'O avião bateu na montanha!');
+}
+const PONTAS = [[0, -0.6, -1], [0, 0, 1], [1, 0, 0], [-1, 0, 0], [0, 1, 0.8]]; // nariz, cauda, pontas das asas, deriva (em fração do tamanho)
+function tocaChao(a) { // alguma ponta do avião abaixo do chão (ou da água)?
+  const s = a.P.envergadura / 2, c = a.P.comprimento || s * 1.6;
+  for (const [x, y, z] of PONTAS) { const p = a.obj.localToWorld(tmpV.set(x * s, y * (a.P.alturaTrem || 2) * 1.2, z * c / 2)); if (p.y < Math.max(M.chao(p.x, p.z), 0)) return true; }
+  return false;
 }
 function pilotoAutomatico(a) { // devolve o cargueiro ao NPC a partir de onde ele está
-  const n = a.npc, dx = a.pos.x - n.cx, dz = a.pos.z - n.cz;
+  const n = a.npc, dx = a.pos.x - n.cx, dz = a.pos.z - n.cz; n.altAtual = a.pos.y;
   n.R = clamp(Math.hypot(dx, dz), 1800, 4500); n.ang = Math.atan2(dz, dx); n.alt = clamp(a.pos.y, 350, 900);
   const f = tmpV.set(0, 0, -1).applyQuaternion(a.q); n.s = f.x * -Math.sin(n.ang) + f.z * Math.cos(n.ang) >= 0 ? 1 : -1; n.blend = 1;
   a.comPiloto = false; mensagem('Piloto automático ligado', 'O cargueiro volta a voar sozinho', 2.5);
@@ -305,7 +323,10 @@ function presoNoNPC(a, dt) {
     if (p.L.z > BAIA.rampaFim + 3 / e) { a.preso = null; a.semBaia = 10; a.q.copy(npc.q).multiply(p.q); a.chao = false; a.V = npc.V - 10; a.dir.set(0, 0, -1).applyQuaternion(npc.q); a.queda = 6; a.acel = Math.max(a.acel, 0.7); a.entrouAtras = false; a.vAnt.copy(a.velocidade(tmpV)); mensagem('Lançado!', 'Desça um pouco, recolha o trem e acelere', 2.5); return; }
   } else { // freia e depois taxia sozinho até uma vaga dentro do baú, deixando a rampa livre
     const vaga = Math.max(BAIA.frente + 7 / e, BAIA.fim - (a.P.envergadura * 0.9 + 4) / e);
-    p.vrel = Math.max(p.L.z > vaga + 0.5 / e ? 4 : 0, p.vrel - 9 * dt); p.L.z = Math.max(vaga, p.L.z - p.vrel * dt / e); p.L.x *= 1 - Math.min(1, dt * 0.8);
+    p.vrel = Math.max(p.L.z > vaga + 0.5 / e ? 4 : 0, p.vrel - 9 * dt);
+    const naFrente = jog.modo === 'sobre' && jog.sobre === npc && bloqueado(npc.obj.localToWorld(tmpV.copy(jog.L).add(tmpV2.set(0, 0, 1.2 / e))), npc) === a; // tem gente na frente: o avião espera
+    if (naFrente) p.vrel = 0;
+    p.L.z = Math.max(vaga, p.L.z - p.vrel * dt / e); p.L.x *= 1 - Math.min(1, dt * 0.8);
     for (const o of presos()) if (o !== a && Math.abs(o.preso.L.x - p.L.x) * e < (o.P.envergadura + a.P.envergadura) * 0.45 && o.preso.L.z < p.L.z && (p.L.z - o.preso.L.z) * e < 9) { p.L.z = o.preso.L.z + 9 / e; p.vrel = 0; } }
   a.pos.copy(npc.obj.localToWorld(tmpV.copy(p.L))); a.q.copy(npc.q).multiply(p.q); a.V = npc.V; a.dir.copy(npc.dir); a.chao = true; a.queda = 0; a.vs = 0;
   a.rpm = lerp(a.rpm, a.comPiloto ? 0.18 + a.acel * 0.8 : 0.18, dt);
@@ -395,9 +416,10 @@ if (S.incl) document.addEventListener('pointerdown', () => ligarIncl(), { once: 
 
 // ---------- Jogador: piloto ou a pé ----------
 const pessoa = criarPessoa(); cena.add(pessoa.obj); pessoa.obj.visible = false;
-const jog = { modo: 'piloto', aviao: null, sobre: null, L: V3(), pos: V3(), vel: V3(), yaw: 0, camYaw: 0, garras: true, vivo: true, morteT: 0, rapidez: 0, noChao: true, ondeNasce: null, trans: null, poucoT: 0 };
+const jog = { camPit: 0.28, hop: 0, hopV: 0, correr: false, modo: 'piloto', aviao: null, sobre: null, L: V3(), pos: V3(), vel: V3(), yaw: 0, camYaw: 0, garras: true, vivo: true, morteT: 0, rapidez: 0, noChao: true, ondeNasce: null, trans: null, poucoT: 0 };
 function pilotar(a) {
   if (jog.aviao && jog.aviao !== a) { if (jog.aviao === npc && npc.comPiloto && npc.vivo) pilotoAutomatico(npc); else jog.aviao.comPiloto = false; }
+  jog.hop = jog.hopV = 0;
   jog.aviao = a; a.comPiloto = true; jog.modo = 'piloto'; jog.vivo = true; jog.sobre = null; jog.trans = null; pessoa.obj.visible = false;
   if (a.trafego) { a.npc = null; a.trafego = false; a.vAnt.copy(a.velocidade(tmpV)); } // tomou o avião do tráfego
   if (a === npc) { a.npc.blend = 0; a.ent.p = a.ent.r = a.ent.y = 0; a.vAnt.copy(a.velocidade(tmpV)); }
@@ -500,9 +522,12 @@ function entrar() {
 function pular() {
   if (jog.modo === 'pe' && jog.noChao) { if (escalar()) return; jog.vel.y = 6; jog.noChao = false; return; }
   if (jog.modo === 'sobre' && jog.sobre.chao && jog.sobre.V < 2) { const a = jog.sobre; jog.pos.copy(a.obj.localToWorld(tmpV.copy(jog.L))); jog.modo = 'pe'; jog.noChao = false; jog.vel.set(-Math.sin(jog.yaw) * 2, 5, -Math.cos(jog.yaw) * 2); jog.ignorar = { a, t: 0.8 }; cam.iniciado = false; return; }
+  if (jog.modo === 'sobre' && naBaia()) { if (!jog.hop) jog.hopV = 4.2; return; } // dentro do baú: pulinho, continua dentro
   if (jog.modo === 'sobre') { const a = jog.sobre; jog.pos.copy(a.obj.localToWorld(tmpV.copy(jog.L))); a.velocidade(jog.vel).add(tmpV.set(0, 4, 0).applyQuaternion(a.q)); jog.ignorar = { a, t: 1.2 }; jog.modo = 'queda'; jog.yaw = Math.atan2(-tmpV2.set(0, 0, -1).applyQuaternion(a.q).x, -tmpV2.z); cam.iniciado = false; mensagem('Pulou!', 'Abra o paraquedas (☂ / espaço)', 2); return; }
   if (jog.modo === 'queda') return paraquedas();
 }
+function naBaia() { const a = jog.sobre; return !!(a && a.P.baia && Math.abs(jog.L.x) < BAIA.meia + 0.3 && jog.L.z < BAIA.rampaFim && jog.L.y < 0); }
+const posSobre = (out) => jog.sobre.obj.localToWorld(out.copy(jog.L).setY(jog.L.y + jog.hop / jog.sobre.esc)); // posição em cima do avião (com o pulinho)
 function paraquedas() { if (jog.modo !== 'queda') return; jog.modo = 'paraquedas'; som.clique(); }
 function garras() { jog.garras = !jog.garras; mensagem(jog.garras ? 'Garras ligadas' : 'Garras soltas', jog.garras ? 'Grudado no avião' : 'O vento pode te derrubar', 1.5); }
 function prenderNaBaia() { // dentro do cargueiro: paredes, frente e rampa fechada seguram o boneco
@@ -513,6 +538,7 @@ function prenderNaBaia() { // dentro do cargueiro: paredes, frente e rampa fecha
     if (c.abre < 0.9) L.z = Math.min(L.z, B.fim - 0.3 / e);
   }
 }
+const correndo = (k) => jog.correr || k.corre;
 function fisicaPessoa(dt, k) {
   const inX = k.r, inY = k.p; // joystick: x vira/anda pro lado, y anda pra frente
   const andar = (ref, vel) => { // direção relativa à câmera
@@ -536,7 +562,7 @@ function fisicaPessoa(dt, k) {
     jog.poucoT -= dt; if (jog.ignorar) jog.ignorar.t -= dt;
     desencalhar();
     const h = M.chao(jog.pos.x, jog.pos.z), agua = h < -0.8, chao = agua ? -1.0 : h;
-    const mv = { x: 0, z: 0 }; jog.rapidez = andar(mv, agua ? 2 : 5.5);
+    const mv = { x: 0, z: 0 }; jog.rapidez = andar(mv, agua ? 2 : correndo(k) ? 9 : 5.5);
     jog.vel.x = mv.x; jog.vel.z = mv.z; jog.vel.y -= 9.8 * dt;
     // anda separando x e z: se bater num avião ou prédio, desliza pelo lado; degrau baixo de avião parado = sobe nele
     const x0 = jog.pos.x, z0 = jog.pos.z, y0 = jog.pos.y;
@@ -575,7 +601,7 @@ function fisicaPessoa(dt, k) {
     const a = jog.sobre, e = a.esc;
     if (!a.vivo) return;
     jog.poucoT -= dt;
-    const mv = { x: 0, z: 0 }; jog.rapidez = andar(mv, 2.6);
+    const mv = { x: 0, z: 0 }; jog.rapidez = andar(mv, correndo(k) ? 4.6 : 2.6);
     up.set(0, 1, 0).applyQuaternion(a.q);
     const dentroBaia = a.P.baia && Math.abs(jog.L.x) < BAIA.meia && jog.L.z < BAIA.rampaFim && jog.L.y < 0;
     const vento = dentroBaia || a.chao ? 0 : smooth(18, 70, a.V);
@@ -602,11 +628,17 @@ function fisicaPessoa(dt, k) {
       jog.L.x += dx; jog.L.z += dz; jog.pos.copy(a.obj.localToWorld(tmpV.copy(jog.L))); jog.modo = 'pe'; jog.noChao = false; jog.vel.set(0, 0, 0); jog.ignorar = { a, t: 0.6 }; cam.iniciado = false; return;
     } else if (r === 'borda' && solta) { jog.L.x += dx; jog.L.z += dz; return soltar(a); }
     prenderNaBaia();
-    if (presos().length && bloqueado(a.obj.localToWorld(tmpV.copy(jog.L)), a)) { jog.L.x -= dx; jog.L.z -= dz; } // não atravessa o avião guardado
+    if (presos().length) { // não atravessa o avião guardado no baú
+      const b = bloqueado(a.obj.localToWorld(tmpV.copy(jog.L)), a);
+      if (b && !bloqueado(a.obj.localToWorld(tmpV.copy(jog.L).sub(tmpV2.set(dx, 0, dz))), a)) { jog.L.x -= dx; jog.L.z -= dz; }
+      else if (b) { jog.L.x -= dx; jog.L.z -= dz; const lado = Math.sign(jog.L.x - a.obj.worldToLocal(tmpV.copy(b.pos)).x) || 1; jog.L.x += lado * 6 * dt / e; } // ficou dentro (o avião andou até ele): é empurrado pro lado
+    }
     const ys = a.P.superficies(jog.L.x, jog.L.z).filter((y) => y <= jog.L.y + 1.15 / e);
     if (!ys.length) { if (a.chao) { jog.modo = 'pe'; jog.noChao = false; jog.pos.copy(a.obj.localToWorld(tmpV.copy(jog.L))); return; } return soltar(a); }
-    jog.L.y = Math.max(...ys);
-    jog.pos.copy(a.obj.localToWorld(tmpV.copy(jog.L)));
+    const yAlvo = Math.max(...ys); // degrau suave: sobe/desce andando, sem "pular" sozinho
+    jog.L.y = yAlvo > jog.L.y ? Math.min(yAlvo, jog.L.y + 2.5 * dt / e) : Math.max(yAlvo, jog.L.y - 5 * dt / e);
+    if (jog.hopV || jog.hop) { jog.hopV -= 9.8 * dt; jog.hop = Math.max(0, jog.hop + jog.hopV * dt); if (!jog.hop) jog.hopV = 0; }
+    jog.pos.copy(posSobre(tmpV));
   }
 }
 function pousarEmAviao(yAnt) { // caindo/pulando: se passar por cima de uma superfície de avião, fica em pé nela
@@ -741,7 +773,7 @@ function atualizarCamera(dt, t) {
     }
   } else { // a pé / caindo / em cima do avião: câmera de 3ª pessoa
     const quadro = (jog.modo === 'sobre' || (jog.modo === 'trans' && jog.trans.ref)) && jog.sobre ? jog.sobre.q : null;
-    const yaw = jog.camYaw + ent.olhaX * Math.PI, pit = 0.28 + ent.olhaY;
+    const yaw = jog.camYaw + ent.olhaX * Math.PI, pit = jog.camPit + ent.olhaY;
     const dist = jog.modo === 'paraquedas' ? 13 : jog.modo === 'queda' ? 7 : 5.5;
     const off = tmpV2.set(Math.sin(yaw) * Math.cos(pit), Math.sin(pit), Math.cos(yaw) * Math.cos(pit)).multiplyScalar(dist);
     const alvo = tmpV3.copy(jog.pos).add(tmpV.set(0, 1.4, 0).applyQuaternion(quadro || tmpQ.identity()));
@@ -755,7 +787,7 @@ function atualizarCamera(dt, t) {
     } else for (let i = 0; i < 6 && (dentroDeAviao(camera.position) || M.dentroObst(camera.position)); i++) { off.multiplyScalar(0.72); camera.position.copy(alvo).add(off); } // não atravessa asa/fuselagem
     camera.up.copy(quadro ? tmpV.set(0, 1, 0).applyQuaternion(quadro).lerp(EY, 0.4).normalize() : EY);
     camera.lookAt(alvo); camera.near = 0.2; fov = 62 + (jog.modo === 'queda' ? clamp(jog.vel.length() / 55, 0, 1) * 14 : 0);
-    if (jog.modo !== 'sobre' && ent.olhaX === 0 && Math.hypot(jog.vel.x, jog.vel.z) > 1) jog.camYaw = lerpAng(jog.camYaw, jog.yaw, 1 - Math.exp(-dt * 0.8));
+    if (jog.modo === 'queda' && Math.hypot(jog.vel.x, jog.vel.z) > 1) jog.camYaw = lerpAng(jog.camYaw, jog.yaw, 1 - Math.exp(-dt * 0.8));
   }
   const ch = Math.max(M.chao(camera.position.x, camera.position.z), 0) + 1.2; if (camera.position.y < ch) camera.position.y = ch;
   cam.treme = Math.max(cam.treme - dt * 2, 0); const av = jog.aviao;
@@ -888,7 +920,7 @@ function lerTeclado(dt) {
     if (tem('ShiftLeft', 'ShiftRight', 'Equal', 'NumpadAdd')) av.acel = Math.min(1, av.acel + dt * 0.6);
     if (tem('ControlLeft', 'ControlRight', 'Minus', 'NumpadSubtract', 'KeyZ')) av.acel = Math.max(0, av.acel - dt * 0.6);
   }
-  return { p, r, y: pilotando() ? y : 0, freio: tem('KeyB'), atira: tem('KeyV') };
+  return { p, r, y: pilotando() ? y : 0, freio: tem('KeyB'), atira: tem('KeyV'), corre: !pilotando() && tem('ShiftLeft', 'ShiftRight') };
 }
 const toque = { stick: null, sx: 0, sy: 0, p: 0, r: 0, leme: 0, olha: null, ox: 0, oy: 0, freio: false };
 const zona = $('zonaStick'), base = $('stickBase'), pino = $('stickPin');
@@ -907,7 +939,9 @@ const poeAcel = (e) => { const r = acelEl.getBoundingClientRect(); if (jog.aviao
 acelEl.addEventListener('pointerdown', (e) => { som.iniciar(); acelEl.setPointerCapture(e.pointerId); poeAcel(e); });
 acelEl.addEventListener('pointermove', (e) => { if (acelEl.hasPointerCapture(e.pointerId)) poeAcel(e); });
 canvas.addEventListener('pointerdown', (e) => { som.iniciar(); if (estado !== 'voo' || toque.olha !== null) return; toque.olha = e.pointerId; toque.ox = e.clientX; toque.oy = e.clientY; canvas.setPointerCapture(e.pointerId); });
-canvas.addEventListener('pointermove', (e) => { if (e.pointerId !== toque.olha) return; ent.olhaX = clamp(ent.olhaX + (e.clientX - toque.ox) / telaW() * 1.4, -1, 1); ent.olhaY = clamp(ent.olhaY + (e.clientY - toque.oy) / telaH(), -0.6, 0.6); toque.ox = e.clientX; toque.oy = e.clientY; });
+canvas.addEventListener('pointermove', (e) => { if (e.pointerId !== toque.olha) return;
+  if (estado === 'voo' && !pilotando()) { jog.camYaw += (e.clientX - toque.ox) / telaW() * 1.4 * Math.PI; jog.camPit = clamp(jog.camPit + (e.clientY - toque.oy) / telaH() * 1.2, -0.25, 1.2); toque.ox = e.clientX; toque.oy = e.clientY; return; } /* a pé: a câmera gira e fica */
+  ent.olhaX = clamp(ent.olhaX + (e.clientX - toque.ox) / telaW() * 1.4, -1, 1); ent.olhaY = clamp(ent.olhaY + (e.clientY - toque.oy) / telaH(), -0.6, 0.6); toque.ox = e.clientX; toque.oy = e.clientY; });
 const soltaOlha = (e) => { if (e.pointerId === toque.olha) toque.olha = null; };
 canvas.addEventListener('pointerup', soltaOlha); canvas.addEventListener('pointercancel', soltaOlha);
 const botao = (id, f) => $(id).addEventListener('pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); som.iniciar(); som.clique(); f(); });
@@ -915,7 +949,7 @@ botao('tTrem', () => trem()); botao('tFlap', () => flap()); botao('tFuma', () =>
 $('tAtirar').addEventListener('pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); toque.atira = true; $('tAtirar').classList.add('on'); });
 for (const ev of ['pointerup', 'pointercancel', 'pointerleave']) $('tAtirar').addEventListener(ev, () => { toque.atira = false; $('tAtirar').classList.remove('on'); });
 botao('tPorta', () => porta(pilotando() ? jog.aviao : portaPerto())); botao('tSoltar', () => soltarAviao());
-botao('tPular', () => pular()); botao('tEntrar', () => entrar()); botao('tGarras', () => garras()); botao('tParaq', () => paraquedas());
+botao('tPular', () => pular()); botao('tCorrer', () => { jog.correr = !jog.correr; }); botao('tEntrar', () => entrar()); botao('tGarras', () => garras()); botao('tParaq', () => paraquedas());
 $('tFreio').addEventListener('pointerdown', (e) => { e.preventDefault(); toque.freio = true; $('tFreio').classList.add('on'); });
 for (const ev of ['pointerup', 'pointercancel', 'pointerleave']) $('tFreio').addEventListener(ev, () => { toque.freio = false; $('tFreio').classList.remove('on'); });
 document.querySelectorAll('[data-leme]').forEach((b) => {
@@ -968,13 +1002,13 @@ function hud(dt) {
   $('linha2').textContent = piloto && a ? `${a.T.nome} · motor ${Math.round(a.acel * 100)}%${a.T.motor === 'jato' && a.acel > 0.85 ? ' 🔥' : ''} · ${a.vs >= 0 ? '▲' : '▼'}${Math.abs(a.vs).toFixed(1)} · ${a.G.toFixed(1)}G`
     : { trans: '…', pe: 'a pé', queda: 'caindo!', paraquedas: 'paraquedas aberto', sobre: `em cima do ${jog.sobre === npc ? 'cargueiro' : 'avião'} · garras ${jog.garras ? 'presas' : 'soltas'}` }[jog.modo];
   if (a) { $('acelFill').style.height = a.acel * 100 + '%'; $('acelPct').textContent = Math.round(a.acel * 100) + '%'; $('tTrem').classList.toggle('on', a.tremAlvo === 1); $('tFlap').classList.toggle('on', a.flap > 0); $('tFuma').classList.toggle('on', a.fumaca); }
-  $('tGarras').classList.toggle('on', jog.garras);
+  $('tGarras').classList.toggle('on', jog.garras); $('tCorrer').classList.toggle('on', jog.correr);
   const m = piloto ? 'piloto' : 'ape';
   if (m !== modoBotoes) { modoBotoes = m; document.querySelectorAll('#botoes [data-m]').forEach((b) => (b.hidden = b.dataset.m !== m)); }
   $('tPorta').hidden = !(piloto && a && a.P.abrir) && !(!piloto && portaPerto()); $('tPorta').classList.toggle('on', !!(piloto ? a && a.portaAlvo : portaPerto()?.portaAlvo));
   $('tSoltar').hidden = !(piloto && a && a.preso);
   $('tAtirar').hidden = !(piloto && a && a.T.armas && !a.preso);
-  if (!piloto) { const ep = entrarPerto(); $('tEntrar').hidden = !ep; $('tEntrar').querySelector('small').textContent = ep === npc ? 'pilotar' : 'entrar'; $('tGarras').hidden = jog.modo !== 'sobre'; $('tParaq').hidden = jog.modo !== 'queda'; $('tPular').hidden = !(jog.modo === 'pe' || jog.modo === 'sobre'); }
+  if (!piloto) { const ep = entrarPerto(); $('tEntrar').hidden = !ep; $('tEntrar').querySelector('small').textContent = ep === npc ? 'pilotar' : 'entrar'; $('tGarras').hidden = jog.modo !== 'sobre' || naBaia(); $('tParaq').hidden = jog.modo !== 'queda'; $('tPular').hidden = !(jog.modo === 'pe' || jog.modo === 'sobre'); }
   $('descobertos').textContent = `${Object.keys(S.desc).length}/${LUGARES.length} lugares`;
   const solo = p.y - Math.max(0, M.chao(p.x, p.z));
   const av = !jog.vivo ? '' : piloto && a ? (a.estol ? 'ESTOL — acelere e abaixe o nariz' : (!a.chao && solo < 60 && a.vs < -8 && !a.preso) ? 'CHÃO! Puxe!' : (!a.chao && a.tremAlvo === 0 && solo < 25 && a.V < 45) ? 'Baixe o trem (G)' : Math.max(Math.abs(p.x), Math.abs(p.z)) > MUNDO * 0.6 ? 'Volte para as ilhas' : '')
@@ -1053,7 +1087,7 @@ painel.addEventListener('click', (e) => {
   if (d.fumaca) { S.fumacaCor = +d.fumaca; if (jog.aviao) jog.aviao.fumaca = true; }
   if (d.filtro) { S.filtro = +d.filtro; aplicarFiltro(); }
   if (d.hora) mudarHora(+d.hora);
-  if (d.op === 'qual') { S.qual = { alta: 'baixa', media: 'alta', baixa: 'media' }[S.qual]; salvar(); location.reload(); return; }
+  if (d.op === 'qual') { S.qual = { alta: 'baixa', media: 'alta', baixa: 'media' }[S.qual]; salvar(); recarregar('Gráficos: ' + { alta: 'Bonito', media: 'Médio', baixa: 'Rápido' }[S.qual]); return; }
   if (d.op === 'foto') { modoFoto(); return fecharMenu(); }
   if (d.op) { S[d.op] = !S[d.op]; if (d.op === 'som') som.mudo(!S.som); if (d.op === 'incl') { if (S.incl) ligarIncl(); else incl.ligado = false; } }
   salvar(); const sc = painel.scrollTop; estado = 'voo'; abrirMenu(); painel.scrollTop = sc;
@@ -1104,7 +1138,7 @@ function passo(dt) {
     const alvoP = clamp(k.p + (pilotando() && S.inverter ? -toque.p : toque.p) + (ti ? incl.p : 0), -1, 1), alvoR = clamp(k.r + toque.r + (ti ? incl.r : 0), -1, 1), alvoY = clamp(k.y + toque.leme, -1, 1);
     const av = jog.aviao;
     if (pilotando() && av) { const suave = 1 - Math.exp(-dt * (TOQUE ? 14 : 6)); av.ent.p = lerp(av.ent.p, alvoP, suave); av.ent.r = lerp(av.ent.r, alvoR, suave); av.ent.y = lerp(av.ent.y, alvoY, suave); av.ent.freio = k.freio || toque.freio; }
-    else if (jog.vivo) fisicaPessoa(dt, { p: alvoP, r: alvoR });
+    else if (jog.vivo) fisicaPessoa(dt, { p: alvoP, r: alvoR, corre: k.corre });
     if (pilotando() && av && (k.atira || toque.atira)) atirar(av, dt);
     if (toque.olha === null) { ent.olhaX *= 1 - Math.min(1, dt * 1.5); ent.olhaY *= 1 - Math.min(1, dt * 1.5); if (Math.abs(ent.olhaX) < 1e-3) ent.olhaX = 0; }
     if (!jog.vivo && (jog.morteT += dt) > 2.8) renascer();
@@ -1113,8 +1147,11 @@ function passo(dt) {
   }
   // todos os aviões: o cargueiro primeiro (os aviões guardados nele dependem dele), e a posição 3D atualizada logo após a física
   for (const a of [npc, ...frota.filter((f) => f !== npc)]) { atualizarAero(a, dt); a.sincronizar(); }
-  if ((jog.modo === 'sobre' || (jog.modo === 'trans' && jog.trans.ref)) && jog.sobre && jog.vivo) jog.pos.copy(jog.sobre.obj.localToWorld(tmpV.copy(jog.L))); // boneco acompanha o avião no mesmo quadro
+  if ((jog.modo === 'sobre' || (jog.modo === 'trans' && jog.trans.ref)) && jog.sobre && jog.vivo) jog.pos.copy(posSobre(tmpV)); // boneco acompanha o avião no mesmo quadro
   atualizarBalas(dt);
+  for (let i = incendios.length - 1; i >= 0; i--) { const f = incendios[i]; f.t += dt; const k = 1 - f.t / f.vida; if (k <= 0) { incendios.splice(i, 1); continue; }
+    if (Math.random() < 0.6 * k) fogo.emitir(tmpV.copy(f.p).add(tmpV2.set((Math.random() - 0.5) * 4 * f.f, 0, (Math.random() - 0.5) * 4 * f.f)), tmpV2.set(0, 4 + Math.random() * 4, 0), tmpC.setHSL(0.05 + Math.random() * 0.05, 1, 0.55), 3 * f.f, 1, 0.9, 0.8, 0.5, 2);
+    if (Math.random() < 0.5) fumaca.emitir(tmpV.copy(f.p).add(tmpV2.set(0, 2 * f.f, 0)), tmpV2.set(1.5, 3, 0), tmpC.setRGB(0.15, 0.15, 0.15), 4 * f.f, 22 * f.f, 0.6 * k, 7, 0.2, 1.5); }
   for (const al of alvos) al.g.position.y = al.y0 + Math.sin(tempo * 0.8 + al.f) * 4;
   for (let i = destrocos.length - 1; i >= 0; i--) { const d = destrocos[i]; d.t += dt; d.v.y -= 9.8 * dt; d.p.addScaledVector(d.v, dt); d.m.position.copy(d.p); d.m.rotation.x += d.r.x * dt * 8; d.m.rotation.y += d.r.y * dt * 8;
     if (Math.random() < 0.3) fumaca.emitir(d.p, tmpV.set(0, 1, 0), tmpC.set(0x333333), 1, 5, 0.5, 1.5);
@@ -1122,7 +1159,7 @@ function passo(dt) {
 }
 function atualizarAero(a, dt) {
   if (a.P.abrir) { a.abre = clamp(a.abre + clamp((a.portaAlvo || 0) - a.abre, -dt * 0.3, dt * 0.3), 0, 1); a.P.abrir(a.abre); a.P.rampaAberta = a.abre > 0.9; }
-  if (a.npc && !a.vivo) { a.morteT = (a.morteT || 0) + dt; if (a.morteT > 8) { a.vivo = true; a.obj.visible = true; a.comPiloto = false; a.npc.blend = 0; if (a === npc) a.portaAlvo = 1; } return; }
+  if (a.npc && !a.vivo) { a.morteT = (a.morteT || 0) + dt; if (a.morteT > 8) { a.vivo = true; a.obj.visible = true; a.comPiloto = false; a.npc.blend = 0; a.npc.altAtual = undefined; if (a === npc) a.portaAlvo = 1; } return; }
   if (a.npc && !a.comPiloto) { voarNPC(a, dt); return; }
   if (a === titulo && estado === 'titulo') return;
   if (a.preso) { if (npc.vivo) presoNoNPC(a, dt); return; }
@@ -1131,7 +1168,7 @@ function atualizarAero(a, dt) {
   if (!a.comPiloto) { a.ent.p = a.ent.r = a.ent.y = 0; }
   fisica(a, dt / 2, tempo); if (a.vivo) fisica(a, dt / 2, tempo);
   checarBaia(a, dt);
-  if (a === jog.aviao && a.vivo && !a.chao) colisaoNoAr(a);
+  if (a === jog.aviao && a.vivo && !a.chao) { colisaoNoAr(a); if (a.vivo && a.esc > 1 && tocaChao(a)) bater(a, false, 'O cargueiro bateu!'); }
   a.estacionado = a.chao && a.V < 0.5 && !a.comPiloto && !a.preso;
 }
 function quadro(agora) {
@@ -1166,4 +1203,4 @@ document.addEventListener('visibilitychange', () => { if (document.hidden && est
 
 // testes automáticos
 const simular = (seg, e = {}) => { const a = jog.aviao; toque.p = e.p || 0; toque.r = e.r || 0; toque.leme = e.y || 0; toque.freio = !!e.freio; if (e.acel !== undefined) a.acel = e.acel; const log = []; for (let i = 0; i < seg * 60; i++) { passo(1 / 60); if (i % 60 === 0) log.push([Math.round(a.V * 3.6), Math.round(a.pos.y), a.chao ? 'chão' : 'ar', jog.modo].join(' ')); if (!jog.vivo) break; } toque.p = toque.r = toque.leme = 0; toque.freio = false; return log.join(' | ') + (jog.vivo ? '' : ' | MORREU'); };
-window.__jogo = { incl, M, chao: (x, z) => M.chao(x, z), simular, passo, jog, npc, frota, cam, camera, comecar, mudarHora, comecarDesafio, nascerLugar, DESAFIOS, DESAFIO_BAIA, DESAFIO_TIRO, LUGARES, ent, proxCam, sair, pular, paraquedas, garras, entrar, S, horaJa: (i) => { hora = { de: i, para: i, t: 1 }; M.aplicarHora(i, i, 1); } };
+window.__jogo = { bloqueado: (p, i) => bloqueado(p, i), incl, M, chao: (x, z) => M.chao(x, z), simular, passo, jog, npc, frota, cam, camera, comecar, mudarHora, comecarDesafio, nascerLugar, DESAFIOS, DESAFIO_BAIA, DESAFIO_TIRO, LUGARES, ent, proxCam, sair, pular, paraquedas, garras, entrar, S, horaJa: (i) => { hora = { de: i, para: i, t: 1 }; M.aplicarHora(i, i, 1); } };
