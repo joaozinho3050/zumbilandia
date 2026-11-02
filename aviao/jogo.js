@@ -156,8 +156,8 @@ function fisica(a, dt, tempo) {
   let pr = T.arf * ent.p * ctrl, rr = T.rol * ent.r * ctrl, yr = T.guinada * ent.y * ctrl;
   if (!a.chao) {
     // com a ajuda de voo, manche de lado = curva (inclinação até ~70°), nunca giro completo; sem ajuda, gira livre (tonneau)
-    if (assist && up.y > 0.2) rr = clamp((clamp(ent.r * 1.3, -1.22, 1.22) - bank) * 2.6, -T.rol * 0.85, T.rol * 0.85) * Math.min(ctrl, 1);
-    else if (assist && Math.abs(ent.r) < 0.1 && Math.abs(ent.p) < 0.1) rr = (ry < 0 ? -1 : 1) * T.rol * 0.6 * Math.min(ctrl, 1);
+    // ajuda de voo: a bolinha de lado escolhe a INCLINAÇÃO (até 70°), nunca o giro — vale em qualquer atitude (subindo, descendo, de cabeça pra baixo)
+    if (assist && Math.abs(fwd.y) < 0.97) { const bankT = Math.atan2(-ry, up.y); rr = clamp((clamp(ent.r * 1.3, -1.22, 1.22) - bankT) * 2.6, -T.rol * 0.85, T.rol * 0.85) * Math.min(ctrl, 1); }
     if (assist && Math.abs(ent.p) < 0.1 && up.y > 0.5 && a.V > vs) pr -= arf * 0.5;
     if (!a.comPiloto) { // ninguém pilotando: vai torcendo e mergulhando devagar
       pr += -0.012 - arf * 0.15 + Math.sin(tempo * 0.31 + a.seed) * 0.02; rr += Math.sin(tempo * 0.23 + a.seed * 2) * 0.06 - bank * 0.15;
@@ -370,8 +370,18 @@ function atirar(a, dt) {
   const W = a.T.armas; if (!W || !a.vivo || a.preso) return;
   a.cadT = (a.cadT || 0) - dt; if (a.cadT > 0) return; a.cadT = 1 / W.cadencia;
   const c = W.canos[(a.canoI = (a.canoI || 0) + 1) % W.canos.length], p = a.obj.localToWorld(V3().set(...c));
-  const disp = a.inimigo ? 14 : 5; // inimigo erra mais
-  const v = a.velocidade(V3()).addScaledVector(tmpV.set(0, 0, -1).applyQuaternion(a.q), W.vel).add(tmpV.set((Math.random() - 0.5) * disp, (Math.random() - 0.5) * disp, (Math.random() - 0.5) * disp));
+  const disp = a.inimigo ? 14 : 3; // inimigo erra mais
+  let dirTiro = null;
+  if (!a.inimigo) { // mira assistida: inimigo a até 1,2 km e dentro de ~9° do nariz → balas vão para onde ele vai estar
+    const f = tmpV.set(0, 0, -1).applyQuaternion(a.q);
+    for (const o of frota) {
+      if (o === a || !o.vivo || o.chao || o.fixo || o === npc) continue;
+      const d = tmpV2.copy(o.pos).sub(a.pos), dist = d.length(); if (dist > 1200) continue;
+      if (d.dot(f) / dist < Math.cos(0.16)) continue;
+      const t = dist / W.vel; dirTiro = tmpV3.copy(o.pos).addScaledVector(o.velocidade(V3()), t).addScaledVector(a.velocidade(V3()), -t).sub(p).normalize(); break;
+    }
+  }
+  const v = a.velocidade(V3()).addScaledVector(dirTiro || tmpV.set(0, 0, -1).applyQuaternion(a.q), W.vel).add(tmpV.set((Math.random() - 0.5) * disp, (Math.random() - 0.5) * disp, (Math.random() - 0.5) * disp));
   const m = poolTraco.pop() || new THREE.Mesh(gTraco); m.material = a.inimigo ? mTraco.i : mTraco.j; m.frustumCulled = false; m.position.copy(p); m.quaternion.setFromUnitVectors(EZ, tmpV.copy(v).normalize().negate()); cena.add(m);
   balas.push({ p, v, t: 0, m, dono: a });
   fogo.emitir(p, a.velocidade(tmpV2), tmpC.set(0xffe2a0), 6, 2, 1, 0.08, 0); // clarão na boca do cano
@@ -395,7 +405,7 @@ function atualizarBalas(dt) {
     for (let k = alvos.length - 1; k >= 0 && !fim; k--) if (toca(alvos[k].g.position, alvos[k].r)) { acertou(alvos[k], k); fim = true; }
     for (const a of frota) { // bala contra avião (no ar, vivo, que não é quem atirou)
       if (fim || a === b.dono || !a.vivo || a.chao || a.fixo || a === npc || a.pos.distanceToSquared(b.p) > 250 * 250) continue;
-      if (toca(a.pos, a.P.envergadura * a.esc * 0.4)) { danificar(a, a === jog.aviao ? 4 : 9, b.dono); fim = true; }
+      if (toca(a.pos, a.P.envergadura * a.esc * 0.55)) { danificar(a, a === jog.aviao ? 4 : 14, b.dono); fim = true; }
     }
     const h = M.chao(b.p.x, b.p.z);
     if (!fim && b.p.y < Math.max(h, 0)) { fumaca.emitir(b.p, tmpV.set(0, 3, 0), tmpC.set(h < 0 ? 0xf4fbff : 0x9a8a70), 1.5, 5, 0.6, 0.8); fim = true; }
