@@ -155,7 +155,8 @@ function fisica(a, dt, tempo) {
   const ctrl = clamp(a.V / (vs * 1.4), 0.12, 1.15);
   let pr = T.arf * ent.p * ctrl, rr = T.rol * ent.r * ctrl, yr = T.guinada * ent.y * ctrl;
   if (!a.chao) {
-    if (assist && Math.abs(ent.r) < 0.92 && up.y > 0.2) rr = clamp((ent.r * 1.3 - bank) * 2.6, -T.rol * 0.85, T.rol * 0.85) * Math.min(ctrl, 1);
+    // com a ajuda de voo, manche de lado = curva (inclinação até ~70°), nunca giro completo; sem ajuda, gira livre (tonneau)
+    if (assist && up.y > 0.2) rr = clamp((clamp(ent.r * 1.3, -1.22, 1.22) - bank) * 2.6, -T.rol * 0.85, T.rol * 0.85) * Math.min(ctrl, 1);
     else if (assist && Math.abs(ent.r) < 0.1 && Math.abs(ent.p) < 0.1) rr = (ry < 0 ? -1 : 1) * T.rol * 0.6 * Math.min(ctrl, 1);
     if (assist && Math.abs(ent.p) < 0.1 && up.y > 0.5 && a.V > vs) pr -= arf * 0.5;
     if (!a.comPiloto) { // ninguém pilotando: vai torcendo e mergulhando devagar
@@ -1068,7 +1069,7 @@ function abrirMenu() {
     lugares: `<h3>Ir para</h3><div class="grade">${lugares}</div>`,
     visual: `<h3>Hora do dia</h3><div class="linha">${horas}</div>
     <h3>Filtro de imagem</h3><div class="linha">${FILTROS.map((f, i) => `<button class="card${i === S.filtro ? ' sel' : ''}" data-filtro="${i}">${f.nome}</button>`).join('')}</div>`,
-    opcoes: `<h3>Opções</h3><div class="linha">${op('assist', 'Ajuda de voo', S.assist)}${op('inverter', 'Controles invertidos (puxar pra trás sobe)', S.inverter)}${op('incl', 'Pilotar inclinando o celular', S.incl)}${op('som', 'Som', S.som)}${op('foto', 'Modo foto', document.body.classList.contains('foto'))}
+    opcoes: `<h3>Opções</h3><div class="linha">${op('assist', 'Ajuda de voo (desligue para fazer tonneau)', S.assist)}${op('inverter', 'Controles invertidos (puxar pra trás sobe)', S.inverter)}${op('incl', 'Pilotar inclinando o celular', S.incl)}${op('som', 'Som', S.som)}${op('foto', 'Modo foto', document.body.classList.contains('foto'))}
       <button class="card" data-op="qual">Gráficos: ${{ alta: 'Bonito', media: 'Médio', baixa: 'Rápido' }[S.qual]}</button></div>
     <h3>Comandos</h3><small style="color:var(--sub);line-height:1.7;display:block">${TOQUE ? 'Bolinha da esquerda: manche ' + (S.inverter ? '(puxe para baixo para subir, como avião de verdade)' : '(para cima sobe)') + '; no chão/a pé: anda. Barra da direita: motor. Arraste a tela para olhar. ⇪ sai do avião — em voo você fica em cima dele com as garras ⋔. Sem garras o vento te derruba; ☂ abre o paraquedas.' : (S.inverter ? 'S sobe / W desce' : 'W sobe / S desce') + ' · A/D inclinar · Q/E leme · Shift/Ctrl motor · G trem · F flap · Espaço fumaça · B freio · X sair do avião · V atira (caças) · C câmera · T hora · H foto · Esc menu<br>A pé: WASD anda · Espaço pula/abre paraquedas · E entra · K garras'}<br>Cargueiro gigante: chegue por trás na mesma velocidade, trem baixado, e pouse na rampa.</small>`
   };
