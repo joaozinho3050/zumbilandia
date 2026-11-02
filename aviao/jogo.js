@@ -366,7 +366,7 @@ const balas = [], alvos = [], misseis = [], inimigos = [];
 const gTraco = new THREE.BoxGeometry(0.5, 0.5, 24).translate(0, 0, 12);
 const mTraco = { j: new THREE.MeshBasicMaterial({ color: 0xffe08a, transparent: true, opacity: 0.95, blending: THREE.AdditiveBlending, depthWrite: false }), i: new THREE.MeshBasicMaterial({ color: 0xff5040, transparent: true, opacity: 0.95, blending: THREE.AdditiveBlending, depthWrite: false }) };
 const poolTraco = [];
-function atirar(a, dt) {
+function atirar(a, dt, mirarEm) {
   const W = a.T.armas; if (!W || !a.vivo || a.preso) return;
   a.cadT = (a.cadT || 0) - dt; if (a.cadT > 0) return; a.cadT = 1 / W.cadencia;
   const c = W.canos[(a.canoI = (a.canoI || 0) + 1) % W.canos.length], p = a.obj.localToWorld(V3().set(...c));
@@ -375,6 +375,7 @@ function atirar(a, dt) {
   if (!a.inimigo || jog.aviao) { // mira assistida (inimigo também mira no futuro, só em você): inimigo a até 1,2 km e dentro de ~9° do nariz → balas vão para onde ele vai estar
     const f = tmpV.set(0, 0, -1).applyQuaternion(a.q);
     for (const o of frota) {
+      if (mirarEm) { const t = mirarEm.distanceTo(p) / W.vel; dirTiro = tmpV3.copy(mirarEm).add(tmpV.set(0, 1, 0)).addScaledVector(jog.sobre ? jog.sobre.velocidade(V3()) : jog.vel, t).addScaledVector(a.velocidade(V3()), -t).sub(p).normalize(); break; }
       if (o === a || !o.vivo || o.chao || o.fixo || o === npc || (a.inimigo && o !== jog.aviao) || (!a.inimigo && o === jog.aviao)) continue;
       const d = tmpV2.copy(o.pos).sub(a.pos), dist = d.length(); if (dist > 1200) continue;
       if (d.dot(f) / dist < Math.cos(0.16)) continue;
@@ -424,6 +425,10 @@ function atualizarGancho(dt) {
   cabo.geometry.attributes.position.setXYZ(0, jog.pos.x, jog.pos.y + 1.2, jog.pos.z); cabo.geometry.attributes.position.setXYZ(1, dest.x, dest.y, dest.z); cabo.geometry.attributes.position.needsUpdate = true;
   if (u >= 1) { cabo.visible = false; jog.modo = 'sobre'; jog.sobre = a; jog.L.copy(a.P.entradaVoo || a.P.entrada); jog.poucoT = 0.3; jog.yaw = 0; cam.iniciado = false; prenderNaBaia(); mensagem('Agarrou o avião!', a.P.baia ? '' : 'Entre na cabine (⇩) ou ande em cima', 2); }
 }
+function ferirPessoa(dano) {
+  jog.hp = (jog.hp ?? 100) - dano; piscarDano(); cam.treme = Math.max(cam.treme, 0.5);
+  if (jog.hp <= 0) { jog.vivo = false; jog.morteT = 0; pessoa.obj.visible = false; explosao(jog.pos.clone(), false, 0.2); mensagem('Você foi atingido!', 'Volte para a cabine quando o inimigo estiver perto', 3); }
+}
 function danificar(a, dano, porQuem) { // aviões têm "vida"; com pouca vida soltam fumaça; zero = explode
   if (!a.vivo || a.fixo || a === npc) return;
   a.hp = (a.hp ?? 100) - dano;
@@ -444,6 +449,7 @@ function atualizarBalas(dt) {
       if (fim || a === b.dono || (b.dono === PESSOA && a === jog.sobre) || !a.vivo || a.chao || a.fixo || a === npc || a.pos.distanceToSquared(b.p) > 250 * 250) continue;
       if (toca(a.pos, a.P.envergadura * a.esc * 0.55)) { danificar(a, a === jog.aviao ? 4 : b.dono === PESSOA ? 9 : 14, b.dono); fim = true; }
     }
+    if (!fim && b.dono.inimigo && jog.vivo && jog.modo !== 'piloto' && jog.modo !== 'trans' && toca(tmpV3.copy(jog.pos).add(tmpV2.set(0, 1, 0)), 1.3)) { ferirPessoa(2); fim = true; } // acertou você
     const h = M.chao(b.p.x, b.p.z);
     if (!fim && b.p.y < Math.max(h, 0)) { fumaca.emitir(b.p, tmpV.set(0, 3, 0), tmpC.set(h < 0 ? 0xf4fbff : 0x9a8a70), 1.5, 5, 0.6, 0.8); fim = true; }
     if (fim) { cena.remove(b.m); poolTraco.push(b.m); balas.splice(i, 1); }
@@ -532,7 +538,7 @@ function pilotarInimigo(a, dt) {
   if (solo < 180) { a.ent.r *= 0.3; a.ent.p = 1; } // perto do chão: nivela e puxa
   a.acel = dist > 1500 ? 1 : dist < 300 ? 0.55 : 0.85;
   const ang = Math.acos(clamp(f.dot(d) / dist, -1, 1));
-  if (dist < 900 && ang < 0.14) atirar(a, dt); // tem você na mira: atira
+  if (dist < 900 && ang < 0.14) atirar(a, dt, jog.modo !== 'piloto' ? jog.pos : null); // tem você na mira: atira (no boneco, se estiver fora da cabine)
   a.missilT = (a.missilT ?? 6 + Math.random() * 6) - dt; // lança míssil de vez em quando, se tiver você à frente
   if (a.missilT <= 0 && dist > 500 && dist < 2600 && ang < 0.45) { a.missilT = 12 + Math.random() * 8; dispararMissil(a, alvo); }
   if (a.flareEm !== undefined && (a.flareEm -= dt) <= 0) { a.flareEm = undefined; soltarFlares(a); }
@@ -589,7 +595,7 @@ const pessoa = criarPessoa(); cena.add(pessoa.obj); pessoa.obj.visible = false;
 const jog = { camPit: 0.28, hop: 0, hopV: 0, correr: false, modo: 'piloto', aviao: null, sobre: null, L: V3(), pos: V3(), vel: V3(), yaw: 0, camYaw: 0, garras: true, vivo: true, morteT: 0, rapidez: 0, noChao: true, ondeNasce: null, trans: null, poucoT: 0 };
 function pilotar(a) {
   if (jog.aviao && jog.aviao !== a) { if (jog.aviao === npc && npc.comPiloto && npc.vivo) pilotoAutomatico(npc); else jog.aviao.comPiloto = false; }
-  jog.hop = jog.hopV = 0; if (!a.inimigo) { a.hp ??= 100; }
+  jog.hop = jog.hopV = 0; jog.hp = 100; if (!a.inimigo) { a.hp ??= 100; }
   jog.aviao = a; a.comPiloto = true; jog.modo = 'piloto'; jog.vivo = true; jog.sobre = null; jog.trans = null; pessoa.obj.visible = false;
   if (a.trafego) { a.npc = null; a.trafego = false; a.vAnt.copy(a.velocidade(tmpV)); } // tomou o avião do tráfego
   if (a === npc) { a.npc.blend = 0; a.ent.p = a.ent.r = a.ent.y = 0; a.vAnt.copy(a.velocidade(tmpV)); }
@@ -1254,7 +1260,7 @@ function hud(dt) {
   const vel = piloto && a ? a.V : jog.modo === 'sobre' && jog.sobre ? jog.sobre.V : jog.vel.length();
   $('vVel').textContent = Math.round(vel * 3.6); $('vAlt').textContent = Math.round(Math.max(0, p.y));
   $('linha2').textContent = piloto && a ? `${a.hp !== undefined && a.hp < 100 ? '♥ ' + Math.max(0, Math.round(a.hp)) + ' · ' : ''}${a.T.nome} · motor ${Math.round(a.acel * 100)}%${a.T.motor === 'jato' && a.acel > 0.85 ? ' 🔥' : ''} · ${a.vs >= 0 ? '▲' : '▼'}${Math.abs(a.vs).toFixed(1)} · ${a.G.toFixed(1)}G`
-    : { gancho: 'gancho!', trans: '…', pe: 'a pé', queda: 'caindo!', paraquedas: 'paraquedas aberto', sobre: `em cima do ${jog.sobre === npc ? 'cargueiro' : 'avião'} · garras ${jog.garras ? 'presas' : 'soltas'}` }[jog.modo];
+    : { gancho: 'gancho!', trans: '…', pe: (jog.hp < 100 ? '♥ ' + Math.max(0, Math.round(jog.hp)) + ' · ' : '') + 'a pé', queda: 'caindo!', paraquedas: 'paraquedas aberto', sobre: `em cima do ${jog.sobre === npc ? 'cargueiro' : 'avião'} · garras ${jog.garras ? 'presas' : 'soltas'}` }[jog.modo];
   if (a) { $('acelFill').style.height = a.acel * 100 + '%'; $('acelPct').textContent = Math.round(a.acel * 100) + '%'; $('tTrem').classList.toggle('on', a.tremAlvo === 1); $('tFlap').classList.toggle('on', a.flap > 0); $('tFuma').classList.toggle('on', a.fumaca); }
   $('tGarras').classList.toggle('on', jog.garras); $('tCorrer').classList.toggle('on', jog.correr);
   const m = piloto ? 'piloto' : 'ape';
@@ -1474,4 +1480,4 @@ document.addEventListener('visibilitychange', () => { if (document.hidden && est
 
 // testes automáticos
 const simular = (seg, e = {}) => { const a = jog.aviao; toque.p = e.p || 0; toque.r = e.r || 0; toque.leme = e.y || 0; toque.freio = !!e.freio; if (e.acel !== undefined) a.acel = e.acel; const log = []; for (let i = 0; i < seg * 60; i++) { passo(1 / 60); if (i % 60 === 0) log.push([Math.round(a.V * 3.6), Math.round(a.pos.y), a.chao ? 'chão' : 'ar', jog.modo].join(' ')); if (!jog.vivo) break; } toque.p = toque.r = toque.leme = 0; toque.freio = false; return log.join(' | ') + (jog.vivo ? '' : ' | MORREU'); };
-window.__jogo = { cameraJa: () => atualizarCamera(1 / 60, tempo), bloqueado: (p, i) => bloqueado(p, i), incl, M, chao: (x, z) => M.chao(x, z), simular, passo, jog, npc, frota, cam, camera, comecar, mudarHora, comecarDesafio, nascerLugar, DESAFIOS, DESAFIO_BAIA, DESAFIO_TIRO, DESAFIO_CARGA, DESAFIO_COMBATE, DESAFIO_PORTA, inimigos, dispararMissil, alvoTravado, misseis, balas, soltarCarga, soltarFlares, flares, atirarFuzil, gancho, alvoGancho, caixas, previsaoCarga: () => previsaoCarga(), LUGARES, ent, proxCam, sair, pular, paraquedas, garras, entrar, S, horaJa: (i) => { hora = { de: i, para: i, t: 1 }; M.aplicarHora(i, i, 1); } };
+window.__jogo = { pessoa, cameraJa: () => atualizarCamera(1 / 60, tempo), bloqueado: (p, i) => bloqueado(p, i), incl, M, chao: (x, z) => M.chao(x, z), simular, passo, jog, npc, frota, cam, camera, comecar, mudarHora, comecarDesafio, nascerLugar, DESAFIOS, DESAFIO_BAIA, DESAFIO_TIRO, DESAFIO_CARGA, DESAFIO_COMBATE, DESAFIO_PORTA, inimigos, dispararMissil, alvoTravado, misseis, balas, soltarCarga, soltarFlares, flares, atirarFuzil, gancho, alvoGancho, caixas, previsaoCarga: () => previsaoCarga(), LUGARES, ent, proxCam, sair, pular, paraquedas, garras, entrar, S, horaJa: (i) => { hora = { de: i, para: i, t: 1 }; M.aplicarHora(i, i, 1); } };

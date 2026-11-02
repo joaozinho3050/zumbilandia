@@ -73,6 +73,11 @@ const checagens = () => {
   J.cameraJa(); const fc = J.camera.getWorldDirection(new V()); al2.pos.copy(J.camera.position).addScaledVector(fc, 300); al2.q.copy(eu2.q); al2.dir.copy(eu2.dir); al2.V = eu2.V * 0.95; al2.comPiloto = false; al2.inimigo = false; al2.sincronizar();
   for (let i = 0; i < 240 && al2.vivo; i++) { J.cameraJa(); J.camera.lookAt(al2.pos); J.atirarFuzil(1 / 60); J.passo(1 / 60); }
   ok('fuzil em cima da asa derruba avião', !al2.vivo);
+  // 10. inimigo acerta você fora da cabine
+  J.comecarDesafio(J.DESAFIO_COMBATE); const eu3 = J.jog.aviao; J.sair(); for (let i = 0; i < 10; i++) J.passo(1 / 60);
+  const in3 = J.inimigos[0]; for (const x of J.inimigos.slice(1)) { x.vivo = false; x.obj.visible = false; }
+  in3.pos.copy(eu3.pos).add(new V(0, 5, 500).applyQuaternion(eu3.q)); in3.q.copy(eu3.q); in3.dir.copy(eu3.dir); in3.V = eu3.V; in3.sincronizar();
+  for (let i = 0; i < 60 * 3 && J.jog.vivo; i++) J.passo(1 / 60); ok('inimigo acerta você na asa', J.jog.hp < 100);
   return res;
 };
 
