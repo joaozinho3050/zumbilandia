@@ -491,7 +491,7 @@ export function criarCenario(renderer, Q) {
       let nt = 0, nf = 0, np = 0;
       for (let j = 0; j < LADO; j++) for (let i = 0; i < LADO; i++) {
         const gx = cx + i - LADO / 2, gz = cz + j - LADO / 2, x = (gx + hsh(gx, gz, 1)) * CEL, z = (gz + hsh(gx, gz, 2)) * CEL, h = out.chao(x, z);
-        if (h < 2.5 || h > 430 || (Math.abs(x - PISTA.x) < 30 && z > PISTA.z0 && z < PISTA.z1)) continue;
+        if (h < 2.5 || h > 430 || (x > PISTA.x - 30 && x < PISTA.x + 260 && z > PISTA.z0 - 30 && z < PISTA.z1 + 30)) continue; // sem grama na pista, pátio e taxiway
         const ny = out.normalY(x, z); if (ny < 0.85 || Math.hypot(x - 3000, (z - 400) * 1.1) < 1450) continue; // fora do planalto vermelho (conta barata no lugar de terreno())
         const r = hsh(gx, gz, 3), s = 0.7 + hsh(gx, gz, 4) * 0.9;
         q.setFromEuler(e.set(0, r * 6.28, 0)); mt.compose(ps.set(x, h - 0.05, z), q, sc.set(s, s * (0.8 + r * 0.6), s));

@@ -55,7 +55,8 @@ export function terreno(x, z) {
     h = lerp(fundo, lerp(rim, h, smooth(LAGO.r * 1.5, LAGO.r * 2.2, dl)), smooth(LAGO.r * 0.85, LAGO.r * 1.08, dl));
   }
   // pista: chão plano com borda suave
-  const dx = Math.max(Math.abs(x - PISTA.x) - 110, 0), dz = Math.max(z - PISTA.z1 - 60, PISTA.z0 - 60 - z, 0);
+  // plano da pista até os hangares (o pátio fica nivelado com o chão)
+  const dx = Math.max(x - PISTA.x - 300, PISTA.x - 110 - x, 0), dz = Math.max(z - PISTA.z1 - 60, PISTA.z0 - 60 - z, 0);
   h = lerp(PISTA.h, h, smooth(0, 220, Math.hypot(dx, dz)));
   T.h = h; T.mesa = mMesa; T.mtn = mMtn;
   return T;

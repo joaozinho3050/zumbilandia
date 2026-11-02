@@ -236,8 +236,12 @@ export function criarWarbird(p = PINT_WAR[0]) {
     const f = new THREE.Mesh(new THREE.PlaneGeometry(0.07, 0.06), brasa); f.position.set(s * 0.585, 0.18, -3.55 + i * 0.2); f.rotation.y = s * Math.PI / 2; A.add(f);
   }
   // radiador na barriga
-  const rad = new THREE.Mesh(new THREE.SphereGeometry(1, 20, 12), mBx); rad.scale.set(0.42, 0.42, 1.9); rad.position.set(0, -0.72, 1.1); A.add(rad);
-  const radB = new THREE.Mesh(new THREE.CircleGeometry(0.34, 18), mat('#0d0d0d', 0.9)); radB.scale.set(1, 0.8, 1); radB.position.set(0, -0.78, -0.62); radB.rotation.y = Math.PI; A.add(radB);
+  // tomada de ar do radiador (barriga): boca reta afastada do corpo e carenagem que afina até a cauda, como no P-51D
+  const sc = corpoTorno((z) => { const t = (z - 0.2) / 3.1; return 0.4 * (t < 0.06 ? 0.86 + t / 0.06 * 0.14 : Math.pow(1 - (t - 0.06) / 0.94, 0.75)); }, 0.2, 3.3, 18, 20, 0.95, 0.9, mBx);
+  sc.position.y = -0.74; A.add(sc);
+  const radB = new THREE.Mesh(new THREE.CircleGeometry(0.33, 20, 0, Math.PI), mat('#0d0d0d', 0.9)); radB.rotation.set(0, Math.PI, Math.PI); radB.scale.set(1, 0.95, 1); radB.position.set(0, -0.74, 0.19); A.add(radB); // boca (metade de baixo)
+  const labio = new THREE.Mesh(new THREE.TorusGeometry(0.36, 0.03, 6, 20, Math.PI), mBx); labio.rotation.z = Math.PI; labio.scale.set(1, 0.92, 1); labio.position.set(0, -0.74, 0.2); A.add(labio);
+  const saida = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.05, 0.35), mEsc); saida.position.set(0, -1.02, 2.0); saida.rotation.x = 0.25; A.add(saida); // aba de saída de ar
   // entrada do carburador sob o nariz
   const carb = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.15, 0.6), mEsc); carb.position.set(0, -0.68, -3.6); A.add(carb);
   // canopi bolha com moldura e antena
@@ -273,6 +277,9 @@ export function criarWarbird(p = PINT_WAR[0]) {
     parts[lado > 0 ? 'profD' : 'profE'] = prof;
   }
   const der = (s) => { const t = (s - 0.3) / 1.6; return { s, le: 3.0 + t * 0.9, c: 1.75 - t * 0.9, y: 0 }; };
+  { const f = new THREE.Shape(); f.moveTo(1.7, 0); f.lineTo(3.05, 0.55); f.lineTo(3.05, 0); f.closePath(); // barbatana dorsal na frente da deriva (P-51D)
+    const g = new THREE.ExtrudeGeometry(f, { depth: 0.07, bevelEnabled: false }); g.rotateY(-Math.PI / 2); g.translate(0.035, 0, 0);
+    const fil = new THREE.Mesh(g, mB); fil.position.y = rf(2.4) * 1.18 + (2.4 - 0.8) * 0.05 - 0.04; A.add(fil); }
   A.add(sombra(new THREE.Mesh(flipGeo(loft(est(der)(0.3, 1.95), perfil(0, 0.6, 10, 0.1), (s, z, y) => [y, s + 0.25, z])), mB)));
   const hd = (s) => { const a = der(s); return new THREE.Vector3(0, s + 0.25, a.le + 0.6 * a.c); };
   const gLeme = flipGeo(loft(est(der)(0.35, 1.95, 2), perfil(0.6, 1, 5, 0.1), (s, z, y) => [y, s + 0.25, z])); uvPorAltura(gLeme, 0.6, 2.2);
@@ -313,15 +320,27 @@ export function criarCargueiro(p = PINT_CARGA[0]) {
   const tex = texCorpo(Z0, Z1, p.base, (g, Y, W, H) => {
     g.fillStyle = '#4c5156'; g.fillRect(0, Y(-14.0), W, H - Y(-14.0)); // radome
     g.fillStyle = '#0d1014'; // janelas da cabine (parte de cima do nariz)
-    for (let i = -3; i <= 3; i++) g.fillRect(W * (0.5 + i * 0.035) - 14, Y(-12.0), 26, 34);
-    for (const u of [0.31, 0.69]) g.fillRect(W * u - 18, Y(-12.7), 36, 30);
+    for (let i = -3; i <= 3; i++) { g.fillRect(W * (0.5 + i * 0.036) - 16, Y(-12.2), 32, 50); g.fillRect(W * (0.5 + i * 0.036) - 10, Y(-11.4), 20, 16); } // para-brisa e janelas de cima ("sobrancelhas")
+    for (const u of [0.32, 0.68]) { g.fillRect(W * u - 24, Y(-12.6), 48, 46); g.fillRect(W * u - 16, Y(-11.9), 32, 30); } // janelas laterais da cabine
+    g.fillStyle = '#e8eaec'; for (let i = -3; i <= 3; i++) g.fillRect(W * (0.5 + i * 0.036) - 17, Y(-12.2) - 3, 34, 3); // molduras
+    g.fillStyle = '#0d1014';
     for (const u of [0.26, 0.74]) for (let z = -8; z < 3; z += 2.2) { g.beginPath(); g.arc(W * u, Y(z), 9, 0, 7); g.fill(); } // vigias
     g.fillStyle = p.faixa; g.fillRect(W * 0.245, Y(3.5), 14, Y(-10.5) - Y(3.5)); g.fillRect(W * 0.745, Y(3.5), 14, Y(-10.5) - Y(3.5));
     g.strokeStyle = 'rgba(0,0,0,.4)'; g.lineWidth = 3; g.strokeRect(W * 0.2, Y(-8.6), 40, Y(-10.2) - Y(-8.6)); g.strokeRect(W * 0.76, Y(-8.6), 40, Y(-10.2) - Y(-8.6)); // portas de paraquedistas
     linhasPainel(g, Y, W, [-11.2, -8, -5, -2, 1, 3.5], 0.2);
     textoLado(g, W, Y, -3.5, 'FORÇA AÉREA', p.faixa, 46, 0.03); textoLado(g, W, Y, 1.8, '2451', p.faixa, 56, 0.03);
   });
-  const corpo = corpoTorno(rf, Z0, Z1, 40, 40, 1, 1, mat('#fff', 0.6, 0.15, { map: tex })); A.add(corpo); // só a face de fora: de dentro se vê o revestimento
+  const corpo = corpoTorno(rf, Z0, Z1, 40, 40, 1, 1, mat('#fff', 0.6, 0.15, { map: tex })); A.add(corpo);
+  { // perfil real do Hercules: teto da cabine reto até perto da ponta, embaixo o nariz sobe antes e a ponta (radome) fica baixa
+    const pp = corpo.geometry.attributes.position;
+    for (let i = 0; i < pp.count; i++) {
+      const z = pp.getZ(i); if (z > -10.6) continue;
+      let x = pp.getX(i), y = pp.getY(i); const r = Math.hypot(x, y), base = rf(z); if (r < 1e-4 || base < 1e-3) continue;
+      const t = z - Z0, w = y / r, topo = R * Math.pow(Math.sin(Math.min(1, t / 2.7) * Math.PI / 2), 0.42), baixo = R * Math.pow(Math.sin(Math.min(1, t / 4.6) * Math.PI / 2), 0.75);
+      const rr = w > 0 ? base + (topo - base) * w : base + (baixo - base) * -w, k = rr / base;
+      pp.setXYZ(i, x * k, y * k - 0.42 * R * Math.pow(1 - Math.min(1, t / 4.6), 2), z);
+    }
+    corpo.geometry.computeVertexNormals(); } // só a face de fora: de dentro se vê o revestimento
   // cauda levantada: casca só por cima/lados, aberta embaixo (onde ficam rampa e porta)
   { const N = 10, seg = 28, abre = Math.PI / 3, pos = [], idx = [];
     for (let i = 0; i <= N; i++) { const t = i / N, z = BAIA.fim + t * 10.4, r = R * (1 - t * 0.78), yc = t * t * 0.6 + t * 1.0;
