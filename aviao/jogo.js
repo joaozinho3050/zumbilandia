@@ -844,6 +844,7 @@ function quadro(agora) {
   }
   if (estado === 'voo' && !window.__camLivre) atualizarCamera(dt, tempo);
   for (const f of M.animar) f(tempo);
+  M.atualizarPerto(camera.position);
   M.uAgua.value = tempo;
   fumaca.atualizar(dt); fogo.atualizar(dt);
   M.ceu.position.copy(camera.position);
@@ -858,4 +859,4 @@ document.addEventListener('visibilitychange', () => { if (document.hidden && est
 
 // testes automáticos
 const simular = (seg, e = {}) => { const a = jog.aviao; toque.p = e.p || 0; toque.r = e.r || 0; toque.leme = e.y || 0; toque.freio = !!e.freio; if (e.acel !== undefined) a.acel = e.acel; const log = []; for (let i = 0; i < seg * 60; i++) { passo(1 / 60); if (i % 60 === 0) log.push([Math.round(a.V * 3.6), Math.round(a.pos.y), a.chao ? 'chão' : 'ar', jog.modo].join(' ')); if (!jog.vivo) break; } return log.join(' | ') + (jog.vivo ? '' : ' | MORREU'); };
-window.__jogo = { simular, passo, jog, npc, frota, cam, camera, comecar, mudarHora, comecarDesafio, nascerLugar, DESAFIOS, DESAFIO_BAIA, LUGARES, ent, proxCam, sair, pular, paraquedas, garras, entrar, S, horaJa: (i) => { hora = { de: i, para: i, t: 1 }; M.aplicarHora(i, i, 1); } };
+window.__jogo = { M, chao: (x, z) => M.chao(x, z), simular, passo, jog, npc, frota, cam, camera, comecar, mudarHora, comecarDesafio, nascerLugar, DESAFIOS, DESAFIO_BAIA, LUGARES, ent, proxCam, sair, pular, paraquedas, garras, entrar, S, horaJa: (i) => { hora = { de: i, para: i, t: 1 }; M.aplicarHora(i, i, 1); } };
