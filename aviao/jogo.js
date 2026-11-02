@@ -107,6 +107,7 @@ const rastroD = rastro(), rastroE = rastro();
 // ---------- Aeronaves ----------
 const V3 = () => new THREE.Vector3();
 const EX = new THREE.Vector3(1, 0, 0), EY = new THREE.Vector3(0, 1, 0), EZ = new THREE.Vector3(0, 0, 1);
+const tmpE = new THREE.Euler();
 const fwd = V3(), up = V3(), dirD = V3(), tmpV = V3(), tmpV2 = V3(), tmpV3 = V3(), tmpQ = new THREE.Quaternion(), tmpQ2 = new THREE.Quaternion(), tmpC = new THREE.Color();
 const frota = [];
 let semente = 1;
@@ -131,7 +132,10 @@ class Aero {
     this.sincronizar(); return this;
   }
   sincronizar() { this.obj.position.copy(this.pos); this.obj.quaternion.copy(this.q); this.obj.updateMatrixWorld(); }
-  remover() { cena.remove(this.obj); const i = frota.indexOf(this); if (i >= 0) frota.splice(i, 1); }
+  remover() { // tira da cena e libera a memória da placa de vídeo (senão o iPhone recarrega depois de muitas trocas)
+    cena.remove(this.obj); const i = frota.indexOf(this); if (i >= 0) frota.splice(i, 1);
+    this.obj.traverse((o) => { o.geometry?.dispose(); for (const m of [].concat(o.material || [])) { m.map?.dispose(); m.dispose(); } });
+  }
 }
 
 // física de um avião (vale para o do jogador e para os sem piloto)
@@ -189,7 +193,7 @@ function fisica(a, dt, tempo) {
     const yaw = Math.atan2(-fwd.x, -fwd.z);
     let pitch = Math.max(minimo, Math.asin(clamp(fwd.y, -1, 1))); if (a.V < vs * 0.85 || ent.p <= 0.05) pitch = Math.max(minimo, pitch - dt * 0.6);
     const virar = (ent.r * 0.7 + ent.y) * 0.7 * clamp(a.V / 8, 0, 1) * (a.V < 25 ? 1 : 0.3) / Math.sqrt(a.esc * Math.max(1, a.P.envergadura / 10));
-    a.q.setFromEuler(new THREE.Euler(pitch, yaw - virar * dt, 0, 'YXZ'));
+    a.q.setFromEuler(tmpE.set(pitch, yaw - virar * dt, 0, 'YXZ'));
     const sobe = ent.p > 0.05 && a.V > vs * 0.85 ? Math.max(0, pitch - minimo - 0.02) : 0; // só sobe se o piloto puxar
     a.dir.set(-Math.sin(yaw) * Math.cos(sobe), Math.sin(sobe), -Math.cos(yaw) * Math.cos(sobe));
     if (a.V > 3 && ent.freio && Math.random() < 0.3) fumaca.emitir(tmpV.copy(a.pos).setY(base + 0.3), tmpV2.set(0, 0.5, 0), tmpC.set(0xdddddd), 1, 4, 0.4, 1.2);
@@ -224,7 +228,7 @@ function bater(a, agua, motivo) {
   const c = a.pos.clone(); if (agua) c.y = 0.5;
   explosao(c, agua, Math.min(4, a.esc * (a.tipo === 'cargueiro' ? 2 : 1)));
   if (a === npc) for (const o of presos()) bater(o, agua);
-  if (jog.aviao === a && jog.modo === 'piloto') { jog.vivo = false; jog.morteT = 0; mensagem(motivo || (agua ? 'Splash!' : 'Bateu!'), 'Voltando em instantes…', 3); if (desafio) desafio.batidas++; }
+  if (jog.aviao === a && jog.modo === 'piloto') { jog.vivo = false; jog.morteT = 0; mensagem(motivo || (agua ? 'Splash!' : 'Bateu!'), 'Voltando em instantes…', 3); }
   else if (jog.modo === 'sobre' && jog.sobre === a) { jog.vivo = false; jog.morteT = 0; pessoa.obj.visible = false; mensagem('O avião caiu com você em cima!', 'Da próxima vez pule e abra o paraquedas', 3.5); }
   else if (camera.position.distanceTo(c) < 3000) mensagem(a.npc ? '' : 'Avião sem piloto caiu!', 'Boom!', 1.8);
 }
@@ -240,10 +244,10 @@ function voarNPC(a, dt) {
   const x = n.cx + Math.cos(n.ang) * n.R, z = n.cz + Math.sin(n.ang) * n.R, tg = tmpV.set(-Math.sin(n.ang), 0, Math.cos(n.ang)).multiplyScalar(n.s);
   alvoNPC.p.set(x, n.alt + Math.sin(n.ang * 3) * 25, z);
   const bank = Math.atan(a.V * a.V / (9.8 * n.R));
-  alvoNPC.q.setFromEuler(new THREE.Euler(0.03, Math.atan2(-tg.x, -tg.z), -n.s * bank, 'YXZ'));
+  alvoNPC.q.setFromEuler(tmpE.set(0.03, Math.atan2(-tg.x, -tg.z), -n.s * bank, 'YXZ'));
   if (n.blend > 0) { // voltando suave para o circuito depois que o jogador pilotou
-    const k = 1 - Math.exp(-dt * 0.6); a.pos.lerp(alvoNPC.p, k); a.q.slerp(alvoNPC.q, k);
-    if (a.pos.distanceTo(alvoNPC.p) < 3) n.blend = 0;
+    n.blend = Math.max(0, n.blend - dt / 6); // 6 s: a pegada aumenta até grudar na rota (antes ficava ~110 m atrás pra sempre)
+    const k = 1 - Math.exp(-dt * (0.6 + 40 * (1 - n.blend))); a.pos.lerp(alvoNPC.p, k); a.q.slerp(alvoNPC.q, k);
     a.V = lerp(a.V, 66, k); a.dir.set(0, 0, -1).applyQuaternion(a.q);
   } else { a.vs = Math.cos(n.ang * 3) * 3 * 25 * a.V / n.R; a.pos.copy(alvoNPC.p); a.q.copy(alvoNPC.q); a.dir.copy(tg).multiplyScalar(66).setY(a.vs).normalize(); a.V = Math.hypot(66, a.vs); }
   a.queda = 0; a.acel = 0.7; a.trem = a.tremAlvo = 0; a.flap = 0;
@@ -319,7 +323,8 @@ function novoAviao(tipo, pint) { const a = new Aero(tipo, pint ?? (S.pintura % T
 function nascer(o) { // o = {x,z,y?,rumo,chao?}
   jog.ondeNasce = o;
   let a = jog.aviao;
-  if (!a || !a.vivo || a.tipo !== S.tipo || a === npc || jog.modo !== 'piloto' || a.preso) { if (a && a !== npc && jog.modo === 'piloto' && a.vivo && !a.chao && !a.preso) a.remover(); a = novoAviao(S.tipo); }
+  const meu = a && a !== npc && !a.preso && !a.fixo; // avião do jogador que pode ser reaproveitado ou apagado
+  if (!meu || a.tipo !== S.tipo || a.pint !== S.pintura % TIPOS[S.tipo].pinturas.length) { if (meu) a.remover(); a = novoAviao(S.tipo); }
   a.colocar(o.x, o.z, o.rumo || 0, !o.chao, o.y);
   limparFrota(a); pilotar(a);
 }
@@ -329,7 +334,7 @@ function nascerLugar(l) {
   nascer({ x: l.x - Math.sin(a) * 900, z: l.z + Math.cos(a) * 900, y: l.y, rumo: l.rumo });
 }
 function limparFrota(manter) { // tira aviões abandonados longe demais (mantém estacionados, os que estão no cargueiro e o NPC)
-  for (const a of [...frota]) if (a !== manter && a !== npc && !a.estacionado && !a.preso && (!a.vivo || a.pos.distanceTo(manter.pos) > 6000)) a.remover();
+  for (const a of [...frota]) if (a !== manter && a !== npc && !a.estacionado && !a.fixo && !a.preso && (!a.vivo || a.pos.distanceTo(manter.pos) > 6000)) a.remover();
 }
 
 // colisão do boneco com aviões parados: as peças viram "caixas" na altura certa
@@ -337,18 +342,19 @@ function bloqueado(pw, ignorar) {
   for (const a of frota) {
     if (a === ignorar || !a.vivo || !a.obj.visible || (a.V > 3 && !a.preso) || a.pos.distanceToSquared(pw) > (25 * a.esc + 25) ** 2) continue;
     const L = a.obj.worldToLocal(tmpV2.copy(pw)); if (vaoDaBaia(a, L)) continue;
-    const pe = L.y + 0.05 / a.esc, cabeca = L.y + 1.75 / a.esc, rc = a.P.raioCorpo || 0.8;
-    for (const y of a.P.superficies(L.x, L.z)) { const fundo = Math.abs(L.x) < rc ? y - 2 * rc : y - 0.45; if (y > pe + 0.3 / a.esc && fundo < cabeca) return a; }
+    const pe = L.y + 0.05 / a.esc, cabeca = L.y + 1.75 / a.esc;
+    for (const y of a.P.superficies(L.x, L.z)) if (y > pe + 0.3 / a.esc && fundoPeca(a, L.x, y) < cabeca) return a;
   }
   return null;
 }
 const vaoDaBaia = (a, L) => a.P.baia && Math.abs(L.x) < BAIA.raio - 0.15 && L.z > BAIA.frente && L.z < BAIA.rampaFim && L.y > BAIA.piso - 0.05 && L.y < BAIA.raio - 0.25; // oco do baú
+const fundoPeca = (a, x, y) => { const rc = a.P.raioCorpo || 0.8; return Math.abs(x) < rc ? y - 2 * rc : y - 0.45; }; // fuselagem é grossa, asa é fina
 function dentroDeAviao(pw) { // ponto (câmera) dentro de alguma peça de avião?
   for (const a of frota) {
     if (!a.vivo || !a.obj.visible || a.pos.distanceToSquared(pw) > (25 * a.esc + 25) ** 2) continue;
-    const L = a.obj.worldToLocal(tmpV2.copy(pw)), rc = a.P.raioCorpo || 0.8, folga = 0.25 / a.esc;
+    const L = a.obj.worldToLocal(tmpV2.copy(pw)), folga = 0.25 / a.esc;
     if (vaoDaBaia(a, L)) continue;
-    for (const y of a.P.superficies(L.x, L.z)) { const fundo = Math.abs(L.x) < rc ? y - 2 * rc : y - 0.45; if (L.y < y + folga && L.y > fundo - folga) return true; }
+    for (const y of a.P.superficies(L.x, L.z)) if (L.y < y + folga && L.y > fundoPeca(a, L.x, y) - folga) return true;
   }
   return false;
 }
@@ -487,11 +493,10 @@ function fisicaPessoa(dt, k) {
       if (up.y < 0.2 && vento > 0) return soltar(a);
     }
     // onde dá pra pisar: sobe degraus de até 1,15 m (asa -> fuselagem), peça mais alta é parede, sem nada é a borda
-    const rc = a.P.raioCorpo || 0.8;
     const passo = (nx, nz) => { // peça que sobe acima do degrau e passa da cabeça = parede (ex.: deriva); oco do baú não conta
       const ys = a.P.superficies(nx, nz); if (!ys.length) return 'borda';
       const vao = vaoDaBaia(a, tmpV3.set(nx, jog.L.y + 0.1 / e, nz)), cab = jog.L.y + 1.75 / e;
-      if (!vao && ys.some((y) => y > jog.L.y + 1.15 / e && (Math.abs(nx) < rc ? y - 2 * rc : y - 0.45) < cab)) return 'parede';
+      if (!vao && ys.some((y) => y > jog.L.y + 1.15 / e && fundoPeca(a, nx, y) < cab)) return 'parede';
       const ok = ys.filter((y) => y <= jog.L.y + 1.15 / e); return ok.length ? Math.max(...ok) : 'parede'; };
     const solta = !jog.garras && vento > 0; // sem garras e com vento: a borda derruba
     let r = passo(jog.L.x + dx, jog.L.z + dz);
@@ -559,7 +564,7 @@ function comecarDesafio(d) {
     const rumo = (THREE.MathUtils.radToDeg(Math.atan2(f.x, -f.z)) + 360) % 360;
     if (S.tipo === 'cargueiro') S.tipo = 'andorinha';
     nascer({ x: p.x, z: p.z, y: p.y, rumo }); jog.aviao.pos.y = p.y; jog.aviao.V = npc.V + 8; jog.aviao.acel = 0.55;
-    desafio = { d, aneis: [], i: 0, t: 0, batidas: 0 };
+    desafio = { d, aneis: [], i: 0, t: 0 };
     mensagem(d.nome, 'Baixe o trem, iguale a velocidade e entre pela rampa', 4); return;
   }
   const pts = d.pts.map((p) => { const [x, z] = p; const y = p[2] === 'abs' ? p[3] : Math.max(M.chao(x, z), 0) + p[2]; return V3().set(x, y, z); });
@@ -572,7 +577,7 @@ function comecarDesafio(d) {
     const brilho = new THREE.Mesh(new THREE.TorusGeometry(R, 2.6, 8, 48), new THREE.MeshBasicMaterial({ color: 0xffd24a, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false })); g.add(brilho);
     cena.add(g); return { c, n, R, g, m, brilho, lado: null };
   });
-  desafio = { d, aneis, i: 0, t: 0, batidas: 0 };
+  desafio = { d, aneis, i: 0, t: 0 };
   nascer({ ...d.inicio });
   mensagem(d.nome, 'Passe por dentro das argolas douradas!', 3);
 }
@@ -642,7 +647,7 @@ function atualizarCamera(dt, t) {
     const alvo = tmpV3.copy(jog.pos).add(tmpV.set(0, 1.4, 0).applyQuaternion(quadro || tmpQ.identity()));
     if (quadro) off.applyQuaternion(quadro);
     camera.position.copy(alvo).add(off);
-    for (let i = 0; i < 6 && dentroDeAviao(camera.position); i++) { off.multiplyScalar(0.72); camera.position.copy(alvo).add(off); } // não atravessa asa/fuselagem
+    for (let i = 0; i < 6 && (dentroDeAviao(camera.position) || M.dentroObst(camera.position)); i++) { off.multiplyScalar(0.72); camera.position.copy(alvo).add(off); } // não atravessa asa/fuselagem
     camera.up.copy(quadro ? tmpV.set(0, 1, 0).applyQuaternion(quadro).lerp(EY, 0.4).normalize() : EY);
     camera.lookAt(alvo); camera.near = 0.2; fov = 62 + (jog.modo === 'queda' ? clamp(jog.vel.length() / 55, 0, 1) * 14 : 0);
     if (jog.modo !== 'sobre' && ent.olhaX === 0 && Math.hypot(jog.vel.x, jog.vel.z) > 1) jog.camYaw = lerpAng(jog.camYaw, jog.yaw, 1 - Math.exp(-dt * 0.8));
@@ -696,7 +701,7 @@ function efeitosJogador(a, dt, t) {
   if (a.fumaca && !a.chao) {
     const cf = CORES_FUMACA[S.fumacaCor][1]; if (cf) corFumaca.set(cf); else corFumaca.setHSL((t * 0.15) % 1, 0.85, 0.6);
     const n = Math.ceil(caudaAnt.distanceTo(cauda) / 1.6);
-    for (let i = 0; i < Math.min(n, 10); i++) fumaca.emitir(tmpV.copy(caudaAnt).lerp(cauda, (i + 1) / n), tmpV2.copy(a.dir).multiplyScalar(-2).add(V3().randomDirection().multiplyScalar(0.6)), corFumaca, 2.2, 13, 0.85, 7, 0.6, 0.3);
+    for (let i = 0; i < Math.min(n, 10); i++) fumaca.emitir(tmpV.copy(caudaAnt).lerp(cauda, (i + 1) / n), tmpV2.copy(a.dir).multiplyScalar(-2).add(tmpV3.randomDirection().multiplyScalar(0.6)), corFumaca, 2.2, 13, 0.85, 7, 0.6, 0.3);
   }
   caudaAnt.copy(cauda);
   if (a.T.motor !== 'jato' && Math.random() < a.acel * 0.5 && a.P.helices[0]) { const h = a.P.helices[0].h; fumaca.emitir(h.getWorldPosition(tmpV).addScaledVector(fwd, -1.5).addScaledVector(up, -0.2), tmpV2.copy(a.dir).multiplyScalar(-6), tmpC.setRGB(0.55, 0.55, 0.55), 0.3, 2, 0.25, 0.6, 2); }
@@ -959,7 +964,7 @@ function comecar() {
 }
 $('bVoar').addEventListener('click', comecar);
 const estacionados = [['caca', 140, -30, 1], ['guerra', 140, 45, 0], ['cargueiro', 160, 175, 0], ['andorinha', 140, 100, 2]];
-for (const [t, x, z, pi] of estacionados) { const a = new Aero(t, pi); a.colocar(PISTA.x + x, z, 270, false); a.estacionado = true; a.ent.freio = true; }
+for (const [t, x, z, pi] of estacionados) { const a = new Aero(t, pi); a.colocar(PISTA.x + x, z, 270, false); a.estacionado = a.fixo = true; a.ent.freio = true; } // fixo: os da exposição nunca são apagados
 let titulo = null;
 function voarSozinho(t) {
   if (!titulo) { titulo = jog.aviao || novoAviao(S.tipo); jog.aviao = titulo; }
@@ -1028,7 +1033,7 @@ function quadro(agora) {
   }
   if (estado === 'voo' && !window.__camLivre) atualizarCamera(dt, tempo);
   for (const f of M.animar) f(tempo);
-  M.atualizarPerto(camera.position);
+  M.atualizarPerto(camera.position, jog.modo !== 'piloto' || !jog.aviao || jog.aviao.V < 25); // rasante rápido: sem grama (pesava no celular)
   M.uAgua.value = tempo;
   fumaca.atualizar(dt); fogo.atualizar(dt);
   M.ceu.position.copy(camera.position);

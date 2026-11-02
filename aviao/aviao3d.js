@@ -128,7 +128,7 @@ export function criarAviao(pintura = PINTURAS[0], comPainel = true) {
   // levanta a cauda (linha de cima mais reta, de baixo sobe)
   { const ps = gF.attributes.position; for (let i = 0; i < ps.count; i++) { const z = ps.getZ(i); ps.setY(i, ps.getY(i) + Math.max(0, z - 0.5) * 0.11); } gF.computeVertexNormals(); }
   const mCorpo = new THREE.MeshStandardMaterial({ map: texturaCorpo(p), roughness: 0.32, metalness: 0.1, side: THREE.DoubleSide });
-  const corpo = new THREE.Mesh(gF, mCorpo); corpo.castShadow = true; A.add(corpo); parts.corpo = corpo;
+  const corpo = new THREE.Mesh(gF, mCorpo); corpo.castShadow = true; A.add(corpo);
 
   // --- Hélice, cubo e disco borrado ---
   const helice = new THREE.Group(); helice.position.set(0, 0.05, FUS_Z0 - 0.02); A.add(helice);
@@ -150,7 +150,6 @@ export function criarAviao(pintura = PINTURAS[0], comPainel = true) {
     g.fillStyle = gr; g.beginPath(); g.arc(128, 128, 128, 0, 7); g.fill();
     const disco = new THREE.Mesh(new THREE.CircleGeometry(1.25, 48), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(c), transparent: true, depthWrite: false, side: THREE.DoubleSide, opacity: 0 }));
     disco.position.z = 0.1; helice.add(disco); parts.disco = disco; }
-  parts.helice = helice;
 
   // escapamentos (3 de cada lado) com brasa
   const mBrasa = new THREE.MeshStandardMaterial({ color: 0x331a10, emissive: 0xff5a1a, emissiveIntensity: 0.3, roughness: 0.7 });
