@@ -12,10 +12,29 @@ if (TOQUE) document.body.classList.add('touch');
 
 // ---------- Salvamento ----------
 const SAVE = 'ceu-aberto-v1';
-let S = { desc: {}, recordes: {}, pintura: 0, tipo: 'andorinha', hora: 1, inverter: false, assist: true, som: true, qual: TOQUE ? 'media' : 'alta', fumacaCor: 0, feitos: {} };
+let S = { filtro: 0, desc: {}, recordes: {}, pintura: 0, tipo: 'andorinha', hora: 1, inverter: false, assist: true, som: true, qual: TOQUE ? 'media' : 'alta', fumacaCor: 0, feitos: {} };
 try { Object.assign(S, JSON.parse(localStorage.getItem(SAVE) || '{}')); } catch (e) {}
+if (!S.invPadrao) { S.inverter = true; S.invPadrao = 1; } // novo padrão: controles invertidos (puxar pra trás sobe)
+S.filtro ??= 0;
 if (!TIPOS[S.tipo]) S.tipo = 'andorinha';
 const salvar = () => { try { localStorage.setItem(SAVE, JSON.stringify(S)); } catch (e) {} };
+// filtros de imagem (CSS no canvas + vinheta): leves, não pesam no celular
+const FILTROS = [
+  { nome: 'Normal', css: '' },
+  { nome: 'Vibrante', css: 'saturate(1.45) contrast(1.08)' },
+  { nome: 'Cinema', css: 'contrast(1.15) saturate(0.85) sepia(0.12)', vinheta: 0.55, faixas: true },
+  { nome: 'Pôr do sol', css: 'sepia(0.35) saturate(1.35) hue-rotate(-12deg) brightness(1.04)', vinheta: 0.35 },
+  { nome: 'Antigo', css: 'sepia(0.75) contrast(1.1) brightness(0.95)', vinheta: 0.7 },
+  { nome: 'Preto e branco', css: 'grayscale(1) contrast(1.2)', vinheta: 0.5 },
+  { nome: 'Frio', css: 'saturate(0.9) hue-rotate(12deg) brightness(1.03) contrast(1.05)' },
+  { nome: 'Sonho', css: 'saturate(1.25) brightness(1.08) contrast(0.9) blur(0.4px)', vinheta: 0.3 },
+];
+function aplicarFiltro() {
+  const f = FILTROS[S.filtro] || FILTROS[0]; document.getElementById('c').style.filter = f.css;
+  let v = document.getElementById('vinheta'); if (!v) { v = document.createElement('div'); v.id = 'vinheta'; document.body.insertBefore(v, document.getElementById('hud')); }
+  v.style.cssText = `position:fixed;inset:0;pointer-events:none;background:radial-gradient(ellipse at center,transparent 55%,rgba(0,0,0,${f.vinheta || 0}));` + (f.faixas ? 'box-shadow:inset 0 9vh 0 #000,inset 0 -9vh 0 #000;' : '');
+}
+aplicarFiltro();
 const Q = { alta: S.qual === 'alta', sombra: S.qual === 'baixa' ? 0 : S.qual === 'alta' ? 2048 : 1024, pr: Math.min(devicePixelRatio, S.qual === 'alta' ? 2 : S.qual === 'media' ? 1.5 : 1) };
 
 // ---------- Renderizador ----------
@@ -895,13 +914,14 @@ function abrirMenu() {
     <h3>Ir para</h3><div class="grade">${lugares}</div>
     <h3>Hora do dia</h3><div class="linha">${horas}</div>
     <h3>Fumaça</h3><div class="linha">${fum}</div>
-    <h3>Opções</h3><div class="linha">${op('assist', 'Ajuda de voo', S.assist)}${op('inverter', 'Inverter subir/descer', S.inverter)}${op('som', 'Som', S.som)}${op('foto', 'Modo foto', document.body.classList.contains('foto'))}
+    <h3>Filtro de imagem</h3><div class="linha">${FILTROS.map((f, i) => `<button class="card${i === S.filtro ? ' sel' : ''}" data-filtro="${i}">${f.nome}</button>`).join('')}</div>
+    <h3>Opções</h3><div class="linha">${op('assist', 'Ajuda de voo', S.assist)}${op('inverter', 'Controles invertidos (puxar pra trás sobe)', S.inverter)}${op('som', 'Som', S.som)}${op('foto', 'Modo foto', document.body.classList.contains('foto'))}
       <button class="card" data-op="qual">Gráficos: ${{ alta: 'Bonito', media: 'Médio', baixa: 'Rápido' }[S.qual]}</button></div>
-    <h3>Comandos</h3><small style="color:var(--sub);line-height:1.7;display:block">${TOQUE ? 'Bolinha da esquerda: manche (no chão/a pé: anda). Barra da direita: motor. Arraste a tela para olhar. ⇪ sai do avião — em voo você fica em cima dele com as garras ⋔. Sem garras o vento te derruba; ☂ abre o paraquedas.' : 'W/S subir/descer · A/D inclinar · Q/E leme · Shift/Ctrl motor · G trem · F flap · Espaço fumaça · B freio · X sair do avião · C câmera · T hora · H foto · Esc menu<br>A pé: WASD anda · Espaço pula/abre paraquedas · E entra · K garras'}<br>Cargueiro gigante: chegue por trás na mesma velocidade, trem baixado, e pouse na rampa.</small>`;
+    <h3>Comandos</h3><small style="color:var(--sub);line-height:1.7;display:block">${TOQUE ? 'Bolinha da esquerda: manche ' + (S.inverter ? '(puxe para baixo para subir, como avião de verdade)' : '(para cima sobe)') + '; no chão/a pé: anda. Barra da direita: motor. Arraste a tela para olhar. ⇪ sai do avião — em voo você fica em cima dele com as garras ⋔. Sem garras o vento te derruba; ☂ abre o paraquedas.' : (S.inverter ? 'S sobe / W desce' : 'W sobe / S desce') + ' · A/D inclinar · Q/E leme · Shift/Ctrl motor · G trem · F flap · Espaço fumaça · B freio · X sair do avião · C câmera · T hora · H foto · Esc menu<br>A pé: WASD anda · Espaço pula/abre paraquedas · E entra · K garras'}<br>Cargueiro gigante: chegue por trás na mesma velocidade, trem baixado, e pouse na rampa.</small>`;
   $('fechar').onclick = fecharMenu;
 }
 painel.addEventListener('click', (e) => {
-  const b = e.target.closest('button'); if (!b) return; som.clique(); const d = b.dataset;
+  const b = e.target.closest('button'); if (!b || b.id === 'fechar') return; som.clique(); const d = b.dataset;
   if (d.tipo) { S.tipo = d.tipo; S.pintura = 0; salvar(); pararDesafio(); trocarAviao(); return fecharMenu(); }
   if (d.gigante) { pararDesafio(); if (!npc.vivo) return fecharMenu(); const v = jog.aviao; if (v && v !== npc && !v.preso && !v.estacionado) v.remover(); pilotar(npc); mensagem('Pilotando o cargueiro gigante', '⊓ abre/fecha a rampa · ⇪ devolve ao piloto automático', 3); return fecharMenu(); }
   if (d.desafio) { comecarDesafio(d.desafio === 'baia' ? DESAFIO_BAIA : DESAFIOS.find((x) => x.id === d.desafio)); return fecharMenu(); }
@@ -909,6 +929,7 @@ painel.addEventListener('click', (e) => {
   if (d.lugar) { pararDesafio(); nascerLugar(LUGARES.find((x) => x.id === d.lugar)); return fecharMenu(); }
   if (d.pintura) { S.pintura = +d.pintura; salvar(); trocarAviao(); }
   if (d.fumaca) { S.fumacaCor = +d.fumaca; if (jog.aviao) jog.aviao.fumaca = true; }
+  if (d.filtro) { S.filtro = +d.filtro; aplicarFiltro(); }
   if (d.hora) mudarHora(+d.hora);
   if (d.op === 'qual') { S.qual = { alta: 'baixa', media: 'alta', baixa: 'media' }[S.qual]; salvar(); location.reload(); return; }
   if (d.op === 'foto') { modoFoto(); return fecharMenu(); }
@@ -924,12 +945,12 @@ function trocarAviao() { // troca o avião mantendo onde está
 function fecharMenu() { estado = 'voo'; document.body.classList.remove('menu'); }
 
 // ---------- Título e aviões estacionados ----------
-$('dicas').textContent = TOQUE ? 'Bolinha da esquerda pilota · barra da direita acelera · ⇪ sai do avião' : 'W/S sobe e desce · A/D inclina · Shift acelera · X sai do avião · Esc menu';
+$('dicas').textContent = TOQUE ? 'Bolinha da esquerda pilota · barra da direita acelera · ⇪ sai do avião' : (S.inverter ? 'S sobe, W desce' : 'W sobe, S desce') + ' · A/D inclina · Shift acelera · X sai do avião · Esc menu';
 function comecar() {
   som.iniciar(); estado = 'voo'; document.body.classList.remove('titulo');
   nascerLugar(LUGARES[0]); cam.modo = 0; cam.iniciado = false;
   try { screen.orientation?.lock?.('landscape').catch(() => {}); } catch (e) {}
-  if (!S.visto2) { S.visto2 = 1; salvar(); setTimeout(() => mensagem('Bem-vindo ao Céu Aberto!', TOQUE ? 'Suba a barra do motor e puxe a bolinha para cima depois de 110 km/h' : 'Segure Shift para acelerar e W para subir depois de 110 km/h', 6), 600); }
+  if (!S.visto2) { S.visto2 = 1; salvar(); setTimeout(() => mensagem('Bem-vindo ao Céu Aberto!', TOQUE ? (S.inverter ? 'Suba a barra do motor e puxe a bolinha para baixo depois de 110 km/h' : 'Suba a barra do motor e puxe a bolinha para cima depois de 110 km/h') : (S.inverter ? 'Segure Shift para acelerar e S para subir depois de 110 km/h' : 'Segure Shift para acelerar e W para subir depois de 110 km/h'), 6), 600); }
 }
 $('bVoar').addEventListener('click', comecar);
 const estacionados = [['caca', 140, -30, 1], ['guerra', 140, 45, 0], ['cargueiro', 160, 175, 0], ['andorinha', 140, 100, 2]];
@@ -956,7 +977,7 @@ function passo(dt) {
   if (estado === 'titulo') voarSozinho(tempo);
   else {
     const k = lerTeclado(dt);
-    const alvoP = clamp(k.p + toque.p, -1, 1), alvoR = clamp(k.r + toque.r, -1, 1), alvoY = clamp(k.y + toque.leme, -1, 1);
+    const alvoP = clamp(k.p + (pilotando() && S.inverter ? -toque.p : toque.p), -1, 1), alvoR = clamp(k.r + toque.r, -1, 1), alvoY = clamp(k.y + toque.leme, -1, 1);
     const av = jog.aviao;
     if (pilotando() && av) { const suave = 1 - Math.exp(-dt * (TOQUE ? 14 : 6)); av.ent.p = lerp(av.ent.p, alvoP, suave); av.ent.r = lerp(av.ent.r, alvoR, suave); av.ent.y = lerp(av.ent.y, alvoY, suave); av.ent.freio = k.freio || toque.freio; }
     else if (jog.vivo) fisicaPessoa(dt, { p: alvoP, r: alvoR });
