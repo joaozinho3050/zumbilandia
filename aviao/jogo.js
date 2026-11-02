@@ -370,12 +370,12 @@ function atirar(a, dt) {
   const W = a.T.armas; if (!W || !a.vivo || a.preso) return;
   a.cadT = (a.cadT || 0) - dt; if (a.cadT > 0) return; a.cadT = 1 / W.cadencia;
   const c = W.canos[(a.canoI = (a.canoI || 0) + 1) % W.canos.length], p = a.obj.localToWorld(V3().set(...c));
-  const disp = a.inimigo ? 14 : 3; // inimigo erra mais
+  const disp = a.inimigo ? 6 : 3; // inimigo erra um pouco mais
   let dirTiro = null;
-  if (!a.inimigo) { // mira assistida: inimigo a até 1,2 km e dentro de ~9° do nariz → balas vão para onde ele vai estar
+  if (!a.inimigo || jog.aviao) { // mira assistida (inimigo também mira no futuro, só em você): inimigo a até 1,2 km e dentro de ~9° do nariz → balas vão para onde ele vai estar
     const f = tmpV.set(0, 0, -1).applyQuaternion(a.q);
     for (const o of frota) {
-      if (o === a || !o.vivo || o.chao || o.fixo || o === npc) continue;
+      if (o === a || !o.vivo || o.chao || o.fixo || o === npc || (a.inimigo && o !== jog.aviao) || (!a.inimigo && o === jog.aviao)) continue;
       const d = tmpV2.copy(o.pos).sub(a.pos), dist = d.length(); if (dist > 1200) continue;
       if (d.dot(f) / dist < Math.cos(0.16)) continue;
       const t = dist / W.vel; dirTiro = tmpV3.copy(o.pos).addScaledVector(o.velocidade(V3()), t).addScaledVector(a.velocidade(V3()), -t).sub(p).normalize(); break;
@@ -411,7 +411,7 @@ function atualizarBalas(dt) {
     if (!fim && b.p.y < Math.max(h, 0)) { fumaca.emitir(b.p, tmpV.set(0, 3, 0), tmpC.set(h < 0 ? 0xf4fbff : 0x9a8a70), 1.5, 5, 0.6, 0.8); fim = true; }
     if (fim) { cena.remove(b.m); poolTraco.push(b.m); balas.splice(i, 1); }
   }
-  atualizarMisseis(dt);
+  atualizarMisseis(dt); atualizarFlares(dt);
 }
 // ---------- Mísseis guiados (caça a jato): trava num alvo à frente e persegue ----------
 const gMissil = (() => { const g = new THREE.CylinderGeometry(0.09, 0.09, 2.6, 8); g.rotateX(Math.PI / 2); return g; })(), mMissil = new THREE.MeshStandardMaterial({ color: 0xe6e6e2, roughness: 0.4 });
@@ -426,15 +426,40 @@ function alvoTravado(a) { // avião no ar, à frente (até 28°), a menos de 3 k
   }
   return melhor;
 }
-function dispararMissil(a) {
+function dispararMissil(a, alvoForcado) {
   const W = a?.T.armas; if (!W?.misseis || !a.vivo) return;
-  a.misseis ??= W.misseis; if (a.misseis <= 0) return mensagem('Sem mísseis', 'Eles voltam quando você renasce', 1.5);
-  const alvo = alvoTravado(a); if (!alvo) return mensagem('Nenhum alvo travado', 'Aponte o nariz para um avião (até 3 km)', 1.6);
+  const eu = a === jog.aviao;
+  a.misseis ??= W.misseis; if (a.misseis <= 0) return eu && mensagem('Sem mísseis', 'Eles voltam quando você renasce', 1.5);
+  const alvo = alvoForcado || alvoTravado(a); if (!alvo) return eu && mensagem('Nenhum alvo travado', 'Aponte o nariz para um avião (até 3 km)', 1.6);
   a.misseis--; const lado = a.misseis % 2 ? 1 : -1;
   const p = a.obj.localToWorld(V3().set(lado * a.P.envergadura * 0.45, -0.3, 0));
-  const m = new THREE.Mesh(gMissil, mMissil); m.position.copy(p); cena.add(m);
-  misseis.push({ p, v: a.velocidade(V3()), alvo, t: 0, m, dono: a }); som.missil(); mensagem('Fox 2!', `Míssil lançado · ${a.misseis} restante(s)`, 1.3);
+  const m = new THREE.Mesh(gMissil, a.inimigo ? mMissilIni : mMissil); m.position.copy(p); cena.add(m);
+  misseis.push({ p, v: a.velocidade(V3()), alvo, t: 0, m, dono: a });
+  if (eu) { som.missil(); mensagem('Fox 2!', `Míssil lançado · ${a.misseis} restante(s)`, 1.3); }
+  if (alvo.inimigo && Math.random() < 0.5) alvo.flareEm = 0.6 + Math.random() * 1.2; // o inimigo pode reagir soltando flares
 }
+// ---------- Flares: iscas quentes que puxam os mísseis ----------
+const flares = [], mMissilIni = new THREE.MeshStandardMaterial({ color: 0x3a3d40, roughness: 0.4 });
+function soltarFlares(a) {
+  if (!a?.vivo) return; a.flares ??= 30; if (a.flares <= 0) return a === jog.aviao && mensagem('Sem flares', '', 1.2);
+  if ((a.flareT || 0) > 0) return; a.flareT = 0.8; a.flares -= 2;
+  const lateral = tmpV.set(1, 0, 0).applyQuaternion(a.q);
+  for (const s2 of [-1, 1]) {
+    const v = a.velocidade(V3()).multiplyScalar(0.6).addScaledVector(lateral, s2 * 18).add(tmpV2.set(0, -6, 0));
+    const f = { pos: a.pos.clone(), v, t: 0, vivo: true, velocidade(out) { return out.copy(this.v); } }; flares.push(f);
+    for (const m of misseis) if (m.alvo === a && m.p.distanceTo(a.pos) < 5000 && Math.random() < 0.6) m.alvo = f; // cada flare engana 60% dos mísseis vindo
+  }
+  if (a === jog.aviao) { som.flare(); mensagem('Flares!', `${a.flares} restante(s)`, 1); }
+}
+function atualizarFlares(dt) {
+  for (let i = flares.length - 1; i >= 0; i--) {
+    const f = flares[i]; f.t += dt; f.v.y -= 9.8 * dt; f.v.multiplyScalar(1 - 0.9 * dt); f.pos.addScaledVector(f.v, dt);
+    fogo.emitir(f.pos, tmpV.set(0, 0, 0), tmpC.set(0xfff0c0), 5, 2, 1, 0.12, 0); fumaca.emitir(f.pos, tmpV.set(0, 1, 0), tmpC.set(0xdddddd), 1, 5, 0.5, 2.5, 0.5);
+    if (f.t > 3.5) { f.vivo = false; flares.splice(i, 1); }
+  }
+  for (const a of frota) if (a.flareT > 0) a.flareT -= dt;
+}
+const a_misselDano = (al) => (al === jog.aviao ? 70 : 999); // você aguenta um míssil (sai bem avariado)
 function atualizarMisseis(dt) {
   for (let i = misseis.length - 1; i >= 0; i--) {
     const s = misseis[i]; s.t += dt; const al = s.alvo;
@@ -448,7 +473,7 @@ function atualizarMisseis(dt) {
     fumaca.emitir(s.p, tmpV.set(0, 0.5, 0), tmpC.set(0xeeeeee), 1.2, 6, 0.7, 2.5, 0.8); fogo.emitir(s.p, tmpV.set(0, 0, 0), tmpC.set(0xffb060), 2.2, 0.5, 1, 0.08, 0);
     const bateu = al.vivo && s.p.distanceTo(al.pos) < 14, chao = s.p.y < Math.max(M.chao(s.p.x, s.p.z), 0);
     if (bateu || chao || s.t > 12) {
-      if (bateu) danificar(al, 999, s.dono); else explosao(s.p.clone(), chao && M.chao(s.p.x, s.p.z) < 0, 0.4);
+      if (bateu && al.velocidade && al.P) danificar(al, a_misselDano(al), s.dono); else explosao(s.p.clone(), chao && M.chao(s.p.x, s.p.z) < 0, 0.4);
       cena.remove(s.m); misseis.splice(i, 1);
     }
   }
@@ -456,7 +481,7 @@ function atualizarMisseis(dt) {
 // ---------- Inimigos: caças com piloto NPC que te perseguem e atiram ----------
 function criarInimigo(tipo, x, z, y, rumo) {
   const a = new Aero(tipo, tipo === 'caca' ? 1 : 2); a.colocar(x, z, rumo, true, y); a.pos.y = y;
-  a.inimigo = true; a.comPiloto = true; a.hp = 100; a.acel = 0.85; a.V = tipo === 'caca' ? 130 : 80; a.vAnt.copy(a.velocidade(V3()));
+  a.inimigo = true; a.comPiloto = true; a.hp = 100; a.misseis = tipo === 'caca' ? 2 : 0; a.flares = 10; a.acel = 0.85; a.V = tipo === 'caca' ? 130 : 80; a.vAnt.copy(a.velocidade(V3()));
   inimigos.push(a); return a;
 }
 function pilotarInimigo(a, dt) {
@@ -470,7 +495,10 @@ function pilotarInimigo(a, dt) {
   if (solo < 180) { a.ent.r *= 0.3; a.ent.p = 1; } // perto do chão: nivela e puxa
   a.acel = dist > 1500 ? 1 : dist < 300 ? 0.55 : 0.85;
   const ang = Math.acos(clamp(f.dot(d) / dist, -1, 1));
-  if (dist < 800 && ang < 0.12) atirar(a, dt); // tem você na mira: atira
+  if (dist < 900 && ang < 0.14) atirar(a, dt); // tem você na mira: atira
+  a.missilT = (a.missilT ?? 6 + Math.random() * 6) - dt; // lança míssil de vez em quando, se tiver você à frente
+  if (a.missilT <= 0 && dist > 500 && dist < 2600 && ang < 0.45) { a.missilT = 12 + Math.random() * 8; dispararMissil(a, alvo); }
+  if (a.flareEm !== undefined && (a.flareEm -= dt) <= 0) { a.flareEm = undefined; soltarFlares(a); }
 }
 function limparInimigos() { for (const a of inimigos) a.remover(); inimigos.length = 0; }
 function criarAlvos(cx, cz, n) {
@@ -536,7 +564,7 @@ function nascer(o) { // o = {x,z,y?,rumo,chao?}
   let a = jog.aviao;
   const meu = a && a !== npc && !a.preso && !a.fixo; // avião do jogador que pode ser reaproveitado ou apagado
   if (!meu || a.tipo !== S.tipo || a.pint !== S.pintura % TIPOS[S.tipo].pinturas.length) { if (meu) a.remover(); a = novoAviao(S.tipo); }
-  a.colocar(o.x, o.z, o.rumo || 0, !o.chao, o.y); a.hp = 100; a.misseis = a.T.armas?.misseis || 0;
+  a.colocar(o.x, o.z, o.rumo || 0, !o.chao, o.y); a.hp = 100; a.misseis = a.T.armas?.misseis || 0; a.flares = 30;
   limparFrota(a); pilotar(a);
 }
 function nascerLugar(l) {
@@ -1056,7 +1084,7 @@ const som = (() => {
     },
     argola(i) { [0, 4, 7].forEach((s, k) => bip(523 * 2 ** ((s + i % 5) / 12), k * 0.07, 0.35, 'triangle', 0.2)); },
     vitoria() { [0, 4, 7, 12, 16].forEach((s, k) => bip(392 * 2 ** (s / 12), k * 0.12, 0.6, 'triangle', 0.22)); },
-    missil() { ruido(1.2, 1400, 0.5); },
+    missil() { ruido(1.2, 1400, 0.5); }, flare() { ruido(0.25, 3000, 0.3); }, alerta() { bip(1250, 0, 0.09, 'square', 0.12); },
     tiro() { ruido(0.07, 2200, 0.16); },
     batida(v = 1) { ruido(1.6, 500, 1.2 * v); }, pneu() { ruido(0.35, 2500, 0.35); },
     clique() { bip(900, 0, 0.05, 'square', 0.06); }, descobre() { [0, 7, 12].forEach((s, k) => bip(659 * 2 ** (s / 12), k * 0.15, 0.8, 'sine', 0.18)); },
@@ -1074,7 +1102,7 @@ addEventListener('keydown', (e) => {
   if (estado !== 'voo') return;
   const av = jog.aviao;
   const comum = { KeyC: proxCam, KeyH: modoFoto, KeyT: proxHora };
-  const voo = { KeyM: () => dispararMissil(jog.aviao), KeyJ: () => soltarCarga(jog.aviao), KeyG: trem, KeyF: flap, Space: fumacaToggle, KeyX: sair, KeyO: () => porta(jog.aviao), KeyL: soltarAviao };
+  const voo = { KeyN: () => soltarFlares(jog.aviao), KeyM: () => dispararMissil(jog.aviao), KeyJ: () => soltarCarga(jog.aviao), KeyG: trem, KeyF: flap, Space: fumacaToggle, KeyX: sair, KeyO: () => porta(jog.aviao), KeyL: soltarAviao };
   const pe = { Space: pular, KeyE: entrar, KeyK: garras, KeyX: entrar, KeyO: () => porta(portaPerto()) };
   const f = comum[e.code] || (pilotando() ? voo : jog.vivo ? pe : {})[e.code];
   if (f) { e.preventDefault(); f(); }
@@ -1118,7 +1146,7 @@ const botao = (id, f) => $(id).addEventListener('pointerdown', (e) => { e.preven
 botao('tTrem', () => trem()); botao('tFlap', () => flap()); botao('tFuma', () => fumacaToggle()); botao('tCam', () => proxCam()); botao('tSair', () => sair());
 $('tAtirar').addEventListener('pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); toque.atira = true; $('tAtirar').classList.add('on'); });
 for (const ev of ['pointerup', 'pointercancel', 'pointerleave']) $('tAtirar').addEventListener(ev, () => { toque.atira = false; $('tAtirar').classList.remove('on'); });
-botao('tMissil', () => dispararMissil(jog.aviao));
+botao('tMissil', () => dispararMissil(jog.aviao)); botao('tFlare', () => soltarFlares(jog.aviao));
 botao('tCarga', () => soltarCarga(jog.aviao));
 botao('tPorta', () => porta(pilotando() ? jog.aviao : portaPerto())); botao('tSoltar', () => soltarAviao());
 botao('tPular', () => pular()); botao('tCorrer', () => { jog.correr = !jog.correr; }); botao('tEntrar', () => entrar()); botao('tGarras', () => garras()); botao('tParaq', () => paraquedas());
@@ -1181,13 +1209,16 @@ function hud(dt) {
   if (m !== modoBotoes) { modoBotoes = m; document.querySelectorAll('#botoes [data-m]').forEach((b) => (b.hidden = b.dataset.m !== m)); }
   $('tPorta').hidden = !(piloto && a && a.P.abrir) && !(!piloto && portaPerto()); $('tPorta').classList.toggle('on', !!(piloto ? a && a.portaAlvo : portaPerto()?.portaAlvo));
   $('tSoltar').hidden = !(piloto && a && a.preso);
+  const vindo = piloto && a && misseis.some((m) => m.alvo === a);
+  $('tFlare').hidden = !(piloto && a && a.T.armas && !a.preso); if (a?.T.armas) $('tFlare').querySelector('small').textContent = `flare ${a.flares ?? 30}`; $('tFlare').classList.toggle('on', !!vindo);
   $('tMissil').hidden = !(piloto && a && a.T.armas?.misseis && !a.preso); if (a?.T.armas?.misseis) $('tMissil').querySelector('small').textContent = `míssil ${a.misseis ?? a.T.armas.misseis}`;
   $('tCarga').hidden = !(piloto && a && a.P.baia && a.abre > 0.9 && !a.preso);
   $('tAtirar').hidden = !(piloto && a && a.T.armas && !a.preso);
   if (!piloto) { const ep = entrarPerto(); $('tEntrar').hidden = !ep; $('tEntrar').querySelector('small').textContent = ep === npc ? 'pilotar' : 'entrar'; $('tGarras').hidden = jog.modo !== 'sobre' || naBaia(); $('tParaq').hidden = jog.modo !== 'queda'; $('tPular').hidden = !(jog.modo === 'pe' || jog.modo === 'sobre'); }
   $('descobertos').textContent = `${Object.keys(S.desc).length}/${LUGARES.length} lugares`;
   const solo = p.y - Math.max(0, M.chao(p.x, p.z));
-  const av = !jog.vivo ? '' : piloto && a ? (a.estol ? 'ESTOL — acelere e abaixe o nariz' : (!a.chao && solo < 60 && a.vs < -8 && !a.preso) ? 'CHÃO! Puxe!' : (!a.chao && a.tremAlvo === 0 && solo < 25 && a.V < 45) ? 'Baixe o trem (G)' : Math.max(Math.abs(p.x), Math.abs(p.z)) > MUNDO * 0.6 ? 'Volte para as ilhas' : '')
+  if (vindo && (hud.bip = (hud.bip || 0) + 1) % 3 === 0) som.alerta();
+  const av = !jog.vivo ? '' : vindo ? 'MÍSSIL! Solte flares (✺ / N) e faça curva fechada' : piloto && a ? (a.estol ? 'ESTOL — acelere e abaixe o nariz' : (!a.chao && solo < 60 && a.vs < -8 && !a.preso) ? 'CHÃO! Puxe!' : (!a.chao && a.tremAlvo === 0 && solo < 25 && a.V < 45) ? 'Baixe o trem (G)' : Math.max(Math.abs(p.x), Math.abs(p.z)) > MUNDO * 0.6 ? 'Volte para as ilhas' : '')
     : jog.modo === 'queda' && solo < 400 ? 'Abra o paraquedas!' : jog.modo === 'sobre' && jog.sobre !== npc && jog.sobre.vivo && solo < 150 && jog.sobre.vs < -5 ? 'O avião vai cair — pule!' : '';
   const aviso = $('aviso'); aviso.style.display = av ? 'block' : 'none'; aviso.textContent = av;
   // bússola
@@ -1247,7 +1278,7 @@ function abrirMenu() {
     <h3>Filtro de imagem</h3><div class="linha">${FILTROS.map((f, i) => `<button class="card${i === S.filtro ? ' sel' : ''}" data-filtro="${i}">${f.nome}</button>`).join('')}</div>`,
     opcoes: `<h3>Opções</h3><div class="linha">${op('assist', 'Ajuda de voo (desligue para fazer tonneau)', S.assist)}${op('inverter', 'Controles invertidos (puxar pra trás sobe)', S.inverter)}${op('incl', 'Pilotar inclinando o celular', S.incl)}${op('som', 'Som', S.som)}${op('foto', 'Modo foto', document.body.classList.contains('foto'))}
       <button class="card" data-op="qual">Gráficos: ${{ alta: 'Bonito', media: 'Médio', baixa: 'Rápido' }[S.qual]}</button></div>
-    <h3>Comandos</h3><small style="color:var(--sub);line-height:1.7;display:block">${TOQUE ? 'Bolinha da esquerda: manche ' + (S.inverter ? '(puxe para baixo para subir, como avião de verdade)' : '(para cima sobe)') + '; no chão/a pé: anda. Barra da direita: motor. Arraste a tela para olhar. ⇪ sai do avião — em voo você fica em cima dele com as garras ⋔. Sem garras o vento te derruba; ☂ abre o paraquedas.' : (S.inverter ? 'S sobe / W desce' : 'W sobe / S desce') + ' · A/D inclinar · Q/E leme · Shift/Ctrl motor · G trem · F flap · Espaço fumaça · B freio · X sair do avião · V atira · M míssil (caça a jato) · C câmera · T hora · H foto · Esc menu<br>A pé: WASD anda · Espaço pula/abre paraquedas · E entra · K garras'}<br>Cargueiro gigante: chegue por trás na mesma velocidade, trem baixado, e pouse na rampa.</small>`
+    <h3>Comandos</h3><small style="color:var(--sub);line-height:1.7;display:block">${TOQUE ? 'Bolinha da esquerda: manche ' + (S.inverter ? '(puxe para baixo para subir, como avião de verdade)' : '(para cima sobe)') + '; no chão/a pé: anda. Barra da direita: motor. Arraste a tela para olhar. ⇪ sai do avião — em voo você fica em cima dele com as garras ⋔. Sem garras o vento te derruba; ☂ abre o paraquedas.' : (S.inverter ? 'S sobe / W desce' : 'W sobe / S desce') + ' · A/D inclinar · Q/E leme · Shift/Ctrl motor · G trem · F flap · Espaço fumaça · B freio · X sair do avião · V atira · M míssil (caça a jato) · N flares · C câmera · T hora · H foto · Esc menu<br>A pé: WASD anda · Espaço pula/abre paraquedas · E entra · K garras'}<br>Cargueiro gigante: chegue por trás na mesma velocidade, trem baixado, e pouse na rampa.</small>`
   };
   painel.innerHTML = `<div id="topoMenu"><div id="abas" role="tablist">${ABAS.map(([id, nome]) => `<button class="aba${id === abaMenu ? ' on' : ''}" role="tab" aria-selected="${id === abaMenu}" data-aba="${id}">${nome}</button>`).join('')}</div><button id="fechar">Continuar</button></div>
     <div id="conteudoAba" role="tabpanel">${conteudo[abaMenu]}</div>`;
@@ -1384,4 +1415,4 @@ document.addEventListener('visibilitychange', () => { if (document.hidden && est
 
 // testes automáticos
 const simular = (seg, e = {}) => { const a = jog.aviao; toque.p = e.p || 0; toque.r = e.r || 0; toque.leme = e.y || 0; toque.freio = !!e.freio; if (e.acel !== undefined) a.acel = e.acel; const log = []; for (let i = 0; i < seg * 60; i++) { passo(1 / 60); if (i % 60 === 0) log.push([Math.round(a.V * 3.6), Math.round(a.pos.y), a.chao ? 'chão' : 'ar', jog.modo].join(' ')); if (!jog.vivo) break; } toque.p = toque.r = toque.leme = 0; toque.freio = false; return log.join(' | ') + (jog.vivo ? '' : ' | MORREU'); };
-window.__jogo = { bloqueado: (p, i) => bloqueado(p, i), incl, M, chao: (x, z) => M.chao(x, z), simular, passo, jog, npc, frota, cam, camera, comecar, mudarHora, comecarDesafio, nascerLugar, DESAFIOS, DESAFIO_BAIA, DESAFIO_TIRO, DESAFIO_CARGA, DESAFIO_COMBATE, inimigos, dispararMissil, alvoTravado, misseis, balas, soltarCarga, caixas, previsaoCarga: () => previsaoCarga(), LUGARES, ent, proxCam, sair, pular, paraquedas, garras, entrar, S, horaJa: (i) => { hora = { de: i, para: i, t: 1 }; M.aplicarHora(i, i, 1); } };
+window.__jogo = { bloqueado: (p, i) => bloqueado(p, i), incl, M, chao: (x, z) => M.chao(x, z), simular, passo, jog, npc, frota, cam, camera, comecar, mudarHora, comecarDesafio, nascerLugar, DESAFIOS, DESAFIO_BAIA, DESAFIO_TIRO, DESAFIO_CARGA, DESAFIO_COMBATE, inimigos, dispararMissil, alvoTravado, misseis, balas, soltarCarga, soltarFlares, flares, caixas, previsaoCarga: () => previsaoCarga(), LUGARES, ent, proxCam, sair, pular, paraquedas, garras, entrar, S, horaJa: (i) => { hora = { de: i, para: i, t: 1 }; M.aplicarHora(i, i, 1); } };
