@@ -93,7 +93,18 @@ export function criarJato(p = PINT_JATO[0]) {
   const corpo = corpoTorno(rf, Z0, Z1, 48, 36, 1.0, 0.92, mat('#fff', 0.5, 0.25, { map: tex }));
   A.add(corpo);
   // dorso (lombada atrás da cabine)
-  const dorso = new THREE.Mesh(new THREE.SphereGeometry(1, 24, 12), mE); dorso.scale.set(0.62, 0.42, 4.6); dorso.position.set(0, 0.58, 0.6); A.add(dorso);
+  // lombada (espinha) atrás da cabine: seção oval que sobe da cabine e afina até a deriva, como no F-16
+  { const N = 14, prof = []; for (let i = 0; i <= N; i++) { const t = i / N, z = -3.0 + t * 7.4; prof.push([z, 0.5 * Math.sin(Math.min(1, t * 2.2) * Math.PI / 2) * (1 - t * 0.55), 0.45 + 0.2 * Math.sin(t * Math.PI) - t * 0.25]); }
+    const pos = [], idx = [], SEG = 14;
+    prof.forEach(([z, w, h], i) => { for (let j = 0; j <= SEG; j++) { const a = Math.PI * j / SEG; pos.push(Math.cos(a) * w, 0.45 + Math.sin(a) * h, z); } });
+    for (let i = 0; i < N; i++) for (let j = 0; j < SEG; j++) { const a = i * (SEG + 1) + j, b = a + 1, c = a + SEG + 1, d = c + 1; idx.push(a, c, b, b, c, d); }
+    const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setIndex(idx); g.computeVertexNormals();
+    A.add(new THREE.Mesh(g, mE)); }
+  // aerofreios dos dois lados do bocal, antena de cima, sensor sob a entrada de ar e luzes de reabastecimento
+  for (const s2 of [-1, 1]) { const af = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.55, 1.1), mB); af.position.set(s2 * 0.78, 0, Z1 - 0.3); af.rotation.y = s2 * 0.08; A.add(af); }
+  const antD = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.28, 0.35), mEsc); antD.position.set(0, 1.08, -1.6); antD.rotation.x = 0.3; A.add(antD);
+  const pod = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.16, 1.6, 12), mat('#7b8188', 0.5, 0.4)); pod.rotation.x = Math.PI / 2; pod.position.set(0.55, -1.15, -2.6); A.add(pod);
+  const lente = new THREE.Mesh(new THREE.SphereGeometry(0.16, 12, 8, 0, Math.PI * 2, 0, Math.PI / 2), mat('#20262c', 0.05, 0.9)); lente.rotation.x = -Math.PI / 2; lente.position.set(0.55, -1.15, -3.4); A.add(lente);
   // entrada de ar sob a cabine (boca escura)
   const entrada = new THREE.Mesh(new THREE.CylinderGeometry(0.62, 0.55, 5.4, 24, 1, true), mB); entrada.rotation.x = Math.PI / 2; entrada.scale.set(1.05, 1, 0.72); entrada.position.set(0, -0.82, -1.1); A.add(entrada);
   const boca = new THREE.Mesh(new THREE.CircleGeometry(0.6, 24), mat('#0b0b0c', 0.9)); boca.scale.set(1.05, 0.72, 1); boca.position.set(0, -0.82, -3.78); boca.rotation.y = Math.PI; A.add(boca);

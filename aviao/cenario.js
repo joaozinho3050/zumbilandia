@@ -163,13 +163,22 @@ export function criarCenario(renderer, Q) {
   for (const z of [PISTA.z0 + 120, 200, PISTA.z1 - 120]) { const t = new THREE.Mesh(new THREE.PlaneGeometry(70, 16), asfalto); t.rotation.x = -Math.PI / 2; t.position.set(PISTA.x + 52, PISTA.h + 0.04, z); cena.add(t); }
   const patio = new THREE.Mesh(new THREE.PlaneGeometry(110, 360), asfalto); patio.rotation.x = -Math.PI / 2; patio.position.set(PISTA.x + 150, PISTA.h + 0.04, 120); patio.receiveShadow = true; cena.add(patio);
   // hangares
+  let hgs = 0;
   for (const [z, cor] of [[-20, 0xb8b2a2], [60, 0x8fa6b8], [140, 0xb8a089]]) {
     const hg = new THREE.Group(); hg.position.set(PISTA.x + 230, PISTA.h, z);
-    const gc = new THREE.CylinderGeometry(18, 18, 40, 24, 1, false, -Math.PI / 2, Math.PI); gc.rotateX(-Math.PI / 2); gc.rotateY(Math.PI / 2); gc.scale(1, 0.75, 1);
-    const corpo = new THREE.Mesh(gc, new THREE.MeshLambertMaterial({ color: cor })); corpo.receiveShadow = true;
-    const gp = new THREE.CircleGeometry(16.5, 24, 0, Math.PI); gp.rotateY(-Math.PI / 2); gp.scale(1, 0.75, 1);
-    const porta = new THREE.Mesh(gp, new THREE.MeshLambertMaterial({ color: 0x3d3f44 })); porta.position.x = -20.15;
-    hg.add(corpo, porta); cena.add(hg); obst.push({ x: PISTA.x + 230, z, hx: 20, hz: 18, h: 15 });
+    const gc = new THREE.CylinderGeometry(18, 18, 40, 40, 1, false, -Math.PI / 2, Math.PI); gc.rotateX(-Math.PI / 2); gc.rotateY(Math.PI / 2); gc.scale(1, 0.75, 1);
+    const corpo = new THREE.Mesh(gc, new THREE.MeshLambertMaterial({ color: cor, map: texOndulada(), side: THREE.DoubleSide })); corpo.receiveShadow = true;
+    const meio = new THREE.Shape(); meio.absarc(0, 0, 18, 0, Math.PI); meio.lineTo(-18, 0); // parede em meia-lua
+    const gFundo = new THREE.ShapeGeometry(meio, 24); gFundo.scale(1, 0.75, 1); gFundo.rotateY(Math.PI / 2);
+    const mParede = new THREE.MeshLambertMaterial({ color: new THREE.Color(cor).multiplyScalar(0.85), side: THREE.DoubleSide, emissive: new THREE.Color(cor).multiplyScalar(0.25) }); // a frente fica na sombra: um pouco de luz própria
+    const fundo = new THREE.Mesh(gFundo, mParede); fundo.position.x = 20;
+    const frente = new THREE.Mesh(gFundo, mParede); frente.position.x = -20.05;
+    const mPorta = new THREE.MeshLambertMaterial({ map: texPortaHangar(), emissive: 0x3a3f44 }), portas = [];
+    for (const s2 of [-1, 1]) { const pt = new THREE.Mesh(new THREE.BoxGeometry(0.3, 10, 7), mPorta); pt.position.set(-20.25, 5, s2 * 3.6); portas.push(pt); } // portas de correr entreabertas
+    const vao = new THREE.Mesh(new THREE.PlaneGeometry(6, 9.6), new THREE.MeshBasicMaterial({ color: 0x14171b })); vao.rotation.y = -Math.PI / 2; vao.position.set(-20.1, 4.8, 0);
+    const letreiro = new THREE.Mesh(new THREE.PlaneGeometry(14, 2.2), new THREE.MeshBasicMaterial({ map: texLetreiro(`HANGAR ${hgs++ + 1}`) })); letreiro.rotation.y = -Math.PI / 2; letreiro.position.set(-20.12, 11.2, 0);
+    const luz = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.3, 1.2), new THREE.MeshBasicMaterial({ color: 0xfff1c8 })); luz.position.set(-20.4, 10.2, 0);
+    hg.add(corpo, fundo, frente, vao, letreiro, luz, ...portas); cena.add(hg); obst.push({ x: PISTA.x + 230, z, hx: 20, hz: 18, h: 15 });
   }
   // torre de controle
   { const t = new THREE.Group(); t.position.set(PISTA.x + 170, PISTA.h, 330);
@@ -245,15 +254,26 @@ export function criarCenario(renderer, Q) {
       casas.push([x, h, z, w, alt, d, rot, cores[Math.floor(R() * cores.length)]]); obst.push({ x, z, r: Math.max(w, d) * 0.5, h: alt + 4 + w * 0.2 });
       luzP.push(x + Math.cos(rot) * (w / 2 + 0.3), h + 2.5, z - Math.sin(rot) * (w / 2 + 0.3)); luzC.push(1, 0.75, 0.4);
     }
-    const gC = new THREE.BoxGeometry(1, 1, 1).translate(0, 0.5, 0);
-    const imC = new THREE.InstancedMesh(gC, new THREE.MeshLambertMaterial(), casas.length);
-    const imT = new THREE.InstancedMesh(new THREE.ConeGeometry(0.78, 1, 4).rotateY(Math.PI / 4), new THREE.MeshLambertMaterial(), casas.length);
+    // casa de 1x1x1 (fachada para +x): paredes + rodapé, janelas com moldura, porta, telhado de duas águas com beiral e chaminé
+    const B = (w, h, d, x, y, z) => new THREE.BoxGeometry(w, h, d).translate(x, y, z);
+    const gParede = new THREE.BoxGeometry(1, 1, 1).translate(0, 0.5, 0);
+    const det = [[B(1.02, 0.12, 1.02, 0, 0.06, 0), '#8c8378']]; // rodapé
+    for (const z of [-0.3, 0.3]) for (const sx of [1, -1]) { det.push([B(0.02, 0.22, 0.17, sx * 0.505, 0.6, z), '#2d3a4a'], [B(0.03, 0.26, 0.21, sx * 0.5, 0.6, z), '#f4efe4'], [B(0.05, 0.03, 0.24, sx * 0.51, 0.47, z), '#f4efe4']); }
+    for (const x of [-0.25, 0.25]) for (const sz of [1, -1]) det.push([B(0.17, 0.22, 0.02, x, 0.6, sz * 0.505), '#2d3a4a'], [B(0.21, 0.26, 0.03, x, 0.6, sz * 0.5), '#f4efe4']);
+    det.push([B(0.03, 0.42, 0.16, 0.51, 0.21, 0), '#6b4228'], [B(0.05, 0.03, 0.26, 0.53, 0.44, 0), '#f4efe4'], [B(0.12, 0.03, 0.3, 0.57, 0.015, 0), '#9a948a']); // porta, verga e degrau
+    const gDet = juntar(det);
+    // telhado: prisma triangular (cumeeira ao longo de z), com beiral de 12%
+    const tri = new THREE.Shape(); tri.moveTo(-0.62, 0); tri.lineTo(0, 0.5); tri.lineTo(0.62, 0); tri.closePath();
+    const gTelha = juntar([[new THREE.ExtrudeGeometry(tri, { depth: 1.16, bevelEnabled: false }).translate(0, 0, -0.58), '#ffffff'], [B(0.1, 0.32, 0.1, 0.22, 0.32, -0.28), '#8a7a6a'], [B(0.13, 0.04, 0.13, 0.22, 0.49, -0.28), '#5a4a3e']]);
+    const imC = new THREE.InstancedMesh(gParede, new THREE.MeshLambertMaterial(), casas.length);
+    const imD = new THREE.InstancedMesh(gDet, new THREE.MeshLambertMaterial({ vertexColors: true }), casas.length);
+    const imT = new THREE.InstancedMesh(gTelha, new THREE.MeshLambertMaterial({ vertexColors: true }), casas.length);
     casas.forEach(([x, h, z, w, a, d, r, c], i) => {
       q.setFromAxisAngle(ps.set(0, 1, 0), r);
-      mt.compose(ps.set(x, h - 1, z), q, sc.set(w, a + 1, d)); imC.setMatrixAt(i, mt); imC.setColorAt(i, col.set(c));
-      mt.compose(ps.set(x, h + a + (3 + w * 0.2) / 2, z), q, sc.set(w * 1.15, 3 + w * 0.2, d * 1.15)); imT.setMatrixAt(i, mt); imT.setColorAt(i, col.set(R() < 0.7 ? '#b4532e' : '#8a3e2a'));
+      mt.compose(ps.set(x, h - 1, z), q, sc.set(w, a + 1, d)); imC.setMatrixAt(i, mt); imD.setMatrixAt(i, mt); imC.setColorAt(i, col.set(c));
+      mt.compose(ps.set(x, h + a, z), q, sc.set(w, 3 + w * 0.15, d)); imT.setMatrixAt(i, mt); imT.setColorAt(i, col.set(R() < 0.7 ? '#b4532e' : '#8a3e2a'));
     });
-    imC.castShadow = imT.castShadow = false; imC.receiveShadow = true; cena.add(imC, imT);
+    imC.receiveShadow = imD.receiveShadow = imT.receiveShadow = true; cena.add(imC, imD, imT);
     // igreja com torre e sino
     const hI = out.chao(vila.x, vila.z), ig = new THREE.Group(); ig.position.set(vila.x, hI - 1, vila.z);
     const branco = new THREE.MeshLambertMaterial({ color: 0xfbf6ea }), telha = new THREE.MeshLambertMaterial({ color: 0xa8492a }), azul = new THREE.MeshLambertMaterial({ color: 0x2c64b0 });
@@ -610,4 +630,21 @@ function detalharChao(mat) {
           normal = normalize(abs(dt) * normal - grad);
         }`);
   };
+}
+
+function texOndulada() { // chapa metálica ondulada do teto do hangar
+  const c = document.createElement('canvas'); c.width = 128; c.height = 8; const g = c.getContext('2d');
+  for (let x = 0; x < 128; x++) { const v = 200 + 55 * Math.sin(x / 128 * Math.PI * 2 * 8); g.fillStyle = `rgb(${v},${v},${v})`; g.fillRect(x, 0, 1, 8); }
+  const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(5, 6); t.colorSpace = THREE.SRGBColorSpace; return t;
+}
+function texPortaHangar() {
+  const c = document.createElement('canvas'); c.width = 64; c.height = 128; const g = c.getContext('2d');
+  g.fillStyle = '#9aa3ab'; g.fillRect(0, 0, 64, 128); g.fillStyle = 'rgba(0,0,0,.25)'; for (let y = 0; y < 128; y += 16) g.fillRect(0, y, 64, 2);
+  g.fillStyle = '#e8c21e'; g.fillRect(0, 118, 64, 10); g.fillStyle = '#222'; for (let x = 0; x < 64; x += 12) g.fillRect(x, 118, 6, 10);
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
+}
+function texLetreiro(txt) {
+  const c = document.createElement('canvas'); c.width = 512; c.height = 80; const g = c.getContext('2d');
+  g.fillStyle = '#1d2b4a'; g.fillRect(0, 0, 512, 80); g.fillStyle = '#ffffff'; g.font = 'bold 54px sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(txt, 256, 42);
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
 }
