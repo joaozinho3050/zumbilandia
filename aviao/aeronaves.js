@@ -461,10 +461,178 @@ export function criarCargueiro(p = PINT_CARGA[0]) {
   A.userData.parts = parts; return A;
 }
 
+// ================== EMBRAER A-29 SUPER TUCANO (medidas reais: 11,38 m de comprimento, 11,14 m de envergadura) ==================
+export const PINT_TUCANO = [
+  { nome: 'FAB cinza', base: '#7d858c', esc: '#5f676e', baixo: '#9aa1a7', faixa: '#2a2f35' },
+  { nome: 'Esquadrilha da Fumaça', base: '#f4f4f2', esc: '#d4262c', baixo: '#1d3f9a', faixa: '#d4262c', fumaca: true },
+  { nome: 'Camuflado', base: '#5e6b4a', esc: '#3f4934', baixo: '#a7ad9a', faixa: '#2b3122' },
+];
+export function criarTucano(p = PINT_TUCANO[0]) {
+  const A = new THREE.Group(), parts = { trem: [], rodas: [] };
+  const mB = mat(p.base, 0.45, 0.2), mE = mat(p.esc, 0.45, 0.2), mBx = mat(p.baixo, 0.45, 0.2), mEsc = mat('#26282b', 0.6, 0.3), mMet = mat('#aeb3b8', 0.25, 0.9), mPneu = mat('#141414', 0.9, 0);
+  const Z0 = -5.55, Z1 = 5.6;
+  const rf = (z) => { if (z < -3.6) { const t = (z - Z0) / 1.95; return 0.34 + 0.26 * Math.sin(Math.min(1, t) * Math.PI / 2); } if (z < -0.4) return 0.6; const t = (z + 0.4) / (Z1 + 0.4); return 0.6 - 0.46 * Math.pow(t, 1.25); };
+  const tex = texCorpo(Z0, Z1, p.base, (g, Y, W, H) => {
+    g.fillStyle = p.baixo; g.fillRect(0, 0, W * 0.16, H); g.fillRect(W * 0.84, 0, W * 0.16, H);
+    if (p.fumaca) { // faixas da Esquadrilha da Fumaça: vermelho e azul varrendo o corpo
+      for (const [u, c] of [[0.25, p.esc], [0.75, p.esc]]) { g.fillStyle = c; g.beginPath(); g.moveTo(W * (u - 0.09), Y(-5.4)); g.lineTo(W * (u + 0.09), Y(-5.4)); g.lineTo(W * (u + 0.03), Y(4.5)); g.lineTo(W * (u - 0.03), Y(4.5)); g.fill(); }
+      g.fillStyle = '#1d3f9a'; g.fillRect(W * 0.4, Y(5.5), W * 0.2, Y(1.5) - Y(5.5));
+    } else { g.fillStyle = p.esc; g.beginPath(); g.ellipse(W * 0.33, Y(0.5), 70, 260, 0.3, 0, 7); g.ellipse(W * 0.67, Y(2.5), 60, 200, -0.3, 0, 7); g.fill(); }
+    g.fillStyle = '#1a1a1a'; g.fillRect(W * 0.42, Y(-2.7), W * 0.16, Y(-4.6) - Y(-2.7)); // faixa anti-reflexo no capô
+    linhasPainel(g, Y, W, [-4.6, -3.6, -2.7, 1.3, 2.6, 4.0], 0.22);
+    textoLado(g, W, Y, 2.0, 'FAB 5900', p.fumaca ? '#1d3f9a' : '#e8e8e8', 40, 0.06);
+    for (const u of [0.25, 0.75]) { g.fillStyle = '#1f9d4a'; g.beginPath(); g.arc(W * u + (u < 0.5 ? 60 : -60), Y(3.3), 22, 0, 7); g.fill(); g.fillStyle = '#ffd400'; g.beginPath(); g.arc(W * u + (u < 0.5 ? 60 : -60), Y(3.3), 14, 0, 7); g.fill(); g.fillStyle = '#1e3c96'; g.beginPath(); g.arc(W * u + (u < 0.5 ? 60 : -60), Y(3.3), 7, 0, 7); g.fill(); } // cocar da FAB
+  });
+  A.add(corpoTorno(rf, Z0, Z1, 48, 36, 0.9, 1.25, mat('#fff', 0.45, 0.2, { map: tex }), 0.07, 0.2));
+  // hélice de 5 pás (Hartzell) e cubo
+  const hel = helice(1.19, 5, '#1c1c1c', '#f2c230', p.fumaca ? p.esc : '#2a2d30', 0.27, 0.62); hel.h.position.set(0, 0.02, Z0 - 0.02); A.add(hel.h); parts.helices = [hel];
+  // tomada de ar sob o nariz e escapamentos dos dois lados (turbina PT6A)
+  const ent = corpoTorno((z) => 0.22 * (z < -4.8 ? 0.85 : Math.pow(1 - (z + 4.8) / 1.6, 0.6)), -5.3, -3.2, 10, 14, 1.4, 0.8, mE); ent.position.y = -0.52; A.add(ent);
+  const boca = new THREE.Mesh(new THREE.CircleGeometry(0.2, 14), mat('#0d0d0d', 0.9)); boca.scale.set(1.4, 0.8, 1); boca.rotation.y = Math.PI; boca.position.set(0, -0.52, -5.31); A.add(boca);
+  const brasa = mat('#301510', 0.7, 0.2, { emissive: 0xff5a1a, emissiveIntensity: 0.3 }); parts.brasa = brasa;
+  for (const s of [-1, 1]) {
+    const esc = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.16, 0.5, 12, 1, true), mEsc); esc.rotation.set(Math.PI / 2 - 0.5, 0, s * 0.9); esc.position.set(s * 0.6, -0.05, -4.2); A.add(esc);
+    const f = new THREE.Mesh(new THREE.CircleGeometry(0.12, 12), brasa); f.position.set(s * 0.78, -0.12, -4.0); f.rotation.y = s * Math.PI / 2.4; A.add(f);
+  }
+  // cabine tandem: canopi longo com 3 arcos, dois pilotos (o de trás mais alto)
+  const vid = new THREE.MeshStandardMaterial({ color: 0x9fb8c8, roughness: 0.03, metalness: 0.8, transparent: true, opacity: 0.32, envMapIntensity: 2, depthWrite: false });
+  const bolha = new THREE.Mesh(new THREE.SphereGeometry(1, 32, 14, 0, Math.PI * 2, 0, Math.PI / 2), vid); bolha.scale.set(0.45, 0.55, 2.0); bolha.position.set(0, 0.62, -0.75); bolha.renderOrder = 2; A.add(bolha); parts.bolha = bolha;
+  for (const z of [-2.35, -0.95, 0.75]) { const k = Math.sqrt(Math.max(0.05, 1 - ((z + 0.75) / 2.0) ** 2)); const t = new THREE.Mesh(new THREE.TorusGeometry(1, 0.035, 6, 20, Math.PI), mEsc); t.scale.set(0.45 * k + 0.02, 0.55 * k + 0.02, 1); t.position.set(0, 0.62, z); A.add(t); }
+  const pil = criarPiloto('jato'); pil.position.set(0, 0.55, -1.75); A.add(pil); parts.piloto = pil;
+  const pil2 = criarPiloto('jato'); pil2.position.set(0, 0.7, -0.25); A.add(pil2);
+  for (const z of [-1.45, 0.05]) { const cad = new THREE.Mesh(new THREE.BoxGeometry(0.45, 0.6, 0.16), mEsc); cad.position.set(0, 0.68 + (z > -1 ? 0.12 : 0), z); cad.rotation.x = -0.25; A.add(cad); } // assentos ejetáveis (abaixo do vidro)
+  painelVivo(A, parts, new THREE.Vector3(0, 0.82, -2.35), -0.3, 0.75);
+  const ant = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.3, 0.4), mEsc); ant.position.set(0, 0.95, 2.2); ant.rotation.x = 0.4; A.add(ant);
+  // asas: bordo de ataque quase reto, diedro de ~6°, metralhadoras .50 e cabides
+  const asa = (s) => { const t = (s - 0.45) / (5.57 - 0.45); return { s, le: -0.95 + t * 0.4, c: 2.3 - t * 1.05, y: -0.45 + t * 0.52 }; };
+  const H = 0.74;
+  for (const lado of [1, -1]) {
+    const map = lado > 0 ? mapD : mapE, fx = (g) => (lado > 0 ? g : flipGeo(g)), stA = est(asa);
+    A.add(sombra(new THREE.Mesh(fx(loft(stA(0.4, 5.35, 6), perfil(0, H, 14, 0.15), map)), mB)));
+    const tipS = [asa(5.35), { ...asa(5.57), c: asa(5.57).c * 0.85, le: asa(5.57).le + 0.06 }];
+    A.add(sombra(new THREE.Mesh(fx(loft(tipS, perfil(0, 1, 12, 0.12), map)), p.fumaca ? mE : mB)));
+    const hinge = (s) => { const a = asa(s); return new THREE.Vector3(lado * s, a.y + 0.02 * a.c, a.le + H * a.c); };
+    const flap = articulada(fx(loft(stA(0.4, 3.2, 2), perfil(H, 1, 5, 0.15), map)), mB, hinge(0.4), hinge(3.2));
+    const ail = articulada(fx(loft(stA(3.2, 5.35, 2), perfil(H, 1, 5, 0.15), map)), p.fumaca ? mE : mB, hinge(3.2), hinge(5.35));
+    A.add(flap, ail); parts[lado > 0 ? 'flapD' : 'flapE'] = flap; parts[lado > 0 ? 'ailD' : 'ailE'] = ail;
+    const ag = asa(2.0), cano = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.04, 0.7, 8), mEsc); cano.rotation.x = Math.PI / 2; cano.position.set(lado * 2.0, ag.y - 0.02, ag.le - 0.25); A.add(cano);
+    for (const sp of [3.0, 4.0]) { const ap = asa(sp), pl = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.22, 0.9), mE); pl.position.set(lado * sp, ap.y - 0.2, ap.le + ap.c * 0.4); A.add(pl); }
+    if (!p.fumaca) { const ins = new THREE.Mesh(new THREE.CircleGeometry(0.4, 24), mat('#1f9d4a', 0.5, 0, { polygonOffset: true, polygonOffsetFactor: -2 })); const ai = asa(4.3); ins.rotation.x = -Math.PI / 2; ins.position.set(lado * 4.3, ai.y + ai.c * 0.12, ai.le + ai.c * 0.4); A.add(ins); }
+    const pr = (s) => { const t = s / 2.3; return { s, le: 4.05 + t * 0.45, c: 1.35 - t * 0.6, y: 0.4 }; };
+    A.add(sombra(new THREE.Mesh(fx(loft(est(pr)(0.1, 2.3), perfil(0, 0.62, 10, 0.1), map)), mB)));
+    const hg = (s) => { const a = pr(s); return new THREE.Vector3(lado * s, a.y, a.le + 0.62 * a.c); };
+    const prof = articulada(fx(loft(est(pr)(0.15, 2.3, 2), perfil(0.62, 1, 5, 0.1), map)), p.fumaca ? mE : mB, hg(0.15), hg(2.3)); A.add(prof); parts[lado > 0 ? 'profD' : 'profE'] = prof;
+  }
+  const der = (s) => { const t = (s - 0.35) / 1.85; return { s, le: 3.55 + t * 1.15, c: 1.95 - t * 1.0, y: 0 }; };
+  { const f = new THREE.Shape(); f.moveTo(1.9, 0); f.lineTo(3.6, 0.45); f.lineTo(3.6, 0); f.closePath(); const g = new THREE.ExtrudeGeometry(f, { depth: 0.07, bevelEnabled: false }); g.rotateY(-Math.PI / 2); g.translate(0.035, 0, 0); const fil = new THREE.Mesh(g, mB); fil.position.y = rf(2.6) * 1.25 + (2.6 - 0.2) * 0.07 - 0.05; A.add(fil); }
+  A.add(sombra(new THREE.Mesh(flipGeo(loft(est(der)(0.35, 2.2), perfil(0, 0.62, 10, 0.1), (s, z, y) => [y, s + 0.3, z])), mB)));
+  const hd = (s) => { const a = der(s); return new THREE.Vector3(0, s + 0.3, a.le + 0.62 * a.c); };
+  const leme = articulada(flipGeo(loft(est(der)(0.4, 2.2, 2), perfil(0.62, 1, 5, 0.1), (s, z, y) => [y, s + 0.3, z])), p.fumaca ? mE : mB, hd(0.4), hd(2.2)); A.add(leme); parts.leme = leme;
+  const m = { mMetal: mMet, mEscuro: mEsc, mPneu, tampa: mB };
+  pernaTrem(A, parts, m, 0, -0.6, -3.9, 1.1, 0.25, 'x', 1);
+  pernaTrem(A, parts, m, 1.6, -0.42, -0.15, 1.2, 0.33, 'z', 1);
+  pernaTrem(A, parts, m, -1.6, -0.42, -0.15, 1.2, 0.33, 'z', -1);
+  parts.alturaTrem = 1.95;
+  luzes(A, parts, 5.58, 0.07, asa(5.5).le + 0.3, new THREE.Vector3(0, 2.55, 4.5), new THREE.Vector3(0, 0.7, Z1 + 0.05));
+  const lampF = brilho('#fff6dd', 1.2); lampF.position.set(0, -1.3, -3.7); A.add(lampF); parts.lampFarol = lampF;
+  parts.cauda = new THREE.Vector3(0, 0.5, Z1 + 0.3); parts.entrada = new THREE.Vector3(0, 1.15, -1.0); parts.envergadura = 11.14; parts.raioCorpo = 0.7; parts.saida = new THREE.Vector3(1.45, 0, -3.3); parts.comprimento = 11.4;
+  parts.superficies = (x, z) => {
+    const ax = Math.abs(x), r = [];
+    if (ax < 0.45 && z > Z0 + 0.3 && z < Z1 - 0.3) { let y = rf(z) * 1.25 + Math.max(0, z - 0.2) * 0.07; const k = (z + 0.75) / 2.0; if (Math.abs(k) < 1) y = Math.max(y, 0.62 + 0.55 * Math.sqrt(1 - k * k)); r.push(y); }
+    if (ax > 0.45 && ax < 5.5) { const a = asa(ax); if (z > a.le && z < a.le + a.c) r.push(a.y + a.c * 0.11); }
+    if (ax < 0.14 && z > 3.6 && z < 5.4) r.push(2.5);
+    return r;
+  };
+  mesclar(A); A.userData.parts = parts; return A;
+}
+
+// ================== CESSNA 172 SKYHAWK (8,28 m de comprimento, 11 m de envergadura, asa alta com montante) ==================
+export const PINT_CESSNA = [
+  { nome: 'Clássico', base: '#f6f6f2', f1: '#1d4f9a', f2: '#c8282e' },
+  { nome: 'Escola amarelo', base: '#f2c230', f1: '#1d1d1d', f2: '#ffffff' },
+  { nome: 'Vermelho', base: '#f6f6f2', f1: '#b8202a', f2: '#7a1418' },
+];
+export function criarCessna(p = PINT_CESSNA[0]) {
+  const A = new THREE.Group(), parts = { trem: [], rodas: [] };
+  const mB = mat(p.base, 0.35, 0.1), mF = mat(p.f1, 0.4, 0.1), mEsc = mat('#2a2b2e', 0.6, 0.3), mMet = mat('#c4c8cc', 0.3, 0.8), mPneu = mat('#141414', 0.9, 0);
+  const Z0 = -3.9, Z1 = 4.35;
+  // cabine larga e alta, capô do motor afinando, cone de cauda fino
+  const rf = (z) => { if (z < -2.0) { const t = (z - Z0) / 1.9; return 0.36 + 0.3 * Math.sin(Math.min(1, t) * Math.PI / 2); } if (z < 0.9) return 0.66; const t = (z - 0.9) / (Z1 - 0.9); return 0.66 - 0.56 * Math.pow(t, 0.8); };
+  const tex = texCorpo(Z0, Z1, p.base, (g, Y, W, H) => {
+    for (const u of [0.25, 0.75]) { // faixas laterais e janelas
+      g.fillStyle = p.f1; g.beginPath(); g.moveTo(W * (u - 0.035), Y(-3.8)); g.lineTo(W * (u + 0.02), Y(-3.8)); g.lineTo(W * (u + 0.01), Y(4.2)); g.lineTo(W * (u - 0.015), Y(4.2)); g.fill();
+      g.fillStyle = p.f2; g.fillRect(W * (u - 0.05), Y(4.2), W * 0.012, Y(-3.6) - Y(4.2));
+      const s = u < 0.5 ? 1 : -1; g.fillStyle = '#1a2430';
+      g.beginPath(); g.moveTo(W * (u + s * 0.11), Y(-1.95)); g.lineTo(W * (u + s * 0.11), Y(-0.75)); g.lineTo(W * (u + s * 0.04), Y(-0.75)); g.lineTo(W * (u + s * 0.04), Y(-1.7)); g.fill(); // janela da porta
+      g.beginPath(); g.moveTo(W * (u + s * 0.11), Y(-0.6)); g.lineTo(W * (u + s * 0.11), Y(0.7)); g.lineTo(W * (u + s * 0.05), Y(0.3)); g.lineTo(W * (u + s * 0.05), Y(-0.6)); g.fill(); // janela de trás
+      g.strokeStyle = 'rgba(0,0,0,.35)'; g.lineWidth = 3; g.strokeRect(W * (u + Math.min(0, s * 0.13)), Y(-0.7), W * 0.13, Y(-2.0) - Y(-0.7)); // contorno da porta
+    }
+    g.fillStyle = '#1a2430'; g.beginPath(); g.moveTo(W * 0.36, Y(-2.0)); g.lineTo(W * 0.64, Y(-2.0)); g.lineTo(W * 0.6, Y(-1.3)); g.lineTo(W * 0.4, Y(-1.3)); g.fill(); // para-brisa
+    linhasPainel(g, Y, W, [-2.9, -2.0, 0.9, 2.2, 3.4], 0.2);
+    textoLado(g, W, Y, 2.3, 'PR-CEU', p.f1, 46, 0.03);
+  });
+  const corpo = corpoTorno(rf, Z0, Z1, 40, 32, 0.95, 1.12, mat('#fff', 0.35, 0.1, { map: tex }), 0.0, 0);
+  { const pp = corpo.geometry.attributes.position; for (let i = 0; i < pp.count; i++) { const z = pp.getZ(i); if (z > 0.9) pp.setY(i, pp.getY(i) + (z - 0.9) * 0.1); } corpo.geometry.computeVertexNormals(); } // cone de cauda sobe (teto reto)
+  A.add(corpo);
+  const hel = helice(0.95, 2, '#2a2a2a', '#f2f2f2', p.base, 0.22, 0.42); hel.h.position.set(0, -0.02, Z0 - 0.02); A.add(hel.h); parts.helices = [hel];
+  const brasa = mat('#301510', 0.7, 0.2, { emissive: 0xff5a1a, emissiveIntensity: 0.2 }); parts.brasa = brasa;
+  const escap = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.3, 8), mEsc); escap.rotation.x = Math.PI / 2; escap.position.set(0.15, -0.66, -2.6); A.add(escap);
+  const bocal = new THREE.Mesh(new THREE.CircleGeometry(0.05, 8), brasa); bocal.position.set(0.15, -0.66, -2.44); A.add(bocal);
+  for (const s of [-1, 1]) { const ar = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.12, 0.05), mEsc); ar.position.set(s * 0.18, -0.15, -3.86); A.add(ar); } // entradas de ar do capô
+  // vidros (para-brisa e laterais) por cima da pintura, para dar brilho
+  const vid = new THREE.MeshStandardMaterial({ color: 0x8fb0c4, roughness: 0.03, metalness: 0.8, transparent: true, opacity: 0.35, envMapIntensity: 2, depthWrite: false });
+  const pb = new THREE.Mesh(new THREE.PlaneGeometry(0.95, 0.7), vid); pb.position.set(0, 0.62, -1.75); pb.rotation.x = -0.95; A.add(pb);
+  const pil = criarPiloto('classico'); pil.position.set(-0.28, 0.05, -1.1); pil.scale.setScalar(0.95); A.add(pil); parts.piloto = pil; parts.cachecol = pil.userData.cachecol; if (parts.cachecol) parts.cachecol.visible = false;
+  painelVivo(A, parts, new THREE.Vector3(0, 0.35, -1.95), -0.25, 0.85);
+  // asa alta: parte central reta e ponta afinando, diedro de 1,7°, montantes até o corpo
+  const asa = (s) => { const t = Math.max(0, (s - 2.6) / (5.5 - 2.6)); return { s, le: -1.25 + t * 0.35, c: 1.63 - t * 0.5, y: 0.82 + s * 0.03 }; };
+  const H = 0.75;
+  for (const lado of [1, -1]) {
+    const map = lado > 0 ? mapD : mapE, fx = (g) => (lado > 0 ? g : flipGeo(g)), stA = est(asa);
+    A.add(sombra(new THREE.Mesh(fx(loft(stA(0.0, 5.3, 8), perfil(0, H, 14, 0.15), map)), mB)));
+    A.add(sombra(new THREE.Mesh(fx(loft([asa(5.3), { ...asa(5.5), c: asa(5.5).c * 0.9 }], perfil(0, 1, 12, 0.13), map)), mF)));
+    const hinge = (s) => { const a = asa(s); return new THREE.Vector3(lado * s, a.y + 0.02 * a.c, a.le + H * a.c); };
+    const flap = articulada(fx(loft(stA(0.55, 2.9, 2), perfil(H, 1, 5, 0.15), map)), mB, hinge(0.55), hinge(2.9));
+    const ail = articulada(fx(loft(stA(2.9, 5.3, 2), perfil(H, 1, 5, 0.15), map)), mB, hinge(2.9), hinge(5.3));
+    A.add(flap, ail); parts[lado > 0 ? 'flapD' : 'flapE'] = flap; parts[lado > 0 ? 'ailD' : 'ailE'] = ail;
+    const de = new THREE.Vector3(lado * 0.6, -0.42, -0.85), ate = new THREE.Vector3(lado * 2.55, asa(2.55).y, asa(2.55).le + 0.45), d = ate.clone().sub(de); // montante
+    const mont = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.05, d.length(), 8), mB); mont.position.copy(de).addScaledVector(d, 0.5); mont.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), d.normalize()); mont.scale.z = 2.2; A.add(mont);
+    const pr = (s) => { const t = s / 1.7; return { s, le: 3.25 + t * 0.35, c: 1.3 - t * 0.45, y: 0.1 }; };
+    A.add(sombra(new THREE.Mesh(fx(loft(est(pr)(0.1, 1.7), perfil(0, 0.6, 10, 0.1), map)), mB)));
+    const hg = (s) => { const a = pr(s); return new THREE.Vector3(lado * s, a.y, a.le + 0.6 * a.c); };
+    const prof = articulada(fx(loft(est(pr)(0.15, 1.7, 2), perfil(0.6, 1, 5, 0.1), map)), mB, hg(0.15), hg(1.7)); A.add(prof); parts[lado > 0 ? 'profD' : 'profE'] = prof;
+  }
+  const carW = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.18, 1.5), mB); carW.position.set(0, 0.78, -0.6); A.add(carW); // junção asa-cabine
+  // deriva inclinada para trás (marca do 172) com barbatana dorsal
+  const der = (s) => { const t = (s - 0.3) / 1.25; return { s, le: 2.75 + t * 1.15, c: 1.5 - t * 0.6, y: 0 }; };
+  A.add(sombra(new THREE.Mesh(flipGeo(loft(est(der)(0.3, 1.55), perfil(0, 0.65, 10, 0.1), (s, z, y) => [y, s + 0.45, z])), mB)));
+  const hd = (s) => { const a = der(s); return new THREE.Vector3(0, s + 0.45, a.le + 0.65 * a.c); };
+  const leme = articulada(flipGeo(loft(est(der)(0.35, 1.55, 2), perfil(0.65, 1, 5, 0.1), (s, z, y) => [y, s + 0.45, z])), mF, hd(0.35), hd(1.55)); A.add(leme); parts.leme = leme;
+  { const f = new THREE.Shape(); f.moveTo(1.4, 0); f.lineTo(2.9, 0.42); f.lineTo(2.9, 0); f.closePath(); const g = new THREE.ExtrudeGeometry(f, { depth: 0.06, bevelEnabled: false }); g.rotateY(-Math.PI / 2); g.translate(0.03, 0, 0); const fil = new THREE.Mesh(g, mB); fil.position.y = 0.74 + 0.05; A.add(fil); }
+  // trem fixo com carenagens nas rodas
+  const m = { mMetal: mMet, mEscuro: mEsc, mPneu, polaina: mB };
+  pernaTrem(A, parts, m, 0, -0.62, -2.7, 0.85, 0.24, 'x', 1);
+  for (const s of [-1, 1]) { const g = pernaTrem(A, parts, m, s * 1.2, -0.55, -0.2, 0.95, 0.29, 'y', s); g.rotation.z = s * 0.25; g.userData.sobe = 0; } // perna de mola inclinada pra fora, não recolhe
+  parts.tremFixo = true; parts.alturaTrem = 1.8;
+  luzes(A, parts, 5.52, asa(5.5).y, asa(5.5).le + 0.25, new THREE.Vector3(0, 2.05, 3.85), new THREE.Vector3(0, 0.55, Z1 + 0.05));
+  const lampF = brilho('#fff6dd', 1.2); lampF.position.set(-2.4, 0.8, -1.3); A.add(lampF); parts.lampFarol = lampF;
+  parts.cauda = new THREE.Vector3(0, 0.45, Z1 + 0.2); parts.entrada = new THREE.Vector3(0, 0.4, -1.1); parts.envergadura = 11.0; parts.raioCorpo = 0.75; parts.saida = new THREE.Vector3(1.4, 0, -1.6); parts.comprimento = 8.3;
+  parts.superficies = (x, z) => {
+    const ax = Math.abs(x), r = [];
+    if (ax < 0.45 && z > Z0 + 0.3 && z < Z1 - 0.3 && (z < -1.3 || z > 0.9)) r.push(rf(z) * 1.12 + Math.max(0, z - 0.9) * 0.1);
+    if (ax < 5.5) { const a = asa(ax); if (z > a.le && z < a.le + a.c) r.push(a.y + a.c * 0.1); }
+    if (ax < 0.14 && z > 3.0 && z < 4.4) r.push(2.0);
+    return r;
+  };
+  mesclar(A); A.userData.parts = parts; return A;
+}
+
 // Catálogo: física de cada um
 export const TIPOS = {
   andorinha: { nome: 'Andorinha', desc: 'Acrobático leve, fácil de pilotar.', criar: (i) => criarAviao(PINTURAS[i % PINTURAS.length]), pinturas: PINTURAS, VS: 27, empuxo: 24, vmax: 85, rol: 2.6, arf: 1.5, guinada: 0.45, motor: 'helice' },
   caca: { nome: 'Caça a jato', desc: 'Estilo F-16: rápido, rola muito, pós-combustor.', criar: (i) => criarJato(PINT_JATO[i % PINT_JATO.length]), pinturas: PINT_JATO, VS: 62, empuxo: 42, vmax: 300, rol: 4.2, arf: 1.25, guinada: 0.3, motor: 'jato', armas: { cadencia: 18, vel: 1050, canos: [[-0.75, 0.35, -4.6]] } }, // canhão no lado esquerdo, como no F-16
   guerra: { nome: 'Caça da 2ª Guerra', desc: 'Estilo P-51: hélice grande, roda na cauda.', criar: (i) => criarWarbird(PINT_WAR[i % PINT_WAR.length]), pinturas: PINT_WAR, VS: 40, empuxo: 30, vmax: 185, rol: 2.3, arf: 1.3, guinada: 0.4, motor: 'helice', armas: { cadencia: 14, vel: 880, canos: [[-2.6, -0.25, -1.7], [2.6, -0.25, -1.7], [-2.9, -0.22, -1.6], [2.9, -0.22, -1.6]] } }, // metralhadoras nas asas
+  tucano: { nome: 'A-29 Super Tucano', desc: 'Embraer da FAB: turboélice de ataque, 5 pás, metralhadoras.', criar: (i) => criarTucano(PINT_TUCANO[i % PINT_TUCANO.length]), pinturas: PINT_TUCANO, VS: 36, empuxo: 30, vmax: 165, rol: 3.0, arf: 1.35, guinada: 0.4, motor: 'turbo', armas: { cadencia: 15, vel: 900, canos: [[-2.0, -0.47, -1.6], [2.0, -0.47, -1.6]] } },
+  cessna: { nome: 'Cessna 172', desc: 'O avião leve mais fabricado do mundo: asa alta, trem fixo, calmo.', criar: (i) => criarCessna(PINT_CESSNA[i % PINT_CESSNA.length]), pinturas: PINT_CESSNA, VS: 24, empuxo: 14, vmax: 66, rol: 1.6, arf: 1.05, guinada: 0.45, motor: 'helice' },
   cargueiro: { nome: 'Cargueiro', desc: 'Estilo C-130: 4 motores, rampa traseira.', criar: (i) => criarCargueiro(PINT_CARGA[i % PINT_CARGA.length]), pinturas: PINT_CARGA, VS: 44, empuxo: 11, vmax: 160, rol: 0.7, arf: 0.45, guinada: 0.2, motor: 'turbo' },
 };
