@@ -1195,7 +1195,7 @@ acelEl.addEventListener('pointerdown', (e) => { som.iniciar(); acelEl.setPointer
 acelEl.addEventListener('pointermove', (e) => { if (acelEl.hasPointerCapture(e.pointerId)) poeAcel(e); });
 canvas.addEventListener('pointerdown', (e) => { som.iniciar(); if (estado !== 'voo' || toque.olha !== null) return; toque.olha = e.pointerId; toque.ox = e.clientX; toque.oy = e.clientY; canvas.setPointerCapture(e.pointerId); });
 canvas.addEventListener('pointermove', (e) => { if (e.pointerId !== toque.olha) return;
-  if (estado === 'voo' && !pilotando()) { jog.camYaw += (e.clientX - toque.ox) / telaW() * 1.4 * Math.PI; jog.camPit = clamp(jog.camPit + (e.clientY - toque.oy) / telaH() * 1.2 * (S.inverter ? -1 : 1), -0.25, 1.2); toque.ox = e.clientX; toque.oy = e.clientY; return; } /* a pé: a câmera gira e fica */
+  if (estado === 'voo' && !pilotando()) { jog.camYaw -= (e.clientX - toque.ox) / telaW() * 1.4 * Math.PI; jog.camPit = clamp(jog.camPit + (e.clientY - toque.oy) / telaH() * 1.2 * (S.inverter ? -1 : 1), -0.25, 1.2); toque.ox = e.clientX; toque.oy = e.clientY; return; } /* a pé: a câmera gira e fica */
   ent.olhaX = clamp(ent.olhaX + (e.clientX - toque.ox) / telaW() * 1.4, -1, 1); ent.olhaY = clamp(ent.olhaY + (e.clientY - toque.oy) / telaH(), -0.6, 0.6); toque.ox = e.clientX; toque.oy = e.clientY; });
 const soltaOlha = (e) => { if (e.pointerId === toque.olha) toque.olha = null; };
 canvas.addEventListener('pointerup', soltaOlha); canvas.addEventListener('pointercancel', soltaOlha);
